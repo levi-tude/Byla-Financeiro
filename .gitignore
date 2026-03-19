@@ -1,0 +1,34 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+linter.log
+
+# Dependencies
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Env e credenciais (nunca versionar)
+.env
+.env.*
+!.env.example
+**/service-account*.json
+**/*.credentials.json
+backend/.env
+backend/n8n-byla-14b9ea6e929d.json

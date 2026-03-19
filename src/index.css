@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply font-sans text-gray-800 antialiased;
+  }
+
+  /* Acessibilidade: foco visível para teclado */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-byla-ocean;
+  }
+
+  /* Evita outline duplo em elementos que já têm ring */
+  button:focus-visible,
+  a:focus-visible {
+    @apply outline-none;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
