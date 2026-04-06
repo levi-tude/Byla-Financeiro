@@ -1,0 +1,36 @@
+# Blueprint Render — API BYLA (backend Express em /backend)
+# Plano passo a passo: docs/PLANO_DEPLOY_RENDER_BYLA.md
+# Depois de dar push: https://dashboard.render.com/blueprint/new?repo=https://github.com/levi-tude/Byla-Landingpage
+#
+# No painel, preencha as variáveis marcadas (secretas). Não commite valores reais aqui.
+
+services:
+  - type: web
+    name: byla-backend
+    runtime: node
+    plan: free
+    region: ohio
+    branch: main
+    buildCommand: cd backend && npm ci && npm run build
+    startCommand: cd backend && npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CORS_ORIGIN
+        value: https://n8n.espacobyla.online,http://localhost:5173,http://localhost:5174
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: GOOGLE_SHEETS_ENTRADA_SAIDA_ID
+        sync: false
+      # Cole o JSON inteiro da service account (uma linha) — mesmo conteúdo que costuma ir em GOOGLE_APPLICATION_CREDENTIALS
+      - key: GOOGLE_SHEETS_CREDENTIALS_JSON
+        sync: false
+      - key: BYLA_SYNC_SECRET
+        sync: false
+      # Opcional — relatórios com IA
+      - key: GEMINI_API_KEY
+        sync: false
