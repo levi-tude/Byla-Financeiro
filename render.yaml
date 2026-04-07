@@ -11,7 +11,8 @@ services:
     plan: free
     region: ohio
     branch: main
-    buildCommand: cd backend && npm ci && npm run build
+    # NODE_ENV=production faz npm ci omitir devDependencies; o build precisa de typescript e @types/*.
+    buildCommand: cd backend && npm ci --include=dev && npm run build
     startCommand: cd backend && npm start
     healthCheckPath: /health
     autoDeploy: true
