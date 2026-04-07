@@ -15,6 +15,7 @@
     "sheets:movimentacoes-pro": "tsx scripts/setupMovimentacoesProfissional.ts",
     "verify:export-prereqs": "tsx scripts/verifyN8nExportPrereqs.ts",
     "verify:render-deploy": "tsx scripts/verifyRenderDeploy.ts",
+    "render:status": "tsx scripts/renderStatus.ts",
     "sync:entrada-saida": "tsx scripts/syncEntradaSaidaPlanilha.ts",
     "n8n:list-workflows": "tsx scripts/n8nListWorkflowsApi.ts",
     "inspect:controle": "tsx scripts/inspectControleCaixa.ts"
