@@ -19,6 +19,9 @@ dist-ssr
 # Clone aninhado (tem próprio .git) — não versionar como pasta vazia
 n8n-mcp-server/
 
+# Metabase local (JARs > 100MB — GitHub bloqueia)
+metabase/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
