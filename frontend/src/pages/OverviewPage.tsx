@@ -154,6 +154,8 @@ export function OverviewPage() {
   const [detalheSaidas, setDetalheSaidas] = useState<TransacaoItem[] | null>(null);
   const [loadingDetalheEntradas, setLoadingDetalheEntradas] = useState(false);
   const [loadingDetalheSaidas, setLoadingDetalheSaidas] = useState(false);
+  const [filtroPessoaEntradas, setFiltroPessoaEntradas] = useState('');
+  const [filtroPessoaSaidas, setFiltroPessoaSaidas] = useState('');
 
   useEffect(() => {
     if (!showDetalheEntradas) return;
@@ -192,6 +194,26 @@ export function OverviewPage() {
       cancelled = true;
     };
   }, [showDetalheSaidas, monthYear.mes, monthYear.ano]);
+
+  const detalheEntradasFiltradas = useMemo(() => {
+    const q = filtroPessoaEntradas.trim().toLowerCase();
+    if (!q || !detalheEntradas) return detalheEntradas ?? [];
+    return detalheEntradas.filter(
+      (r) =>
+        (r.pessoa || '').toLowerCase().includes(q) ||
+        (r.descricao || '').toLowerCase().includes(q)
+    );
+  }, [detalheEntradas, filtroPessoaEntradas]);
+
+  const detalheSaidasFiltradas = useMemo(() => {
+    const q = filtroPessoaSaidas.trim().toLowerCase();
+    if (!q || !detalheSaidas) return detalheSaidas ?? [];
+    return detalheSaidas.filter(
+      (r) =>
+        (r.pessoa || '').toLowerCase().includes(q) ||
+        (r.descricao || '').toLowerCase().includes(q)
+    );
+  }, [detalheSaidas, filtroPessoaSaidas]);
 
   const mesEmFoco = useMemo(
     () => findRow(resumoMensal, monthYear.mes, monthYear.ano),
@@ -238,10 +260,6 @@ export function OverviewPage() {
   );
   const linhasTotais = useMemo(
     () => (planilhaLinhas ?? []).filter((l) => l.label && tipoCategoria(l.label) === 'total' && (l.valorNum != null || (l.valor && String(l.valor).trim()))),
-    [planilhaLinhas]
-  );
-  const linhasOutros = useMemo(
-    () => (planilhaLinhas ?? []).filter((l) => l.label && tipoCategoria(l.label) === 'outro' && (l.valorNum != null || (l.valor && String(l.valor).trim()))),
     [planilhaLinhas]
   );
 
@@ -562,7 +580,13 @@ export function OverviewPage() {
                           const isEntradaTotal = u.includes('ENTRADA TOTAL') && !u.includes('SAÍDA') && !u.includes('SAIDA');
                           const isSaidaTotal = u.includes('SAÍDA TOTAL') || u.includes('SAIDA TOTAL');
                           const isLucro = u.includes('LUCRO') || u.includes('RESULTADO');
-                          const rowBg = isEntradaTotal ? 'bg-emerald-50' : isSaidaTotal ? 'bg-rose-50' : 'bg-slate-50';
+                          const rowBg = isEntradaTotal
+                            ? 'bg-emerald-50'
+                            : isSaidaTotal
+                              ? 'bg-rose-50'
+                              : isLucro
+                                ? 'bg-amber-50'
+                                : 'bg-slate-50';
                           const labelColor = isEntradaTotal ? 'text-emerald-900 font-semibold' : isSaidaTotal ? 'text-rose-900 font-semibold' : 'text-slate-800 font-medium';
                           const valorColor = isEntradaTotal ? 'text-emerald-800' : isSaidaTotal ? 'text-rose-800' : 'text-slate-900';
                           return (
@@ -752,6 +776,15 @@ export function OverviewPage() {
                     <p className="p-4 text-sm text-gray-500">Carregando…</p>
                   ) : detalheEntradas && detalheEntradas.length > 0 ? (
                     <div className="max-h-72 overflow-y-auto">
+                      <div className="p-2 border-b border-emerald-100 bg-white sticky top-0 z-10">
+                        <input
+                          type="search"
+                          placeholder="Filtrar por pessoa ou descrição…"
+                          value={filtroPessoaEntradas}
+                          onChange={(e) => setFiltroPessoaEntradas(e.target.value)}
+                          className="w-full max-w-sm rounded border border-emerald-200 px-2 py-1.5 text-xs"
+                        />
+                      </div>
                       <table className="w-full text-sm">
                         <thead className="bg-emerald-50 sticky top-0">
                           <tr>
@@ -762,7 +795,7 @@ export function OverviewPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {detalheEntradas.map((r) => (
+                          {detalheEntradasFiltradas.map((r) => (
                             <tr key={r.id} className="border-t border-gray-100 hover:bg-gray-50">
                               <td className="py-2 px-3 text-gray-800">{r.data}</td>
                               <td className="py-2 px-3 text-gray-800">{r.pessoa}</td>
@@ -797,6 +830,15 @@ export function OverviewPage() {
                     <p className="p-4 text-sm text-gray-500">Carregando…</p>
                   ) : detalheSaidas && detalheSaidas.length > 0 ? (
                     <div className="max-h-72 overflow-y-auto">
+                      <div className="p-2 border-b border-rose-100 bg-white sticky top-0 z-10">
+                        <input
+                          type="search"
+                          placeholder="Filtrar por pessoa ou descrição…"
+                          value={filtroPessoaSaidas}
+                          onChange={(e) => setFiltroPessoaSaidas(e.target.value)}
+                          className="w-full max-w-sm rounded border border-rose-200 px-2 py-1.5 text-xs"
+                        />
+                      </div>
                       <table className="w-full text-sm">
                         <thead className="bg-rose-50 sticky top-0">
                           <tr>
@@ -807,7 +849,7 @@ export function OverviewPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {detalheSaidas.map((r) => (
+                          {detalheSaidasFiltradas.map((r) => (
                             <tr key={r.id} className="border-t border-gray-100 hover:bg-gray-50">
                               <td className="py-2 px-3 text-gray-800">{r.data}</td>
                               <td className="py-2 px-3 text-gray-800">{r.pessoa}</td>

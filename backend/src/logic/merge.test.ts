@@ -5,6 +5,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { mergePriorizarPlanilha } from './merge.js';
+import type { SheetRow } from '../services/sheetsService.js';
 
 describe('mergePriorizarPlanilha', () => {
   const regra = 'Teste: planilha prevalece';
@@ -19,7 +20,7 @@ describe('mergePriorizarPlanilha', () => {
   });
 
   it('retorna dados do Supabase quando planilha está vazia', () => {
-    const planilha: Record<string, unknown>[] = [];
+    const planilha: SheetRow[] = [];
     const supabase = [{ id: 1, nome: 'X' }, { id: 2, nome: 'Y' }];
     const result = mergePriorizarPlanilha(planilha, supabase, regra);
     assert.strictEqual(result.origem, 'supabase');

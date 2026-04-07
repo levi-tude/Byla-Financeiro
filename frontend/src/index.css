@@ -12,3 +12,22 @@ body {
 #root {
   min-height: 100vh;
 }
+
+/* Relatórios: oculta UI na impressão; bloco .print-only só aparece ao imprimir / Salvar como PDF */
+.print-only {
+  display: none;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  body {
+    background: white;
+  }
+}

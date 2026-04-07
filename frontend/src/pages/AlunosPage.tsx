@@ -37,11 +37,10 @@ function isAtivo(row: Record<string, unknown>): boolean {
   return true;
 }
 
-type PorAba = Record<string, { rows: Record<string, unknown>[]; colunas: string[]; por_modalidade: Record<string, Record<string, unknown>[]> }>;
-
 export function AlunosPage() {
   const { monthYear } = useMonthYear();
   const { combinado, porAba, origem, abasLidas, isLoading, error } = useAlunosCompleto();
+  const [buscaAlunoListaUnica, setBuscaAlunoListaUnica] = useState('');
   const { entradaTotal, saidaTotal, lucroTotal, isLoading: fluxoLoading, error: fluxoError, fallbackMessage: fluxoFallback } = useFluxoCompleto(monthYear.mes, monthYear.ano);
 
   const totalAlunos = useMemo(() => {
@@ -52,6 +51,15 @@ export function AlunosPage() {
   }, [combinado]);
 
   const totalAtivos = useMemo(() => combinado.filter((r) => isAtivo(r as Record<string, unknown>)).length, [combinado]);
+  const combinadoFiltradoNome = useMemo(() => {
+    const q = buscaAlunoListaUnica.trim().toLowerCase();
+    if (!q) return combinado;
+    return combinado.filter((r) => {
+      const nome = String((r as Record<string, unknown>)['ALUNO'] ?? (r as Record<string, unknown>)['CLIENTE'] ?? (r as Record<string, unknown>)['nome'] ?? '').toLowerCase();
+      return nome.includes(q);
+    });
+  }, [combinado, buscaAlunoListaUnica]);
+
   const totalModalidades = useMemo(() => {
     const mods = new Set(
       combinado.map((r) =>
@@ -180,7 +188,16 @@ export function AlunosPage() {
           ) : combinado.length > 0 ? (
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 p-5">
               <p className="text-sm text-slate-500 mb-3">Lista única (sem agrupamento por aba)</p>
-              <TabelaAlunos rows={combinado as Record<string, unknown>[]} colunas={Object.keys(combinado[0] ?? {}).filter(Boolean)} />
+              <label htmlFor="busca-aluno-lista-unica" className="sr-only">Buscar aluno</label>
+              <input
+                id="busca-aluno-lista-unica"
+                type="search"
+                placeholder="Buscar por nome do aluno..."
+                value={buscaAlunoListaUnica}
+                onChange={(e) => setBuscaAlunoListaUnica(e.target.value)}
+                className="mb-3 w-full max-w-md px-3 py-2 rounded-lg border border-slate-200 text-sm"
+              />
+              <TabelaAlunos rows={combinadoFiltradoNome as Record<string, unknown>[]} colunas={Object.keys(combinado[0] ?? {}).filter(Boolean)} />
             </div>
           ) : (
             <p className="text-sm text-slate-500 py-8">
@@ -208,6 +225,7 @@ function SecaoAba({
 }) {
   const [expandido, setExpandido] = useState(true);
   const [filtroModalidade, setFiltroModalidade] = useState('');
+  const [filtroAlunoNome, setFiltroAlunoNome] = useState('');
   const totalLinhas = modalidadesOrdenadas.reduce((s, m) => s + (porModalidade[m]?.length ?? 0), 0);
   const totaisAtivosInativos = useMemo(() => {
     let ativos = 0;
@@ -223,6 +241,15 @@ function SecaoAba({
     const q = filtroModalidade.trim().toLowerCase();
     return modalidadesOrdenadas.filter((m) => m.toLowerCase().includes(q));
   }, [modalidadesOrdenadas, filtroModalidade]);
+
+  const filtrarLinhasPorNome = (rows: Record<string, unknown>[]) => {
+    const q = filtroAlunoNome.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) => {
+      const nome = String(r['ALUNO'] ?? r['CLIENTE'] ?? r['nome'] ?? '').toLowerCase();
+      return nome.includes(q);
+    });
+  };
 
   return (
     <section id={idAba} className="scroll-mt-6 bg-white rounded-2xl shadow-md border border-slate-200/90 overflow-hidden">
@@ -249,21 +276,32 @@ function SecaoAba({
       </button>
       {expandido && (
         <div className="border-t border-slate-100 bg-slate-50/30">
-          {modalidadesOrdenadas.length > 3 && (
-            <div className="px-6 py-3 border-b border-slate-100">
-              <label htmlFor={`filtro-${idAba}`} className="sr-only">Filtrar modalidade</label>
-              <input
-                id={`filtro-${idAba}`}
-                type="text"
-                placeholder="Filtrar por nome da modalidade..."
-                value={filtroModalidade}
-                onChange={(e) => setFiltroModalidade(e.target.value)}
-                className="w-full max-w-xs px-3 py-2 rounded-lg border border-slate-200 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400"
-              />
+          <div className="px-6 py-3 border-b border-slate-100 flex flex-wrap gap-3 items-center">
+              <div className="flex-1 min-w-[200px]">
+                <label htmlFor={`filtro-mod-${idAba}`} className="sr-only">Filtrar modalidade</label>
+                <input
+                  id={`filtro-mod-${idAba}`}
+                  type="text"
+                  placeholder="Filtrar por nome da modalidade..."
+                  value={filtroModalidade}
+                  onChange={(e) => setFiltroModalidade(e.target.value)}
+                  className="w-full max-w-xs px-3 py-2 rounded-lg border border-slate-200 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400"
+                />
+              </div>
+              <div className="flex-1 min-w-[200px]">
+                <label htmlFor={`filtro-aluno-${idAba}`} className="sr-only">Filtrar aluno</label>
+                <input
+                  id={`filtro-aluno-${idAba}`}
+                  type="search"
+                  placeholder="Buscar por nome do aluno..."
+                  value={filtroAlunoNome}
+                  onChange={(e) => setFiltroAlunoNome(e.target.value)}
+                  className="w-full max-w-xs px-3 py-2 rounded-lg border border-slate-200 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400"
+                />
+              </div>
             </div>
-          )}
           {modalidadesFiltradas.map((modalidade) => {
-            const rows = porModalidade[modalidade] ?? [];
+            const rows = filtrarLinhasPorNome(porModalidade[modalidade] ?? []);
             if (rows.length === 0) return null;
             const ativos = rows.filter((r) => isAtivo(r));
             const inativos = rows.filter((r) => !isAtivo(r));

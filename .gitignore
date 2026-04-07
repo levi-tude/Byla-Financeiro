@@ -13,6 +13,12 @@ dist
 dist-ssr
 *.local
 
+# Cursor — nunca versionar MCP com chaves (se existir na pasta do projeto)
+.cursor/mcp.json
+
+# Clone aninhado (tem próprio .git) — não versionar como pasta vazia
+n8n-mcp-server/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

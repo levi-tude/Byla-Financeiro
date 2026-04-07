@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { ensureQuotedA1Range } from './domain/MesAno.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const cwd = process.cwd();
@@ -66,16 +67,18 @@ export const config = {
     serviceRoleKey: (env.SUPABASE_SERVICE_ROLE_KEY ?? env.SUPABASE_ANON_KEY ?? '').trim(),
   },
   sheets: {
+    /** Planilha Entrada/Saída (export n8n, aba Movimentações) — mesmo ID que variáveis n8n */
+    entradaSaidaSpreadsheetId: (env.GOOGLE_SHEETS_ENTRADA_SAIDA_ID ?? '').trim(),
     /** Planilha FLUXO DE CAIXA BYLA – aba ATENDIMENTOS (alunos, modalidades) */
     spreadsheetId: (env.GOOGLE_SHEETS_SPREADSHEET_ID ?? '').trim(),
     /** Se true, alunos são lidos de TODAS as abas da planilha (modalidades); senão só a aba configurada. */
     alunosTodasAbas: (env.GOOGLE_SHEETS_ALUNOS_TODAS_ABAS ?? 'true').toLowerCase() === 'true',
     /** Planilha CONTROLE DE CAIXA – abas por mês (ex.: MARÇO 26) com totais Entrada/Saída/Lucro */
     fluxoSpreadsheetId: (env.GOOGLE_SHEETS_FLUXO_ID ?? '').trim(),
-    /** Aba/range da planilha CONTROLE DE CAIXA (ex.: "MARÇO 26!A:Z") */
-    fluxoRange: (env.GOOGLE_SHEETS_FLUXO_RANGE ?? 'MARÇO 26!A:Z').trim(),
-    /** Pares de colunas (0-based): "0-1,2-3,4-5,7-8" = A-B, C-D, E-F, H-I (pula G). Vazio = 0-1,2-3,4-5,6-7,8-9. */
-    fluxoParesColunas: (env.GOOGLE_SHEETS_FLUXO_PARES_COLUNAS ?? '0-1,2-3,4-5,7-8').trim(),
+    /** Aba/range da planilha CONTROLE DE CAIXA (ex.: 'MARÇO 26'!A:Z; sem aspas no env é normalizado) */
+    fluxoRange: ensureQuotedA1Range((env.GOOGLE_SHEETS_FLUXO_RANGE ?? '').trim() || 'MARÇO 26!A:Z').trim(),
+    /** Pares de colunas (0-based). Padrão inclui G-H (6-7) para não perder bloco de gastos fixos. Sobrescreva com GOOGLE_SHEETS_FLUXO_PARES_COLUNAS. */
+    fluxoParesColunas: (env.GOOGLE_SHEETS_FLUXO_PARES_COLUNAS ?? '0-1,2-3,4-5,6-7,8-9').trim(),
     credentialsJson: env.GOOGLE_SHEETS_CREDENTIALS_JSON?.trim() ?? '',
     credentialsPath: env.GOOGLE_APPLICATION_CREDENTIALS?.trim() ?? '',
   },

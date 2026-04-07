@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { getAlunosCompleto } from '../services/backendApi';
 import { supabase } from '../services/supabase';
 
@@ -11,44 +12,26 @@ export interface AlunoRow {
 export type PorAba = Record<string, { rows: AlunoRow[]; colunas: string[]; por_modalidade: Record<string, AlunoRow[]> }>;
 
 export function useAlunosCompleto() {
-  const [combinado, setCombinado] = useState<AlunoRow[]>([]);
-  const [porAba, setPorAba] = useState<PorAba | null>(null);
-  const [origem, setOrigem] = useState<'planilha' | 'supabase' | 'merge' | null>(null);
-  const [abasLidas, setAbasLidas] = useState<string[] | undefined>(undefined);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const backendQuery = useQuery({
+    queryKey: ['alunos-completo'],
+    queryFn: getAlunosCompleto,
+    enabled: !!BACKEND_URL,
+  });
+
+  const [fallbackRows, setFallbackRows] = useState<AlunoRow[]>([]);
+  const [fallbackError, setFallbackError] = useState<string | null>(null);
+  const [fallbackLoading, setFallbackLoading] = useState(false);
 
   useEffect(() => {
+    if (BACKEND_URL) return;
     let cancelled = false;
 
-    async function load() {
-      if (BACKEND_URL) {
-        try {
-          const res = await getAlunosCompleto();
-          if (!cancelled) {
-            setCombinado((res.combinado ?? []) as AlunoRow[]);
-            setPorAba((res.por_aba ?? null) as PorAba | null);
-            setOrigem(res.origem);
-            setAbasLidas(res.abas_lidas);
-            setError(res.sheet_error ?? null);
-          }
-        } catch (e) {
-          if (!cancelled) {
-            setError(e instanceof Error ? e.message : 'Erro ao carregar backend');
-            setCombinado([]);
-          }
-        } finally {
-          if (!cancelled) setIsLoading(false);
-        }
-        return;
-      }
-
+    async function loadFallback() {
+      setFallbackLoading(true);
+      setFallbackError(null);
       try {
         if (!supabase) {
-          if (!cancelled) {
-            setCombinado([]);
-            setIsLoading(false);
-          }
+          if (!cancelled) setFallbackRows([]);
           return;
         }
         const { data, error: sbError } = await supabase.from('alunos').select('id, nome').order('nome');
@@ -58,23 +41,42 @@ export function useAlunosCompleto() {
           nome: r.nome,
           CLIENTE: r.nome,
         }));
-        if (!cancelled) {
-          setCombinado(rows);
-          setOrigem('supabase');
-        }
+        if (!cancelled) setFallbackRows(rows);
       } catch (e) {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : 'Erro ao carregar');
-          setCombinado([]);
+          setFallbackError(e instanceof Error ? e.message : 'Erro ao carregar');
+          setFallbackRows([]);
         }
       } finally {
-        if (!cancelled) setIsLoading(false);
+        if (!cancelled) setFallbackLoading(false);
       }
     }
 
-    load();
-    return () => { cancelled = true; };
+    loadFallback();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  return { combinado, porAba, origem, abasLidas, isLoading, error };
+  if (BACKEND_URL) {
+    return {
+      combinado: (backendQuery.data?.combinado ?? []) as AlunoRow[],
+      porAba: (backendQuery.data?.por_aba ?? null) as PorAba | null,
+      origem: backendQuery.data?.origem ?? null,
+      abasLidas: backendQuery.data?.abas_lidas,
+      isLoading: backendQuery.isPending || backendQuery.isFetching,
+      error:
+        backendQuery.data?.sheet_error ??
+        (backendQuery.error instanceof Error ? backendQuery.error.message : backendQuery.error ? String(backendQuery.error) : null),
+    };
+  }
+
+  return {
+    combinado: fallbackRows,
+    porAba: null,
+    origem: 'supabase' as const,
+    abasLidas: undefined,
+    isLoading: fallbackLoading,
+    error: fallbackError,
+  };
 }

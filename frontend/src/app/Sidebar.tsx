@@ -6,8 +6,11 @@ const navItems = [
   { path: '/entradas', label: 'Entradas' },
   { path: '/atividades', label: 'Atividades' },
   { path: '/alunos', label: 'Alunos' },
-  { path: '/despesas', label: 'Despesas' },
+  { path: '/saidas', label: 'Saídas' },
   { path: '/relatorios-ia', label: 'Relatórios IA' },
+  { path: '/pagamentos-planilha', label: 'Pagamentos planilha' },
+  { path: '/validacao-pagamentos-diaria', label: 'Validação de pagamentos' },
+  { path: '/calendario-financeiro', label: 'Calendário financeiro' },
 ];
 
 export function Sidebar() {
@@ -23,20 +26,16 @@ export function Sidebar() {
       <nav className="flex-1 p-3 space-y-0.5">
         {navItems.map((item) => {
           const isActive = location.pathname === item.path;
-          const isDisabled = item.disabled;
 
           return (
             <Link
               key={item.path}
-              to={item.disabled ? '#' : item.path}
+              to={item.path}
               className={`block px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                isDisabled
-                  ? 'text-gray-500 cursor-not-allowed opacity-60'
-                  : isActive
-                    ? 'bg-byla-red/20 text-white border-l-2 border-byla-red'
-                    : 'text-gray-300 hover:bg-byla-navy-light hover:text-white'
+                isActive
+                  ? 'bg-byla-red/20 text-white border-l-2 border-byla-red'
+                  : 'text-gray-300 hover:bg-byla-navy-light hover:text-white'
               }`}
-              onClick={(e) => isDisabled && e.preventDefault()}
             >
               {item.label}
             </Link>

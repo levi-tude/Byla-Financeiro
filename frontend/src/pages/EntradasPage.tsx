@@ -1,9 +1,12 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Topbar } from '../app/Topbar';
 import { KpiCard } from '../components/ui/KpiCard';
 import { PieChartFormaPagamento } from '../components/charts/PieChartFormaPagamento';
+import { CategoriasBancoDrillModal, type CategoriasGrupo } from '../components/CategoriasBancoDrillModal';
 import { useEntradas } from '../hooks/useEntradas';
 import { useMonthYear } from '../context/MonthYearContext';
+import { getCategoriasBancoResumo } from '../services/backendApi';
 
 function formatCurrency(value: number): string {
   return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -27,6 +30,16 @@ export function EntradasPage() {
   const [dataFim, setDataFim] = useState('');
   const filtro = useMemo(() => ({ dataInicio: dataInicio || undefined, dataFim: dataFim || undefined }), [dataInicio, dataFim]);
   const { rows, isLoading, error } = useEntradas(filtro);
+  const [filtroPessoa, setFiltroPessoa] = useState('');
+  const [drillOpen, setDrillOpen] = useState(false);
+  const [drillGrupo, setDrillGrupo] = useState<CategoriasGrupo>('modalidade');
+  const [drillChave, setDrillChave] = useState<string | null>(null);
+  const [drillTitulo, setDrillTitulo] = useState('');
+
+  const resumoEntradaBanco = useQuery({
+    queryKey: ['categorias-banco-resumo', 'entrada', monthYear.mes, monthYear.ano],
+    queryFn: () => getCategoriasBancoResumo(monthYear.mes, monthYear.ano, 'entrada'),
+  });
 
   const aplicarMesSelecionado = useCallback(() => {
     setDataInicio(firstDay(monthYear.mes, monthYear.ano));
@@ -43,6 +56,12 @@ export function EntradasPage() {
     setDataInicio(firstDay(monthYear.mes, monthYear.ano));
     setDataFim(lastDay(monthYear.mes, monthYear.ano));
   }, [monthYear.mes, monthYear.ano]);
+
+  const rowsFiltradas = useMemo(() => {
+    const q = filtroPessoa.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) => (r.pessoa || '').toLowerCase().includes(q));
+  }, [rows, filtroPessoa]);
 
   const totalEntradas = rows.reduce((s, r) => s + r.valor, 0);
   const ticketMedio = rows.length > 0 ? totalEntradas / rows.length : 0;
@@ -75,8 +94,29 @@ export function EntradasPage() {
     return [...top, { name: 'Outros', value: outros }];
   }, [rows]);
 
+  const abrirDrill = (grupo: CategoriasGrupo, nome: string, titulo: string) => {
+    setDrillGrupo(grupo);
+    setDrillChave(nome);
+    setDrillTitulo(titulo);
+    setDrillOpen(true);
+  };
+
   return (
     <div className="p-6">
+      <CategoriasBancoDrillModal
+        open={drillOpen}
+        onClose={() => {
+          setDrillOpen(false);
+          setDrillChave(null);
+        }}
+        mes={monthYear.mes}
+        ano={monthYear.ano}
+        tipo="entrada"
+        grupo={drillGrupo}
+        chave={drillChave}
+        tituloGrupo={drillTitulo}
+      />
+
       <Topbar title="Entradas – detalhe" subtitle="Fluxo por período e forma de pagamento" />
       {error && (
         <div className="mb-4 p-4 bg-rose-50 border border-rose-200 rounded-lg text-sm text-rose-800">Não foi possível carregar os dados.</div>
@@ -91,6 +131,14 @@ export function EntradasPage() {
         <span className="text-gray-500 text-sm">ou</span>
         <input type="date" className="rounded border border-gray-300 px-2 py-1 text-sm" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} aria-label="Data início" />
         <input type="date" className="rounded border border-gray-300 px-2 py-1 text-sm" value={dataFim} onChange={(e) => setDataFim(e.target.value)} aria-label="Data fim" />
+        <input
+          type="search"
+          placeholder="Filtrar por pessoa ou descrição…"
+          value={filtroPessoa}
+          onChange={(e) => setFiltroPessoa(e.target.value)}
+          className="rounded border border-gray-300 px-3 py-1.5 text-sm min-w-[200px]"
+          aria-label="Filtrar por pessoa"
+        />
       </div>
       <div className="grid gap-4 md:grid-cols-3 mt-4">
         <KpiCard label="Total (período)" value={formatCurrency(totalEntradas)} accentColor="primary" isLoading={isLoading} />
@@ -101,6 +149,78 @@ export function EntradasPage() {
         <h2 className="text-sm font-medium text-gray-700 mb-2">Entradas por forma de pagamento</h2>
         <PieChartFormaPagamento data={porFormaPagamento} isLoading={isLoading} />
       </div>
+
+      <div className="mt-6 bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">
+        <div className="bg-emerald-50 border-b border-emerald-100 px-4 py-3">
+          <h2 className="text-base font-semibold text-emerald-950">Categorização no banco (oficial)</h2>
+          <p className="text-sm text-emerald-900 mt-0.5">
+            Agregado pelo mês selecionado no topo (calendário global), independente do intervalo de datas abaixo. Clique para ver o detalhe.
+          </p>
+        </div>
+        <div className="p-4 grid gap-6 lg:grid-cols-2">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-800 mb-2">Por modalidade</h3>
+            {resumoEntradaBanco.isLoading ? (
+              <p className="text-sm text-slate-500">Carregando…</p>
+            ) : resumoEntradaBanco.error ? (
+              <p className="text-sm text-rose-700">
+                {resumoEntradaBanco.error instanceof Error ? resumoEntradaBanco.error.message : 'Erro ao carregar.'}
+              </p>
+            ) : (resumoEntradaBanco.data?.por_modalidade ?? []).length === 0 ? (
+              <p className="text-sm text-slate-500">Sem modalidades no mês.</p>
+            ) : (
+              <ul className="space-y-1.5 max-h-64 overflow-y-auto">
+                {(resumoEntradaBanco.data?.por_modalidade ?? []).map((b) => (
+                  <li key={b.nome}>
+                    <button
+                      type="button"
+                      onClick={() => abrirDrill('modalidade', b.nome, 'Por modalidade')}
+                      className="w-full flex justify-between gap-2 text-left rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-emerald-50/80 transition-colors"
+                    >
+                      <span className="text-slate-900 font-medium truncate">{b.nome}</span>
+                      <span className="text-slate-700 tabular-nums shrink-0">
+                        {b.total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}{' '}
+                        <span className="text-slate-400 font-normal">({b.qtd})</span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-slate-800 mb-2">Por categoria</h3>
+            {resumoEntradaBanco.isLoading ? (
+              <p className="text-sm text-slate-500">Carregando…</p>
+            ) : resumoEntradaBanco.error ? (
+              <p className="text-sm text-rose-700">
+                {resumoEntradaBanco.error instanceof Error ? resumoEntradaBanco.error.message : 'Erro ao carregar.'}
+              </p>
+            ) : (resumoEntradaBanco.data?.por_categoria ?? []).length === 0 ? (
+              <p className="text-sm text-slate-500">Sem categorias no mês.</p>
+            ) : (
+              <ul className="space-y-1.5 max-h-64 overflow-y-auto">
+                {(resumoEntradaBanco.data?.por_categoria ?? []).map((b) => (
+                  <li key={b.nome}>
+                    <button
+                      type="button"
+                      onClick={() => abrirDrill('categoria', b.nome, 'Por categoria')}
+                      className="w-full flex justify-between gap-2 text-left rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-emerald-50/80 transition-colors"
+                    >
+                      <span className="text-slate-900 font-medium truncate">{b.nome}</span>
+                      <span className="text-slate-700 tabular-nums shrink-0">
+                        {b.total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}{' '}
+                        <span className="text-slate-400 font-normal">({b.qtd})</span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </div>
+
       <div className="mt-6 bg-white rounded-xl shadow-sm p-4 overflow-hidden flex flex-col">
         <h2 className="text-sm font-medium text-gray-700 mb-2">Últimas entradas</h2>
         <div className="overflow-x-auto overflow-y-auto max-h-[400px] min-h-0">
@@ -110,8 +230,8 @@ export function EntradasPage() {
               <div key={i} className="h-10 bg-gray-100 rounded animate-pulse" />
             ))}
           </div>
-        ) : rows.length === 0 ? (
-          <p className="text-sm text-gray-500 py-4">Nenhum registro.</p>
+        ) : rowsFiltradas.length === 0 ? (
+          <p className="text-sm text-gray-500 py-4">{rows.length === 0 ? 'Nenhum registro.' : 'Nenhum resultado para o filtro.'}</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
@@ -123,7 +243,7 @@ export function EntradasPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.slice(0, 150).map((r) => (
+              {rowsFiltradas.slice(0, 150).map((r) => (
                 <tr key={r.id_unico || r.id} className="border-b border-gray-100">
                   <td className="py-2 pr-2">{formatDate(r.data)}</td>
                   <td className="py-2 pr-2">{r.pessoa || '–'}</td>

@@ -1,44 +1,39 @@
-import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { getFluxoCompleto } from '../services/backendApi';
 
 const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL ?? '').trim();
 
 export function useFluxoCompleto(mes?: number, ano?: number) {
-  const [entradaTotal, setEntradaTotal] = useState<number | null>(null);
-  const [saidaTotal, setSaidaTotal] = useState<number | null>(null);
-  const [lucroTotal, setLucroTotal] = useState<number | null>(null);
-  const [linhas, setLinhas] = useState<{ label: string; valor: string; valorNum?: number }[]>([]);
-  const [porColuna, setPorColuna] = useState<{ label: string; valor: string; valorNum?: number }[][]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [fallbackMessage, setFallbackMessage] = useState<string | null>(null);
+  const q = useQuery({
+    queryKey: ['fluxo-completo', mes ?? null, ano ?? null],
+    queryFn: () => getFluxoCompleto(mes, ano),
+    enabled: !!BACKEND_URL,
+  });
 
-  useEffect(() => {
-    if (!BACKEND_URL) return;
-    let cancelled = false;
-    setIsLoading(true);
-    setError(null);
-    setFallbackMessage(null);
-    getFluxoCompleto(mes, ano)
-      .then((res) => {
-        if (cancelled) return;
-        const c = res.combinado;
-        setEntradaTotal(c.entradaTotal ?? null);
-        setSaidaTotal(c.saidaTotal ?? null);
-        setLucroTotal(c.lucroTotal ?? null);
-        setLinhas(c.linhas ?? []);
-        setPorColuna(c.porColuna ?? []);
-        if (res.fallback_message) setFallbackMessage(res.fallback_message);
-        else if (res.sheet_error) setError(res.sheet_error);
-      })
-      .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Erro ao carregar fluxo');
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [mes, ano]);
+  const res = q.data;
+  const c = res?.combinado;
 
-  return { entradaTotal, saidaTotal, lucroTotal, linhas, porColuna, isLoading, error, fallbackMessage };
+  let errorMsg: string | null = null;
+  if (q.error) {
+    errorMsg = q.error instanceof Error ? q.error.message : String(q.error);
+  } else if (res?.fallback_message) {
+    errorMsg = null;
+  } else if (res?.sheet_error) {
+    errorMsg = res.sheet_error;
+  }
+
+  return {
+    entradaTotal: c?.entradaTotal ?? null,
+    saidaTotal: c?.saidaTotal ?? null,
+    saidaSomaSecoesPrincipais: c?.saidaSomaSecoesPrincipais ?? null,
+    saidaParceirosTotal: c?.saidaParceirosTotal ?? null,
+    saidaFixasTotal: c?.saidaFixasTotal ?? null,
+    lucroTotal: c?.lucroTotal ?? null,
+    linhas: c?.linhas ?? [],
+    porColuna: c?.porColuna ?? [],
+    saidasBlocos: c?.saidasBlocos ?? [],
+    isLoading: !!BACKEND_URL && (q.isPending || q.isFetching),
+    error: errorMsg,
+    fallbackMessage: res?.fallback_message ?? null,
+  };
 }

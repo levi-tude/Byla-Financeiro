@@ -3,6 +3,21 @@ import { config, hasSheetsCredentials } from '../config.js';
 
 let sheets: sheets_v4.Sheets | null = null;
 
+function normalizeSheetsError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  const low = msg.toLowerCase();
+  if (
+    low.includes('enotfound') &&
+    (low.includes('www.googleapis.com') || low.includes('oauth2.googleapis.com') || low.includes('googleapis.com'))
+  ) {
+    return 'Falha de rede ao acessar Google APIs (DNS/Internet indisponível para www.googleapis.com). Confira conexão e DNS e tente novamente.';
+  }
+  if (low.includes('eai_again') && low.includes('googleapis.com')) {
+    return 'Falha temporária de DNS ao acessar Google APIs. Tente novamente em alguns segundos.';
+  }
+  return msg;
+}
+
 function getAuth() {
   if (!hasSheetsCredentials()) return null;
   try {
@@ -29,6 +44,7 @@ export function getSheets(): sheets_v4.Sheets | null {
   const auth = getAuth();
   if (!auth) return null;
   if (!sheets) {
+    google.options({ timeout: 15000 });
     sheets = google.sheets({ version: 'v4', auth });
   }
   return sheets;
@@ -64,7 +80,7 @@ export async function readSheetRange(
     });
     return { rows };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = normalizeSheetsError(e);
     return { rows: [], error: msg };
   }
 }
@@ -87,7 +103,7 @@ export async function listSheetNames(
         .filter(Boolean) ?? [];
     return { names };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = normalizeSheetsError(e);
     return { names: [], error: msg };
   }
 }
@@ -108,7 +124,7 @@ export async function readSheetValues(
     );
     return { values };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = normalizeSheetsError(e);
     if (msg.includes('Unable to parse range') && range.includes('!') && api) {
       const fallback = await readSheetValuesBatchGet(spreadsheetId, range);
       if (!fallback.error) return fallback;
@@ -202,7 +218,7 @@ export async function readSheetValuesByTitleFromFullSpreadsheet(
     }
     return { values: [], error: `Aba não encontrada: ${sheetTitleToFind}` };
   } catch (e) {
-    return { values: [], error: e instanceof Error ? e.message : String(e) };
+    return { values: [], error: normalizeSheetsError(e) };
   }
 }
 
@@ -233,6 +249,6 @@ async function readSheetValuesBatchGet(
     );
     return { values };
   } catch (e) {
-    return { values: [], error: e instanceof Error ? e.message : String(e) };
+    return { values: [], error: normalizeSheetsError(e) };
   }
 }

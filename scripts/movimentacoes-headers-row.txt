@@ -1,0 +1,1 @@
+id	data	tipo	valor	pessoa	descricao	categoria_sugerida	subcategoria_sugerida	modalidade	nome_aluno	plano_produto	origem_categoria	id_unico	sincronizado_em

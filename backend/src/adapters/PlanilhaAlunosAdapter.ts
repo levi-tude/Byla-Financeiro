@@ -35,10 +35,10 @@ function abasComBlocos(): Set<string> {
 const ABAS_BLOCO_SET = abasComBlocos();
 
 function normalizarLinha(row: PlanilhaRow, aba: string): PlanilhaRow {
-  const out = { ...row, _aba: aba, _modalidade_aba: aba };
+  const out: PlanilhaRow = { ...row, _aba: aba, _modalidade_aba: aba };
   const nome = (row['CLIENTE'] ?? row['Cliente'] ?? row['nome'] ?? row['Nome'] ?? row['ALUNO'] ?? '').toString().trim();
-  if (nome && !out['nome']) (out as Record<string, unknown>)['nome'] = nome;
-  if ((out as Record<string, unknown>)['_ativo'] === undefined) (out as Record<string, unknown>)['_ativo'] = true;
+  if (nome && !out['nome']) out['nome'] = nome;
+  if (out['_ativo'] === undefined) out['_ativo'] = true;
   return out;
 }
 

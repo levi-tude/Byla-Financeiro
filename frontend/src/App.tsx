@@ -7,15 +7,9 @@ import { AtividadesPage } from './pages/AtividadesPage';
 import { DespesasPage } from './pages/DespesasPage';
 import { AlunosPage } from './pages/AlunosPage';
 import { RelatoriosPage } from './pages/RelatoriosPage';
-
-function PlaceholderPage({ title }: { title: string }) {
-  return (
-    <div className="p-6">
-      <h1 className="text-xl font-semibold text-gray-900">{title}</h1>
-      <p className="text-gray-500 mt-2">Em breve.</p>
-    </div>
-  );
-}
+import { PagamentosPlanilhaPage } from './pages/PagamentosPlanilhaPage';
+import { ValidacaoPagamentosDiariaPage } from './pages/ValidacaoPagamentosDiariaPage';
+import { CalendarioFinanceiroPage } from './pages/CalendarioFinanceiroPage';
 
 export default function App() {
   return (
@@ -27,8 +21,12 @@ export default function App() {
           <Route path="entradas" element={<EntradasPage />} />
           <Route path="atividades" element={<AtividadesPage />} />
           <Route path="alunos" element={<AlunosPage />} />
-          <Route path="despesas" element={<DespesasPage />} />
+          <Route path="saidas" element={<DespesasPage />} />
+          <Route path="despesas" element={<Navigate to="/saidas" replace />} />
           <Route path="relatorios-ia" element={<RelatoriosPage />} />
+          <Route path="pagamentos-planilha" element={<PagamentosPlanilhaPage />} />
+          <Route path="validacao-pagamentos-diaria" element={<ValidacaoPagamentosDiariaPage />} />
+          <Route path="calendario-financeiro" element={<CalendarioFinanceiroPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

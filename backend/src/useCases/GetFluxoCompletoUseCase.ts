@@ -10,9 +10,14 @@ export interface GetFluxoCompletoResult {
   combinado: {
     entradaTotal: number | null;
     saidaTotal: number | null;
+    saidaSomaSecoesPrincipais?: number | null;
+    saidaParceirosTotal?: number | null;
+    saidaFixasTotal?: number | null;
     lucroTotal: number | null;
     linhas: { label: string; valor: string; valorNum?: number }[];
     porColuna?: { label: string; valor: string; valorNum?: number }[][];
+    saidasBlocos?: { titulo: string; linhas: { label: string; valor: string; valorNum?: number }[] }[];
+    entradasBlocos?: { titulo: string; linhas: { label: string; valor: string; valorNum?: number }[] }[];
     mes: number | null;
     ano: number | null;
     aba: string | null;
@@ -42,9 +47,14 @@ export class GetFluxoCompletoUseCase {
       combinado: {
         entradaTotal: totais.entradaTotal,
         saidaTotal: totais.saidaTotal,
+        saidaSomaSecoesPrincipais: totais.saidaSomaSecoesPrincipais ?? null,
+        saidaParceirosTotal: totais.saidaParceirosTotal ?? null,
+        saidaFixasTotal: totais.saidaFixasTotal ?? null,
         lucroTotal: totais.lucroTotal,
         linhas: totais.linhas,
         porColuna: totais.porColuna,
+        saidasBlocos: totais.saidasBlocos,
+        entradasBlocos: totais.entradasBlocos,
         mes: totais.mes,
         ano: totais.ano,
         aba: totais.aba,

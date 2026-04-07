@@ -1,32 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useMonthYear } from '../context/MonthYearContext';
 import { getTransacoesPorMes, type TransacaoItem } from '../services/backendApi';
 
 export function useSaidas() {
   const { monthYear } = useMonthYear();
-  const [rows, setRows] = useState<TransacaoItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
+  const q = useQuery({
+    queryKey: ['transacoes-saidas', monthYear.mes, monthYear.ano],
+    queryFn: () => getTransacoesPorMes(monthYear.mes, monthYear.ano, 'saida'),
+  });
 
-  useEffect(() => {
-    let cancelled = false;
-    setIsLoading(true);
-    setError(null);
-    getTransacoesPorMes(monthYear.mes, monthYear.ano, 'saida')
-      .then((res) => {
-        if (!cancelled) setRows(res.itens);
-      })
-      .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e : new Error(String(e)));
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [monthYear.mes, monthYear.ano]);
-
-  return { rows, isLoading, error };
+  return {
+    rows: (q.data?.itens ?? []) as TransacaoItem[],
+    isLoading: q.isPending || q.isFetching,
+    error: q.error instanceof Error ? q.error : q.error ? new Error(String(q.error)) : null,
+  };
 }
-
