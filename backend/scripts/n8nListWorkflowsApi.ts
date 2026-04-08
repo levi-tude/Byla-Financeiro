@@ -18,13 +18,17 @@ const backendRoot = path.resolve(__dirname, '..');
 dotenv.config({ path: path.join(backendRoot, '.env'), override: true });
 dotenv.config({ path: path.resolve(process.cwd(), 'backend', '.env'), override: true });
 
+const DEFAULT_N8N_BASE_URL = 'https://n8n.espacobyla.online';
+
 async function main(): Promise<void> {
-  const base = (process.env.N8N_BASE_URL ?? '').replace(/\/$/, '');
+  const rawBase = (process.env.N8N_BASE_URL ?? '').trim();
+  const base = (rawBase || DEFAULT_N8N_BASE_URL).replace(/\/$/, '');
   const key = (process.env.N8N_API_KEY ?? '').trim();
-  if (!base || !key) {
-    console.error('Defina N8N_BASE_URL e N8N_API_KEY no backend/.env (Settings → n8n API no painel).');
+  if (!key) {
+    console.error('Defina N8N_API_KEY no backend/.env (Settings → n8n API no painel). Opcional: N8N_BASE_URL.');
     process.exit(1);
   }
+  if (!rawBase) console.warn(`N8N_BASE_URL vazio; usando ${DEFAULT_N8N_BASE_URL}`);
   const url = `${base}/api/v1/workflows`;
   const res = await fetch(url, {
     headers: {

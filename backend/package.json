@@ -19,6 +19,7 @@
     "sync:entrada-saida": "tsx scripts/syncEntradaSaidaPlanilha.ts",
     "n8n:list-workflows": "tsx scripts/n8nListWorkflowsApi.ts",
     "n8n:verify-montar-linhas": "tsx scripts/n8nVerifyMontarLinhas.ts",
+    "n8n:push-export-workflow": "tsx scripts/n8nPushWebhookExportWorkflow.ts",
     "inspect:controle": "tsx scripts/inspectControleCaixa.ts"
   },
   "dependencies": {

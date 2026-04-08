@@ -15,7 +15,9 @@ function corsOriginHandler(origin: string | undefined, cb: (err: Error | null, a
   return cb(null, false);
 }
 app.use(cors({ origin: corsOriginHandler, optionsSuccessStatus: 200 }));
-app.use(express.json());
+/** Default Express ~100kb → 413 Payload Too Large no POST montar-linhas (n8n envia muitas linhas). */
+const jsonBodyLimit = (process.env.BYLA_JSON_BODY_LIMIT ?? '32mb').trim() || '32mb';
+app.use(express.json({ limit: jsonBodyLimit }));
 app.use((req, res, next) => {
   const startedAt = Date.now();
   const requestId = randomUUID();
