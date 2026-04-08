@@ -18,6 +18,7 @@
     "render:status": "tsx scripts/renderStatus.ts",
     "sync:entrada-saida": "tsx scripts/syncEntradaSaidaPlanilha.ts",
     "n8n:list-workflows": "tsx scripts/n8nListWorkflowsApi.ts",
+    "n8n:verify-montar-linhas": "tsx scripts/n8nVerifyMontarLinhas.ts",
     "inspect:controle": "tsx scripts/inspectControleCaixa.ts"
   },
   "dependencies": {
