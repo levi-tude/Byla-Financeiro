@@ -27,6 +27,13 @@ services:
         sync: false
       - key: GOOGLE_SHEETS_ENTRADA_SAIDA_ID
         sync: false
+      # Mesmos IDs do backend/.env local — necessários para /api/alunos-completo, fluxo-completo, /api/fontes planilha1+2
+      - key: GOOGLE_SHEETS_SPREADSHEET_ID
+        sync: false
+      - key: GOOGLE_SHEETS_FLUXO_ID
+        sync: false
+      - key: GOOGLE_SHEETS_FLUXO_RANGE
+        sync: false
       # Cole o JSON inteiro da service account (uma linha) — mesmo conteúdo que costuma ir em GOOGLE_APPLICATION_CREDENTIALS
       - key: GOOGLE_SHEETS_CREDENTIALS_JSON
         sync: false
