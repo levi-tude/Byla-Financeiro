@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Topbar } from '../app/Topbar';
 import { getPagamentosPlanilhaTodasAbas, type PagamentosPorAba, type PagamentoPlanilha } from '../services/backendApi';
 
@@ -200,8 +201,15 @@ export function PagamentosPlanilhaPage() {
     <div className="p-6">
       <Topbar
         title="Pagamentos por planilha"
-        subtitle="Conferência por aba, aluno e modalidade (datas, formas e valores)."
+        subtitle="Conferência por aba, aluno e modalidade (datas, formas e valores), alinhada ao vocabulário da planilha FLUXO."
       />
+      <p className="mt-2 text-sm text-slate-600">
+        Para ajustar cadastro ou valor de referência no sistema, use{' '}
+        <Link to="/fluxo-caixa" className="font-medium text-indigo-700 underline hover:text-indigo-900">
+          Fluxo de caixa operacional
+        </Link>
+        .
+      </p>
 
       <div className="mt-4 flex flex-wrap items-end gap-4">
         <div>

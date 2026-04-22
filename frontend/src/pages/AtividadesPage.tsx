@@ -1,4 +1,5 @@
 import { Topbar } from '../app/Topbar';
+import { ApiErrorPanel } from '../components/ui/ApiErrorPanel';
 import { KpiCard } from '../components/ui/KpiCard';
 import { BarChartAtividade } from '../components/charts/BarChartAtividade';
 import { useAtividades } from '../hooks/useAtividades';
@@ -33,8 +34,11 @@ export function AtividadesPage() {
         subtitle={`Receita e alunos por modalidade – mês ${monthYear.mes}/${monthYear.ano}. Dados desta tela vêm do Supabase (tabela de atividades e visão de alunos por atividade).`}
       />
       {error && (
-        <div className="mb-4 p-4 bg-rose-50 border border-rose-200 rounded-lg text-sm text-rose-800">
-          Não foi possível carregar os dados.
+        <div className="mb-4">
+          <ApiErrorPanel
+            message="Não foi possível carregar os dados de atividades. Verifique a conexão e o Supabase."
+            technical={error.message}
+          />
         </div>
       )}
       <div className="grid gap-4 md:grid-cols-3 mt-4">
@@ -78,7 +82,9 @@ export function AtividadesPage() {
             ))}
           </div>
         ) : resumo.length === 0 ? (
-          <p className="text-sm text-gray-500 py-4">Nenhuma atividade com dados.</p>
+          <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            Nenhuma atividade com dados para <strong>{monthYear.mes}/{monthYear.ano}</strong>. Troque o mês no topo do painel ou confira se há lançamentos no Supabase.
+          </div>
         ) : (
           <table className="w-full text-sm">
             <thead>

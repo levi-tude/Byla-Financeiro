@@ -7,6 +7,7 @@ import { CategoriasBancoDrillModal, type CategoriasGrupo } from '../components/C
 import { useEntradas } from '../hooks/useEntradas';
 import { useMonthYear } from '../context/MonthYearContext';
 import { getCategoriasBancoResumo } from '../services/backendApi';
+import { downloadCsv } from '../lib/csv';
 
 function formatCurrency(value: number): string {
   return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -63,6 +64,8 @@ export function EntradasPage() {
     return rows.filter((r) => (r.pessoa || '').toLowerCase().includes(q));
   }, [rows, filtroPessoa]);
 
+  const totalFiltradoLista = useMemo(() => rowsFiltradas.reduce((s, r) => s + r.valor, 0), [rowsFiltradas]);
+
   const totalEntradas = rows.reduce((s, r) => s + r.valor, 0);
   const ticketMedio = rows.length > 0 ? totalEntradas / rows.length : 0;
 
@@ -101,6 +104,14 @@ export function EntradasPage() {
     setDrillOpen(true);
   };
 
+  function exportarEntradasCsv() {
+    downloadCsv(
+      `entradas-${dataInicio || 'inicio'}_${dataFim || 'fim'}.csv`,
+      ['data', 'pessoa', 'valor', 'forma_pagamento'],
+      rowsFiltradas.map((r) => [r.data, r.pessoa ?? '', r.valor, r.forma_pagamento_banco ?? '']),
+    );
+  }
+
   return (
     <div className="p-6">
       <CategoriasBancoDrillModal
@@ -117,7 +128,10 @@ export function EntradasPage() {
         tituloGrupo={drillTitulo}
       />
 
-      <Topbar title="Entradas – detalhe" subtitle="Fluxo por período e forma de pagamento" />
+      <Topbar
+        title="Entradas – detalhe"
+        subtitle={`Período: ${dataInicio || '—'} a ${dataFim || '—'} (ajuste pelo seletor de mês no topo ou pelas datas abaixo). Fluxo por período e forma de pagamento.`}
+      />
       {error && (
         <div className="mb-4 p-4 bg-rose-50 border border-rose-200 rounded-lg text-sm text-rose-800">Não foi possível carregar os dados.</div>
       )}
@@ -222,7 +236,18 @@ export function EntradasPage() {
       </div>
 
       <div className="mt-6 bg-white rounded-xl shadow-sm p-4 overflow-hidden flex flex-col">
-        <h2 className="text-sm font-medium text-gray-700 mb-2">Últimas entradas</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <h2 className="text-sm font-medium text-gray-700">Últimas entradas</h2>
+          {rowsFiltradas.length > 0 && (
+            <button
+              type="button"
+              onClick={exportarEntradasCsv}
+              className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-100"
+            >
+              Exportar CSV (filtro atual)
+            </button>
+          )}
+        </div>
         <div className="overflow-x-auto overflow-y-auto max-h-[400px] min-h-0">
         {isLoading ? (
           <div className="space-y-2">
@@ -252,6 +277,19 @@ export function EntradasPage() {
                 </tr>
               ))}
             </tbody>
+            {rowsFiltradas.length > 0 && (
+              <tfoot>
+                <tr className="border-t-2 border-slate-200 bg-slate-50 font-medium text-slate-900">
+                  <td className="py-2 pr-2" colSpan={2}>
+                    Total do filtro ({rowsFiltradas.length} linha{rowsFiltradas.length !== 1 ? 's' : ''})
+                  </td>
+                  <td className="py-2 pr-2 text-right tabular-nums">{formatCurrency(totalFiltradoLista)}</td>
+                  <td className="py-2 text-xs font-normal text-slate-600">
+                    {rowsFiltradas.length > 150 ? 'A tabela mostra até 150 linhas; o total à esquerda é do filtro inteiro.' : ''}
+                  </td>
+                </tr>
+              </tfoot>
+            )}
           </table>
         )}
         </div>

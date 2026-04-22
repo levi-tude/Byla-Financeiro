@@ -6,6 +6,7 @@
  */
 
 import type { OrigemDados } from '../domain/OrigemDados';
+import { supabase } from './supabase';
 
 const BASE_URL = (import.meta.env.VITE_BACKEND_URL ?? '').trim();
 
@@ -71,7 +72,7 @@ async function request<T>(path: string): Promise<T> {
   if (!BASE_URL) {
     throw new Error('VITE_BACKEND_URL não configurado');
   }
-  const res = await fetch(`${BASE_URL.replace(/\/$/, '')}${path}`);
+  const res = await apiFetch(path);
   if (!res.ok) {
     const text = await res.text();
     throw new Error(await parseBackendError(res, text));
@@ -83,7 +84,7 @@ async function requestPost<T>(path: string, body: unknown): Promise<T> {
   if (!BASE_URL) {
     throw new Error('VITE_BACKEND_URL não configurado');
   }
-  const res = await fetch(`${BASE_URL.replace(/\/$/, '')}${path}`, {
+  const res = await apiFetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -93,6 +94,40 @@ async function requestPost<T>(path: string, body: unknown): Promise<T> {
     throw new Error(await parseBackendError(res, text));
   }
   return res.json();
+}
+
+async function requestPut<T>(path: string, body: unknown): Promise<T> {
+  if (!BASE_URL) {
+    throw new Error('VITE_BACKEND_URL não configurado');
+  }
+  const res = await apiFetch(path, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(await parseBackendError(res, text));
+  }
+  return res.json();
+}
+
+async function getAuthHeaders(initialHeaders?: HeadersInit): Promise<Headers> {
+  const headers = new Headers(initialHeaders ?? {});
+  if (!headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+  if (!supabase) return headers;
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  return headers;
+}
+
+async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const base = BASE_URL.replace(/\/$/, '');
+  const headers = await getAuthHeaders(init.headers);
+  return fetch(`${base}${path}`, { ...init, headers });
 }
 
 export async function healthCheck(): Promise<{ status: string }> {
@@ -152,6 +187,267 @@ export async function getFluxoCompleto(mes?: number, ano?: number): Promise<Flux
   }
   const qs = params.toString();
   return request<FluxoCompletoResponse>(`/api/fluxo-completo${qs ? `?${qs}` : ''}`);
+}
+
+export interface ControleCaixaLinha {
+  id?: string;
+  label: string;
+  valor: number | null;
+  valorTexto: string | null;
+  ordem: number;
+}
+
+export interface ControleCaixaBloco {
+  id?: string;
+  tipo: 'entrada' | 'saida';
+  titulo: string;
+  ordem: number;
+  linhas: ControleCaixaLinha[];
+}
+
+export interface ControleCaixaResponse {
+  mes: number;
+  ano: number;
+  abaRef: string | null;
+  origem: string;
+  totais: {
+    entradaTotal: number | null;
+    saidaTotal: number | null;
+    lucroTotal: number | null;
+    saidaParceirosTotal: number | null;
+    saidaFixasTotal: number | null;
+    saidaSomaSecoesPrincipais: number | null;
+  };
+  blocos: ControleCaixaBloco[];
+}
+
+export interface ControleCaixaSavePayload {
+  abaRef: string | null;
+  totais: ControleCaixaResponse['totais'];
+  blocos: ControleCaixaBloco[];
+}
+
+export async function getControleCaixa(mes: number, ano: number): Promise<ControleCaixaResponse> {
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  return request<ControleCaixaResponse>(`/api/controle-caixa?${params.toString()}`);
+}
+
+export async function putControleCaixa(
+  mes: number,
+  ano: number,
+  payload: ControleCaixaSavePayload,
+): Promise<ControleCaixaResponse> {
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  return requestPut<ControleCaixaResponse>(`/api/controle-caixa?${params.toString()}`, payload);
+}
+
+export interface FluxoOperacionalAluno {
+  id: string;
+  aba: string;
+  modalidade: string;
+  linha_planilha: number;
+  aluno_nome: string;
+  wpp: string | null;
+  responsaveis: string | null;
+  plano: string | null;
+  matricula: string | null;
+  fim: string | null;
+  venc: string | null;
+  valor_referencia: number | null;
+  pagador_pix: string | null;
+  observacoes: string | null;
+  ativo: boolean;
+  /** Campos enriquecidos na listagem (GET /alunos) — não enviar de volta no PUT. */
+  venc_exibicao?: string | null;
+  responsaveis_exibicao?: string | null;
+  pagador_pix_exibicao?: string | null;
+  valor_mensal_exibicao?: number | null;
+  valor_mensal_origem?: 'cadastro' | 'planilha_bruta' | 'ultimo_pagamento' | null;
+}
+
+export interface FluxoOperacionalAlunosResponse {
+  itens: FluxoOperacionalAluno[];
+  filtros: {
+    abas: string[];
+    modalidades: string[];
+  };
+}
+
+export interface FluxoOperacionalAlunoPayload {
+  aba: string;
+  modalidade: string;
+  linhaPlanilha: number;
+  alunoNome: string;
+  wpp?: string | null;
+  responsaveis?: string | null;
+  plano?: string | null;
+  matricula?: string | null;
+  fim?: string | null;
+  venc?: string | null;
+  valorReferencia?: number | null;
+  pagadorPix?: string | null;
+  observacoes?: string | null;
+  ativo?: boolean;
+}
+
+export async function getFluxoOperacionalAlunos(params?: {
+  aba?: string;
+  modalidade?: string;
+  ativo?: boolean;
+  q?: string;
+  limit?: number;
+}): Promise<FluxoOperacionalAlunosResponse> {
+  const qs = new URLSearchParams();
+  if (params?.aba) qs.set('aba', params.aba);
+  if (params?.modalidade) qs.set('modalidade', params.modalidade);
+  if (params?.ativo != null) qs.set('ativo', String(params.ativo));
+  if (params?.q) qs.set('q', params.q);
+  if (params?.limit != null) qs.set('limit', String(params.limit));
+  const s = qs.toString();
+  return request<FluxoOperacionalAlunosResponse>(`/api/fluxo-operacional/alunos${s ? `?${s}` : ''}`);
+}
+
+export async function createFluxoOperacionalAluno(payload: FluxoOperacionalAlunoPayload): Promise<{ item: FluxoOperacionalAluno }> {
+  return requestPost<{ item: FluxoOperacionalAluno }>('/api/fluxo-operacional/alunos', payload);
+}
+
+export async function updateFluxoOperacionalAluno(
+  id: string,
+  payload: FluxoOperacionalAlunoPayload,
+): Promise<{ item: FluxoOperacionalAluno }> {
+  return requestPut<{ item: FluxoOperacionalAluno }>(`/api/fluxo-operacional/alunos/${encodeURIComponent(id)}`, payload);
+}
+
+export async function deleteFluxoOperacionalAluno(id: string, force = false): Promise<{ ok: boolean }> {
+  if (!BASE_URL) throw new Error('VITE_BACKEND_URL não configurado');
+  const res = await apiFetch('/api/fluxo-operacional/alunos', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, force }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(await parseBackendError(res, text));
+  }
+  return res.json();
+}
+
+export interface FluxoOperacionalPagamento {
+  id: string;
+  aba: string;
+  modalidade: string;
+  linha_planilha: number;
+  ordem_lancamento: number;
+  aluno_nome: string;
+  data_pagamento: string;
+  forma: string | null;
+  valor: number;
+  mes_competencia: number;
+  ano_competencia: number;
+  responsaveis: string | null;
+  pagador_pix: string | null;
+  /** Preenchido pelo backend a partir do cadastro do aluno (aba + linha + nome). */
+  aluno_venc?: string | null;
+  aluno_valor_referencia?: number | null;
+  aluno_responsaveis?: string | null;
+  aluno_pagador_pix?: string | null;
+}
+
+export interface FluxoOperacionalPagamentosResponse {
+  itens: FluxoOperacionalPagamento[];
+  filtros: {
+    abas: string[];
+    modalidades: string[];
+  };
+}
+
+export interface FluxoOperacionalPagamentoPayload {
+  aba: string;
+  modalidade: string;
+  linhaPlanilha: number;
+  ordemLancamento?: number;
+  alunoNome: string;
+  dataPagamento: string;
+  forma?: string | null;
+  valor: number;
+  mesCompetencia: number;
+  anoCompetencia: number;
+  responsaveis?: string | null;
+  pagadorPix?: string | null;
+}
+
+export async function getFluxoOperacionalPagamentos(params?: {
+  ano?: number;
+  mes?: number;
+  aba?: string;
+  modalidade?: string;
+  aluno?: string;
+  q?: string;
+  limit?: number;
+}): Promise<FluxoOperacionalPagamentosResponse> {
+  const qs = new URLSearchParams();
+  if (params?.ano != null) qs.set('ano', String(params.ano));
+  if (params?.mes != null) qs.set('mes', String(params.mes));
+  if (params?.aba) qs.set('aba', params.aba);
+  if (params?.modalidade) qs.set('modalidade', params.modalidade);
+  if (params?.aluno) qs.set('aluno', params.aluno);
+  if (params?.q) qs.set('q', params.q);
+  if (params?.limit != null) qs.set('limit', String(params.limit));
+  const s = qs.toString();
+  return request<FluxoOperacionalPagamentosResponse>(`/api/fluxo-operacional/pagamentos${s ? `?${s}` : ''}`);
+}
+
+export async function createFluxoOperacionalPagamento(
+  payload: FluxoOperacionalPagamentoPayload,
+): Promise<{ item: FluxoOperacionalPagamento }> {
+  return requestPost<{ item: FluxoOperacionalPagamento }>('/api/fluxo-operacional/pagamentos', payload);
+}
+
+export async function updateFluxoOperacionalPagamento(
+  id: string,
+  payload: FluxoOperacionalPagamentoPayload,
+): Promise<{ item: FluxoOperacionalPagamento }> {
+  return requestPut<{ item: FluxoOperacionalPagamento }>(`/api/fluxo-operacional/pagamentos/${encodeURIComponent(id)}`, payload);
+}
+
+export async function deleteFluxoOperacionalPagamento(id: string): Promise<{ ok: boolean }> {
+  if (!BASE_URL) throw new Error('VITE_BACKEND_URL não configurado');
+  const res = await apiFetch('/api/fluxo-operacional/pagamentos', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(await parseBackendError(res, text));
+  }
+  return res.json();
+}
+
+export interface FluxoOperacionalAuditoriaItem {
+  id: string;
+  entidade: 'aluno' | 'pagamento';
+  acao: 'create' | 'update' | 'delete';
+  registro_id: string | null;
+  aba: string | null;
+  modalidade: string | null;
+  aluno_nome: string | null;
+  user_email: string | null;
+  user_role: string | null;
+  created_at: string;
+}
+
+export async function getFluxoOperacionalAuditoria(params?: {
+  entidade?: 'aluno' | 'pagamento';
+  limit?: number;
+}): Promise<{ itens: FluxoOperacionalAuditoriaItem[] }> {
+  const qs = new URLSearchParams();
+  if (params?.entidade) qs.set('entidade', params.entidade);
+  if (params?.limit != null) qs.set('limit', String(params.limit));
+  const s = qs.toString();
+  return request<{ itens: FluxoOperacionalAuditoriaItem[] }>(
+    `/api/fluxo-operacional/auditoria${s ? `?${s}` : ''}`
+  );
 }
 
 export interface SaidaPainelItem {
@@ -604,8 +900,7 @@ export async function getRelatorioAlunosInadimplencia(mes: number, ano: number):
 /** Status da IA para relatórios (se chave está configurada no backend). */
 export async function getRelatoriosIAStatus(): Promise<{ configured: boolean; provider: 'gemini' | 'openai' | null }> {
   if (!BASE_URL) return { configured: false, provider: null };
-  const base = BASE_URL.replace(/\/$/, '');
-  const res = await fetch(`${base}/api/relatorios/ia-status`);
+  const res = await apiFetch('/api/relatorios/ia-status', { method: 'GET' });
   if (!res.ok) return { configured: false, provider: null };
   return res.json();
 }
@@ -613,8 +908,7 @@ export async function getRelatoriosIAStatus(): Promise<{ configured: boolean; pr
 /** Gera texto do relatório com IA. Envia o payload do relatório e retorna o texto gerado. */
 export async function gerarTextoRelatorioIA(payload: RelatorioPayload): Promise<{ texto: string }> {
   if (!BASE_URL) throw new Error('VITE_BACKEND_URL não configurado');
-  const base = BASE_URL.replace(/\/$/, '');
-  const res = await fetch(`${base}/api/relatorios/gerar-texto-ia`, {
+  const res = await apiFetch('/api/relatorios/gerar-texto-ia', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ payload }),
@@ -780,9 +1074,8 @@ export async function getValidacaoVinculos(
   ano: number,
 ): Promise<{ data: string; mes: number; ano: number; itens: ValidacaoVinculoItem[] }> {
   if (!BASE_URL) throw new Error('VITE_BACKEND_URL não configurado');
-  const base = BASE_URL.replace(/\/$/, '');
   const params = new URLSearchParams({ data, mes: String(mes), ano: String(ano) });
-  const res = await fetch(`${base}/api/validacao-vinculos?${params.toString()}`);
+  const res = await apiFetch(`/api/validacao-vinculos?${params.toString()}`, { method: 'GET' });
   const text = await res.text();
   if (!res.ok) throw new Error(await parseBackendError(res, text));
   return text ? (JSON.parse(text) as { data: string; mes: number; ano: number; itens: ValidacaoVinculoItem[] }) : { data, mes, ano, itens: [] };
@@ -797,8 +1090,7 @@ export async function createValidacaoVinculo(
   observacao?: string,
 ): Promise<{ ok: boolean; persisted?: string }> {
   if (!BASE_URL) throw new Error('VITE_BACKEND_URL não configurado');
-  const base = BASE_URL.replace(/\/$/, '');
-  const res = await fetch(`${base}/api/validacao-vinculos`, {
+  const res = await apiFetch('/api/validacao-vinculos', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ data, mes, ano, banco_id, planilha_ids, observacao }),
@@ -810,8 +1102,7 @@ export async function createValidacaoVinculo(
 
 export async function deleteValidacaoVinculo(planilha_id: string): Promise<{ ok: boolean; persisted?: string }> {
   if (!BASE_URL) throw new Error('VITE_BACKEND_URL não configurado');
-  const base = BASE_URL.replace(/\/$/, '');
-  const res = await fetch(`${base}/api/validacao-vinculos`, {
+  const res = await apiFetch('/api/validacao-vinculos', {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ planilha_id }),

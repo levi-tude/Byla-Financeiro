@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { Topbar } from '../app/Topbar';
 import { KpiCard } from '../components/ui/KpiCard';
 import { MonthlyTrendChart } from '../components/charts/MonthlyTrendChart';
@@ -296,8 +297,39 @@ export function OverviewPage() {
       : 'Sem dados ainda';
 
   return (
-    <div className="p-6 space-y-8">
+    <div className="p-6 space-y-8 min-h-0">
       <Topbar title="Visão geral financeira" subtitle={subtitulo} />
+
+      <section aria-label="Ações rápidas do mês" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Link
+          to="/conciliacao"
+          className="rounded-xl border border-amber-200 bg-amber-50/90 p-4 shadow-sm transition hover:border-amber-300 hover:bg-amber-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-amber-400 dark:border-amber-800/50 dark:bg-amber-950/35 dark:hover:border-amber-700 dark:hover:bg-amber-950/50"
+        >
+          <h2 className="text-sm font-semibold text-amber-950 dark:text-amber-100">Conciliação</h2>
+          <p className="mt-1 text-xs text-amber-900/90 dark:text-amber-200/90">Vencimentos na planilha × pagamentos e conferência no banco.</p>
+        </Link>
+        <Link
+          to="/validacao-pagamentos-diaria"
+          className="rounded-xl border border-emerald-200 bg-emerald-50/90 p-4 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-emerald-400 dark:border-emerald-800/50 dark:bg-emerald-950/35 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/50"
+        >
+          <h2 className="text-sm font-semibold text-emerald-950 dark:text-emerald-100">Validação de pagamentos</h2>
+          <p className="mt-1 text-xs text-emerald-900/90 dark:text-emerald-200/90">Conferir lançamentos do dia e vínculos planilha × extrato.</p>
+        </Link>
+        <Link
+          to="/fluxo-caixa"
+          className="rounded-xl border border-indigo-200 bg-indigo-50/90 p-4 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-indigo-400 dark:border-indigo-800/50 dark:bg-indigo-950/35 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/50"
+        >
+          <h2 className="text-sm font-semibold text-indigo-950 dark:text-indigo-100">Fluxo operacional</h2>
+          <p className="mt-1 text-xs text-indigo-900/90 dark:text-indigo-200/90">Cadastro de alunos, valores de referência e pagamentos no sistema.</p>
+        </Link>
+        <Link
+          to="/saidas"
+          className="rounded-xl border border-rose-200 bg-rose-50/90 p-4 shadow-sm transition hover:border-rose-300 hover:bg-rose-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-rose-400 dark:border-rose-800/50 dark:bg-rose-950/35 dark:hover:border-rose-700 dark:hover:bg-rose-950/50"
+        >
+          <h2 className="text-sm font-semibold text-rose-950 dark:text-rose-100">Saídas</h2>
+          <p className="mt-1 text-xs text-rose-900/90 dark:text-rose-200/90">Despesas, planilha × banco e validação por linha.</p>
+        </Link>
+      </section>
 
       {error && (
         <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-800">
@@ -307,25 +339,25 @@ export function OverviewPage() {
 
       {/* Status das fontes */}
       {BACKEND_URL && (
-        <section className="bg-white rounded-xl shadow-sm p-4">
-          <h2 className="text-sm font-medium text-gray-700 mb-2">Status das fontes de dados</h2>
+        <section className="bg-white dark:bg-slate-900 rounded-xl shadow-sm p-4 border border-transparent dark:border-slate-700">
+          <h2 className="text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Status das fontes de dados</h2>
           {fontesLoading ? (
-            <p className="text-sm text-gray-500">Verificando Supabase e planilhas…</p>
+            <p className="text-sm text-gray-500 dark:text-slate-400">Verificando Supabase e planilhas…</p>
           ) : fontes ? (
             <div className="grid gap-3 sm:grid-cols-3 text-sm">
               <div className={`rounded-lg border p-3 ${fontes.supabase.ok ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'}`}>
-                <div className="font-medium text-gray-800">Supabase</div>
-                <div className="text-gray-600">{fontes.supabase.papel}</div>
+                <div className="font-medium text-gray-800 dark:text-slate-200">Supabase</div>
+                <div className="text-gray-600 dark:text-slate-400">{fontes.supabase.papel}</div>
                 <div className="mt-1 font-medium">{fontes.supabase.ok ? '✓ Conectado' : '✗ Indisponível'}</div>
               </div>
-              <div className={`rounded-lg border p-3 ${fontes.planilha1.ok ? 'border-green-200 bg-green-50' : fontes.planilha1.configurado ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-gray-50'}`}>
-                <div className="font-medium text-gray-800">{fontes.planilha1.nome}</div>
-                <div className="text-gray-600">{fontes.planilha1.papel}</div>
+              <div className={`rounded-lg border p-3 ${fontes.planilha1.ok ? 'border-green-200 bg-green-50' : fontes.planilha1.configurado ? 'border-amber-200 bg-amber-50' : 'border-gray-200 dark:border-slate-700 bg-gray-50'}`}>
+                <div className="font-medium text-gray-800 dark:text-slate-200">{fontes.planilha1.nome}</div>
+                <div className="text-gray-600 dark:text-slate-400">{fontes.planilha1.papel}</div>
                 <div className="mt-1 font-medium">{fontes.planilha1.ok ? '✓ Dados OK' : fontes.planilha1.configurado ? `✗ ${fontes.planilha1.erro || 'Erro'}` : '— Não configurado'}</div>
               </div>
-              <div className={`rounded-lg border p-3 ${fontes.planilha2.ok ? 'border-green-200 bg-green-50' : fontes.planilha2.configurado ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-gray-50'}`}>
-                <div className="font-medium text-gray-800">{fontes.planilha2.nome}</div>
-                <div className="text-gray-600">{fontes.planilha2.papel}</div>
+              <div className={`rounded-lg border p-3 ${fontes.planilha2.ok ? 'border-green-200 bg-green-50' : fontes.planilha2.configurado ? 'border-amber-200 bg-amber-50' : 'border-gray-200 dark:border-slate-700 bg-gray-50'}`}>
+                <div className="font-medium text-gray-800 dark:text-slate-200">{fontes.planilha2.nome}</div>
+                <div className="text-gray-600 dark:text-slate-400">{fontes.planilha2.papel}</div>
                 <div className="mt-1 font-medium">{fontes.planilha2.ok ? '✓ Dados OK' : fontes.planilha2.configurado ? `✗ ${fontes.planilha2.erro || 'Erro'}` : '— Não configurado'}</div>
               </div>
             </div>
@@ -334,25 +366,25 @@ export function OverviewPage() {
       )}
 
       {/* ========== SEÇÃO 1: SÓ PLANILHA (CONTROLE DE CAIXA) ========== */}
-      <section className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">
-        <div className="bg-indigo-50 border-b border-indigo-100 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <section className="bg-white dark:bg-slate-900 rounded-xl shadow-md border border-slate-200 dark:border-slate-700 overflow-hidden">
+        <div className="bg-indigo-50 border-b border-indigo-100 px-4 py-3 flex flex-wrap items-center justify-between gap-3 dark:bg-indigo-950/50 dark:border-indigo-900/50">
           <div>
-            <h2 className="text-lg font-semibold text-indigo-900">Controle financeiro – só pela planilha</h2>
-            <p className="text-sm text-indigo-700 mt-0.5">
+            <h2 className="text-lg font-semibold text-indigo-900 dark:text-indigo-100">Controle financeiro – só pela planilha</h2>
+            <p className="text-sm text-indigo-700 dark:text-indigo-200 mt-0.5">
               Planilha <strong>CONTROLE DE CAIXA</strong>. Na planilha, a <strong>aba do mês seguinte</strong> contém o fechamento do mês selecionado.
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <span className="text-sm font-medium text-indigo-800">Mês:</span>
+            <span className="text-sm font-medium text-indigo-800 dark:text-indigo-200">Mês:</span>
             <MonthYearPicker />
           </div>
         </div>
         <div className="p-4">
-          <div className="mb-4 p-4 bg-indigo-100/80 border border-indigo-200 rounded-xl">
-            <p className="text-sm font-semibold text-indigo-900">
+          <div className="mb-4 p-4 bg-indigo-100/80 border border-indigo-200 rounded-xl dark:bg-indigo-950/40 dark:border-indigo-800/50">
+            <p className="text-sm font-semibold text-indigo-900 dark:text-indigo-100">
               Período exibido: <span className="underline">{mesRealExtenso}</span>
             </p>
-            <p className="text-sm text-indigo-800 mt-1">
+            <p className="text-sm text-indigo-800 dark:text-indigo-200 mt-1">
               Na planilha CONTROLE DE CAIXA estes dados estão na aba <strong>“{abaPlanilha}”</strong>. Ou seja: ao selecionar <strong>{mesRealExtenso}</strong>, você vê o fechamento desse mês (aba = mês seguinte).
             </p>
           </div>
@@ -384,14 +416,14 @@ export function OverviewPage() {
               isLoading={planilhaLoading}
             />
           </div>
-          <p className="mt-2 text-xs text-indigo-600">
+          <p className="mt-2 text-xs text-indigo-600 dark:text-indigo-300">
             O <strong>Lucro total</strong> exibido é o valor da célula <strong>LUCRO TOTAL</strong> da planilha (fechamento). Se houver mais de um lucro na aba, usamos o último.
           </p>
 
           {/* ========== ENTRADAS (azul) e SAÍDAS (amarelo) – por categoria/modalidade ========== */}
           {((planilhaPorSecao.entradas.length > 0 || planilhaPorSecao.saidas.length > 0) || (linhasEntradas.length > 0 || linhasSaidas.length > 0)) && (planilhaLinhas?.length ?? 0) > 0 && (
             <div className="mt-8 space-y-8">
-              <h3 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-2">Entradas e saídas por categoria (como na planilha)</h3>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 border-b border-gray-200 dark:border-slate-700 pb-2">Entradas e saídas por categoria (como na planilha)</h3>
 
               {(planilhaPorSecao.entradas.length > 0 || linhasEntradas.length > 0) && (
                 <div className="rounded-xl border-2 border-blue-200 bg-blue-50/50 overflow-hidden shadow-sm">
@@ -406,7 +438,7 @@ export function OverviewPage() {
                       planilhaPorSecao.entradas.map((sec, idx) => {
                         const totalSec = sec.linhas.reduce((acc, l) => acc + (l.valorNum ?? 0), 0);
                         return (
-                          <div key={idx} className="bg-white rounded-lg border border-blue-200 overflow-hidden">
+                          <div key={idx} className="bg-white dark:bg-slate-900 rounded-lg border border-blue-200 dark:border-blue-800/50 overflow-hidden">
                             <div className="bg-blue-100 px-3 py-2 border-b border-blue-200">
                               <span className="text-sm font-semibold text-blue-900">{sec.titulo}</span>
                             </div>
@@ -420,7 +452,7 @@ export function OverviewPage() {
                               <tbody>
                                 {sec.linhas.map((l, i) => (
                                   <tr key={i} className="border-t border-blue-100 hover:bg-blue-50/50">
-                                    <td className="py-2 px-3 text-gray-800">{l.label}</td>
+                                    <td className="py-2 px-3 text-gray-800 dark:text-slate-200">{l.label}</td>
                                     <td className="py-2 px-3 text-right font-medium text-blue-800 tabular-nums">
                                       {l.valorNum != null ? l.valorNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : l.valor ?? '–'}
                                     </td>
@@ -438,7 +470,7 @@ export function OverviewPage() {
                         );
                       })
                     ) : (
-                      <div className="bg-white rounded-lg border border-blue-200 overflow-hidden">
+                      <div className="bg-white dark:bg-slate-900 rounded-lg border border-blue-200 dark:border-blue-800/50 overflow-hidden">
                         <div className="bg-blue-100 px-3 py-2 border-b border-blue-200">
                           <span className="text-sm font-semibold text-blue-900">Entradas (categorias)</span>
                         </div>
@@ -456,7 +488,7 @@ export function OverviewPage() {
                                 <>
                                   {linhasEntradas.map((l, i) => (
                                     <tr key={i} className="border-t border-blue-100 hover:bg-blue-50/50">
-                                      <td className="py-2 px-3 text-gray-800">{l.label}</td>
+                                      <td className="py-2 px-3 text-gray-800 dark:text-slate-200">{l.label}</td>
                                       <td className="py-2 px-3 text-right font-medium text-blue-800 tabular-nums">
                                         {l.valorNum != null ? l.valorNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : l.valor ?? '–'}
                                       </td>
@@ -492,7 +524,7 @@ export function OverviewPage() {
                       planilhaPorSecao.saidas.map((sec, idx) => {
                         const totalSec = sec.linhas.reduce((acc, l) => acc + (l.valorNum ?? 0), 0);
                         return (
-                          <div key={idx} className="bg-white rounded-lg border border-amber-200 overflow-hidden">
+                          <div key={idx} className="bg-white dark:bg-slate-900 rounded-lg border border-amber-200 dark:border-amber-800/50 overflow-hidden">
                             <div className="bg-amber-100 px-3 py-2 border-b border-amber-200">
                               <span className="text-sm font-semibold text-amber-900">{sec.titulo}</span>
                             </div>
@@ -506,7 +538,7 @@ export function OverviewPage() {
                               <tbody>
                                 {sec.linhas.map((l, i) => (
                                   <tr key={i} className="border-t border-amber-100 hover:bg-amber-50/50">
-                                    <td className="py-2 px-3 text-gray-800">{l.label}</td>
+                                    <td className="py-2 px-3 text-gray-800 dark:text-slate-200">{l.label}</td>
                                     <td className="py-2 px-3 text-right font-medium text-amber-800 tabular-nums">
                                       {l.valorNum != null ? l.valorNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : l.valor ?? '–'}
                                     </td>
@@ -524,7 +556,7 @@ export function OverviewPage() {
                         );
                       })
                     ) : (
-                      <div className="bg-white rounded-lg border border-amber-200 overflow-hidden">
+                      <div className="bg-white dark:bg-slate-900 rounded-lg border border-amber-200 dark:border-amber-800/50 overflow-hidden">
                         <div className="bg-amber-100 px-3 py-2 border-b border-amber-200">
                           <span className="text-sm font-semibold text-amber-900">Saídas (categorias)</span>
                         </div>
@@ -542,7 +574,7 @@ export function OverviewPage() {
                                 <>
                                   {linhasSaidas.map((l, i) => (
                                     <tr key={i} className="border-t border-amber-100 hover:bg-amber-50/50">
-                                      <td className="py-2 px-3 text-gray-800">{l.label}</td>
+                                      <td className="py-2 px-3 text-gray-800 dark:text-slate-200">{l.label}</td>
                                       <td className="py-2 px-3 text-right font-medium text-amber-800 tabular-nums">
                                         {l.valorNum != null ? l.valorNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : l.valor ?? '–'}
                                       </td>
@@ -567,8 +599,8 @@ export function OverviewPage() {
 
               {/* Totais gerais: Entrada total (verde), Saída total (vermelho), Lucro total (neutro) – nunca misturar saída com entrada */}
               {linhasTotais.length > 0 && (
-                <div className="rounded-xl border-2 border-slate-200 overflow-hidden">
-                  <div className="bg-slate-700 px-4 py-3">
+                <div className="rounded-xl border-2 border-slate-200 dark:border-slate-600 overflow-hidden">
+                  <div className="bg-slate-700 px-4 py-3 dark:bg-slate-800">
                     <h4 className="text-base font-semibold text-white">Resumo – totais da planilha</h4>
                     <p className="text-slate-300 text-xs mt-0.5">Entrada total = receitas. Saída total = despesas. Lucro = diferença.</p>
                   </div>
@@ -581,16 +613,24 @@ export function OverviewPage() {
                           const isSaidaTotal = u.includes('SAÍDA TOTAL') || u.includes('SAIDA TOTAL');
                           const isLucro = u.includes('LUCRO') || u.includes('RESULTADO');
                           const rowBg = isEntradaTotal
-                            ? 'bg-emerald-50'
+                            ? 'bg-emerald-50 dark:bg-emerald-950/40'
                             : isSaidaTotal
-                              ? 'bg-rose-50'
+                              ? 'bg-rose-50 dark:bg-rose-950/35'
                               : isLucro
-                                ? 'bg-amber-50'
-                                : 'bg-slate-50';
-                          const labelColor = isEntradaTotal ? 'text-emerald-900 font-semibold' : isSaidaTotal ? 'text-rose-900 font-semibold' : 'text-slate-800 font-medium';
-                          const valorColor = isEntradaTotal ? 'text-emerald-800' : isSaidaTotal ? 'text-rose-800' : 'text-slate-900';
+                                ? 'bg-amber-50 dark:bg-amber-950/30'
+                                : 'bg-slate-50 dark:bg-slate-800/50';
+                          const labelColor = isEntradaTotal
+                            ? 'text-emerald-900 dark:text-emerald-200 font-semibold'
+                            : isSaidaTotal
+                              ? 'text-rose-900 dark:text-rose-200 font-semibold'
+                              : 'text-slate-800 dark:text-slate-200 font-medium';
+                          const valorColor = isEntradaTotal
+                            ? 'text-emerald-800 dark:text-emerald-300'
+                            : isSaidaTotal
+                              ? 'text-rose-800 dark:text-rose-300'
+                              : 'text-slate-900 dark:text-slate-100';
                           return (
-                            <tr key={i} className={`border-t border-slate-200 ${rowBg}`}>
+                            <tr key={i} className={`border-t border-slate-200 dark:border-slate-700 ${rowBg}`}>
                               <td className={`py-3 px-4 ${labelColor}`}>
                                 {isEntradaTotal ? 'Entrada total' : isSaidaTotal ? 'Saída total' : l.label}
                               </td>
@@ -609,25 +649,25 @@ export function OverviewPage() {
           )}
 
           {(planilhaLinhas?.length ?? 0) > 0 && (
-            <details className="mt-6 rounded-lg border border-slate-200 bg-slate-50">
-              <summary className="px-4 py-3 text-sm font-medium text-slate-700 cursor-pointer hover:bg-slate-100">
+            <details className="mt-6 rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/60">
+              <summary className="px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800">
                 Ver lista completa da aba (ordem bruta)
               </summary>
-              <div className="border-t border-slate-200 max-h-64 overflow-y-auto">
+              <div className="border-t border-slate-200 dark:border-slate-700 max-h-64 overflow-y-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-slate-100 sticky top-0">
+                  <thead className="bg-slate-100 dark:bg-slate-800 sticky top-0">
                     <tr>
-                      <th className="text-left py-2 px-3 font-medium text-slate-700 w-10">#</th>
-                      <th className="text-left py-2 px-3 font-medium text-slate-700">Descrição</th>
-                      <th className="text-right py-2 px-3 font-medium text-slate-700">Valor</th>
+                      <th className="text-left py-2 px-3 font-medium text-slate-700 dark:text-slate-300 w-10">#</th>
+                      <th className="text-left py-2 px-3 font-medium text-slate-700 dark:text-slate-300">Descrição</th>
+                      <th className="text-right py-2 px-3 font-medium text-slate-700 dark:text-slate-300">Valor</th>
                     </tr>
                   </thead>
                   <tbody>
                     {planilhaLinhas!.map((l, i) => (
-                      <tr key={i} className="border-t border-slate-100">
-                        <td className="py-2 px-3 text-slate-500">{i + 1}</td>
-                        <td className="py-2 px-3 text-gray-800">{l.label}</td>
-                        <td className="py-2 px-3 text-right font-medium text-gray-900">
+                      <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
+                        <td className="py-2 px-3 text-slate-500 dark:text-slate-400">{i + 1}</td>
+                        <td className="py-2 px-3 text-gray-800 dark:text-slate-200">{l.label}</td>
+                        <td className="py-2 px-3 text-right font-medium text-gray-900 dark:text-slate-100">
                           {l.valorNum != null ? l.valorNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : l.valor ?? '–'}
                         </td>
                       </tr>
@@ -641,25 +681,25 @@ export function OverviewPage() {
       </section>
 
       {/* ========== SEÇÃO 2: SÓ SUPABASE ========== */}
-      <section className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">
-        <div className="bg-emerald-50 border-b border-emerald-100 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <section className="bg-white dark:bg-slate-900 rounded-xl shadow-md border border-slate-200 dark:border-slate-700 overflow-hidden">
+        <div className="bg-emerald-50 border-b border-emerald-100 px-4 py-3 flex flex-wrap items-center justify-between gap-3 dark:bg-emerald-950/40 dark:border-emerald-900/50">
           <div>
-            <h2 className="text-lg font-semibold text-emerald-900">Controle financeiro – só pelo Supabase</h2>
-            <p className="text-sm text-emerald-700 mt-0.5">
+            <h2 className="text-lg font-semibold text-emerald-900 dark:text-emerald-100">Controle financeiro – só pelo Supabase</h2>
+            <p className="text-sm text-emerald-700 dark:text-emerald-200 mt-0.5">
               Resumo oficial a partir da tabela de transações (v_resumo_mensal_oficial).
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <span className="text-sm font-medium text-emerald-800">Mês:</span>
+            <span className="text-sm font-medium text-emerald-800 dark:text-emerald-200">Mês:</span>
             <MonthYearPicker />
           </div>
         </div>
         <div className="p-4">
-          <div className="mb-4 p-3 bg-emerald-100/80 border border-emerald-200 rounded-xl">
-            <p className="text-sm font-semibold text-emerald-900">
+          <div className="mb-4 p-3 bg-emerald-100/80 border border-emerald-200 rounded-xl dark:bg-emerald-950/40 dark:border-emerald-800/50">
+            <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">
               Período exibido: <span className="underline">{mesRealExtenso}</span>
             </p>
-            <p className="text-xs text-emerald-800 mt-0.5">Dados do Supabase referem-se diretamente ao mês selecionado.</p>
+            <p className="text-xs text-emerald-800 dark:text-emerald-200 mt-0.5">Dados do Supabase referem-se diretamente ao mês selecionado.</p>
           </div>
           <div className="grid gap-4 md:grid-cols-3">
             <KpiCard
@@ -700,37 +740,37 @@ export function OverviewPage() {
             />
           </div>
           <div className="mt-6">
-            <h3 className="text-sm font-medium text-gray-700 mb-2">Evolução mensal – entradas x saídas</h3>
+            <h3 className="text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Evolução mensal – entradas x saídas</h3>
             <MonthlyTrendChart data={trendData} isLoading={isLoading} />
           </div>
           <div className="mt-6">
-            <h3 className="text-sm font-medium text-gray-700 mb-2">Resumo mensal (Supabase)</h3>
+            <h3 className="text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Resumo mensal (Supabase)</h3>
             <ResumoMensalTable rows={resumoMensal} isLoading={isLoading} />
           </div>
 
           <div className="mt-6 space-y-4">
-            <h3 className="text-sm font-medium text-gray-700">Detalhes por mês selecionado</h3>
-            <p className="text-xs text-gray-500">
+            <h3 className="text-sm font-medium text-gray-700 dark:text-slate-300">Detalhes por mês selecionado</h3>
+            <p className="text-xs text-gray-500 dark:text-slate-400">
               Lista de todas as entradas e todas as saídas do mês <strong>{mesRealExtenso}</strong> (Supabase).
             </p>
 
             {temDadosSupabase && (
-              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
-                <h4 className="text-sm font-semibold text-slate-800 mb-3">Conferência: resumo x soma das listas</h4>
-                <p className="text-xs text-slate-600 mb-3">
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl dark:bg-slate-900/50 dark:border-slate-700">
+                <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-3">Conferência: resumo x soma das listas</h4>
+                <p className="text-xs text-slate-600 dark:text-slate-400 mb-3">
                   Comparação entre o total do mês (resumo Supabase) e a soma dos itens das listas abaixo. Abra as listas para carregar e conferir.
                 </p>
                 <div className="grid gap-3 sm:grid-cols-2 text-sm">
-                  <div className="rounded-lg border border-emerald-200 bg-white p-3">
+                  <div className="rounded-lg border border-emerald-200 bg-white dark:bg-slate-900 dark:border-emerald-800/50 p-3">
                     <div className="font-medium text-emerald-900 mb-1">Entradas</div>
-                    <div className="text-slate-700">
+                    <div className="text-slate-700 dark:text-slate-300">
                       Resumo (Supabase): <strong>{totalResumoEntradas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
                     </div>
-                    <div className="text-slate-700">
+                    <div className="text-slate-700 dark:text-slate-300">
                       Soma da lista: {podeConferirEntradas ? (
                         <strong>{somaListaEntradas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
                       ) : (
-                        <span className="text-slate-400">— (abra a lista)</span>
+                        <span className="text-slate-400 dark:text-slate-500">— (abra a lista)</span>
                       )}
                     </div>
                     {podeConferirEntradas && (
@@ -739,16 +779,16 @@ export function OverviewPage() {
                       </div>
                     )}
                   </div>
-                  <div className="rounded-lg border border-rose-200 bg-white p-3">
+                  <div className="rounded-lg border border-rose-200 bg-white dark:bg-slate-900 dark:border-rose-800/50 p-3">
                     <div className="font-medium text-rose-900 mb-1">Saídas</div>
-                    <div className="text-slate-700">
+                    <div className="text-slate-700 dark:text-slate-300">
                       Resumo (Supabase): <strong>{totalResumoSaidas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
                     </div>
-                    <div className="text-slate-700">
+                    <div className="text-slate-700 dark:text-slate-300">
                       Soma da lista: {podeConferirSaidas ? (
                         <strong>{somaListaSaidas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
                       ) : (
-                        <span className="text-slate-400">— (abra a lista)</span>
+                        <span className="text-slate-400 dark:text-slate-500">— (abra a lista)</span>
                       )}
                     </div>
                     {podeConferirSaidas && (
@@ -771,12 +811,12 @@ export function OverviewPage() {
                 <span className="text-emerald-600">{showDetalheEntradas ? '▼ Ocultar' : '▶ Ver lista'}</span>
               </button>
               {showDetalheEntradas && (
-                <div className="border-t border-emerald-200 bg-white">
+                <div className="border-t border-emerald-200 bg-white dark:bg-slate-900 dark:border-emerald-800/50">
                   {loadingDetalheEntradas ? (
-                    <p className="p-4 text-sm text-gray-500">Carregando…</p>
+                    <p className="p-4 text-sm text-gray-500 dark:text-slate-400">Carregando…</p>
                   ) : detalheEntradas && detalheEntradas.length > 0 ? (
                     <div className="max-h-72 overflow-y-auto">
-                      <div className="p-2 border-b border-emerald-100 bg-white sticky top-0 z-10">
+                      <div className="p-2 border-b border-emerald-100 bg-white dark:bg-slate-900 dark:border-emerald-900/40 sticky top-0 z-10">
                         <input
                           type="search"
                           placeholder="Filtrar por pessoa ou descrição…"
@@ -796,20 +836,20 @@ export function OverviewPage() {
                         </thead>
                         <tbody>
                           {detalheEntradasFiltradas.map((r) => (
-                            <tr key={r.id} className="border-t border-gray-100 hover:bg-gray-50">
-                              <td className="py-2 px-3 text-gray-800">{r.data}</td>
-                              <td className="py-2 px-3 text-gray-800">{r.pessoa}</td>
+                            <tr key={r.id} className="border-t border-gray-100 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/60">
+                              <td className="py-2 px-3 text-gray-800 dark:text-slate-200">{r.data}</td>
+                              <td className="py-2 px-3 text-gray-800 dark:text-slate-200">{r.pessoa}</td>
                               <td className="py-2 px-3 text-right font-medium text-emerald-800">
                                 {r.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                               </td>
-                              <td className="py-2 px-3 text-gray-600 max-w-[200px] truncate" title={r.descricao ?? ''}>{r.descricao ?? '–'}</td>
+                              <td className="py-2 px-3 text-gray-600 dark:text-slate-400 max-w-[200px] truncate" title={r.descricao ?? ''}>{r.descricao ?? '–'}</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
                   ) : (
-                    <p className="p-4 text-sm text-gray-500">Nenhuma entrada neste mês.</p>
+                    <p className="p-4 text-sm text-gray-500 dark:text-slate-400">Nenhuma entrada neste mês.</p>
                   )}
                 </div>
               )}
@@ -825,12 +865,12 @@ export function OverviewPage() {
                 <span className="text-rose-600">{showDetalheSaidas ? '▼ Ocultar' : '▶ Ver lista'}</span>
               </button>
               {showDetalheSaidas && (
-                <div className="border-t border-rose-200 bg-white">
+                <div className="border-t border-rose-200 bg-white dark:bg-slate-900 dark:border-rose-800/50">
                   {loadingDetalheSaidas ? (
-                    <p className="p-4 text-sm text-gray-500">Carregando…</p>
+                    <p className="p-4 text-sm text-gray-500 dark:text-slate-400">Carregando…</p>
                   ) : detalheSaidas && detalheSaidas.length > 0 ? (
                     <div className="max-h-72 overflow-y-auto">
-                      <div className="p-2 border-b border-rose-100 bg-white sticky top-0 z-10">
+                      <div className="p-2 border-b border-rose-100 bg-white dark:bg-slate-900 dark:border-rose-900/40 sticky top-0 z-10">
                         <input
                           type="search"
                           placeholder="Filtrar por pessoa ou descrição…"
@@ -850,20 +890,20 @@ export function OverviewPage() {
                         </thead>
                         <tbody>
                           {detalheSaidasFiltradas.map((r) => (
-                            <tr key={r.id} className="border-t border-gray-100 hover:bg-gray-50">
-                              <td className="py-2 px-3 text-gray-800">{r.data}</td>
-                              <td className="py-2 px-3 text-gray-800">{r.pessoa}</td>
+                            <tr key={r.id} className="border-t border-gray-100 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/60">
+                              <td className="py-2 px-3 text-gray-800 dark:text-slate-200">{r.data}</td>
+                              <td className="py-2 px-3 text-gray-800 dark:text-slate-200">{r.pessoa}</td>
                               <td className="py-2 px-3 text-right font-medium text-rose-800">
                                 {r.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                               </td>
-                              <td className="py-2 px-3 text-gray-600 max-w-[200px] truncate" title={r.descricao ?? ''}>{r.descricao ?? '–'}</td>
+                              <td className="py-2 px-3 text-gray-600 dark:text-slate-400 max-w-[200px] truncate" title={r.descricao ?? ''}>{r.descricao ?? '–'}</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
                   ) : (
-                    <p className="p-4 text-sm text-gray-500">Nenhuma saída neste mês.</p>
+                    <p className="p-4 text-sm text-gray-500 dark:text-slate-400">Nenhuma saída neste mês.</p>
                   )}
                 </div>
               )}
@@ -873,76 +913,76 @@ export function OverviewPage() {
       </section>
 
       {/* ========== SEÇÃO 3: COMPARAÇÃO + FILTRO POR MODALIDADE/CATEGORIA ========== */}
-      <section className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">
-        <div className="bg-amber-50 border-b border-amber-100 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <section className="bg-white dark:bg-slate-900 rounded-xl shadow-md border border-slate-200 dark:border-slate-700 overflow-hidden">
+        <div className="bg-amber-50 border-b border-amber-100 px-4 py-3 flex flex-wrap items-center justify-between gap-3 dark:bg-amber-950/40 dark:border-amber-900/50">
           <div>
-            <h2 className="text-lg font-semibold text-amber-900">Comparação: planilha x Supabase</h2>
-            <p className="text-sm text-amber-800 mt-0.5">
+            <h2 className="text-lg font-semibold text-amber-900 dark:text-amber-100">Comparação: planilha x Supabase</h2>
+            <p className="text-sm text-amber-800 dark:text-amber-200 mt-0.5">
               Confronte os totais do mês e filtre por modalidade/categoria (dados da planilha CONTROLE DE CAIXA).
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <span className="text-sm font-medium text-amber-800">Mês:</span>
+            <span className="text-sm font-medium text-amber-800 dark:text-amber-200">Mês:</span>
             <MonthYearPicker />
           </div>
         </div>
         <div className="p-4 space-y-6">
-          <div className="p-3 bg-amber-100/80 border border-amber-200 rounded-xl">
-            <p className="text-sm font-semibold text-amber-900">
+          <div className="p-3 bg-amber-100/80 border border-amber-200 rounded-xl dark:bg-amber-950/40 dark:border-amber-800/50">
+            <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
               Período da comparação: <span className="underline">{mesRealExtenso}</span>
             </p>
-            <p className="text-xs text-amber-800 mt-0.5">
+            <p className="text-xs text-amber-800 dark:text-amber-200 mt-0.5">
               Planilha: fechamento de {mesRealExtenso} (aba “{abaPlanilha}”). Supabase: dados de {mesRealExtenso}.
             </p>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[400px] text-sm border rounded-lg overflow-hidden">
-              <thead className="bg-gray-100">
+            <table className="w-full min-w-[400px] text-sm border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+              <thead className="bg-gray-100 dark:bg-slate-800">
                 <tr>
-                  <th className="text-left py-3 px-4 font-semibold text-gray-700">Indicador</th>
+                  <th className="text-left py-3 px-4 font-semibold text-gray-700 dark:text-slate-300">Indicador</th>
                   <th className="text-right py-3 px-4 font-semibold text-indigo-700">Planilha (CONTROLE DE CAIXA)</th>
                   <th className="text-right py-3 px-4 font-semibold text-emerald-700">Supabase</th>
-                  <th className="text-right py-3 px-4 font-semibold text-gray-700">Diferença</th>
+                  <th className="text-right py-3 px-4 font-semibold text-gray-700 dark:text-slate-300">Diferença</th>
                 </tr>
               </thead>
               <tbody>
-                <tr className="border-t border-gray-200 hover:bg-gray-50">
-                  <td className="py-3 px-4 font-medium text-gray-800">Entradas</td>
+                <tr className="border-t border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800/60">
+                  <td className="py-3 px-4 font-medium text-gray-800 dark:text-slate-200">Entradas</td>
                   <td className="py-3 px-4 text-right text-indigo-700">
                     {planilhaEntrada != null ? planilhaEntrada.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '–'}
                   </td>
                   <td className="py-3 px-4 text-right text-emerald-700">
                     {temDadosSupabase ? mesEmFoco!.total_entradas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '–'}
                   </td>
-                  <td className="py-3 px-4 text-right text-gray-600">
+                  <td className="py-3 px-4 text-right text-gray-600 dark:text-slate-400">
                     {planilhaEntrada != null && temDadosSupabase
                       ? (planilhaEntrada - mesEmFoco!.total_entradas).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
                       : '–'}
                   </td>
                 </tr>
-                <tr className="border-t border-gray-200 hover:bg-gray-50">
-                  <td className="py-3 px-4 font-medium text-gray-800">Saídas</td>
+                <tr className="border-t border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800/60">
+                  <td className="py-3 px-4 font-medium text-gray-800 dark:text-slate-200">Saídas</td>
                   <td className="py-3 px-4 text-right text-indigo-700">
                     {planilhaSaida != null ? planilhaSaida.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '–'}
                   </td>
                   <td className="py-3 px-4 text-right text-emerald-700">
                     {temDadosSupabase ? mesEmFoco!.total_saidas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '–'}
                   </td>
-                  <td className="py-3 px-4 text-right text-gray-600">
+                  <td className="py-3 px-4 text-right text-gray-600 dark:text-slate-400">
                     {planilhaSaida != null && temDadosSupabase
                       ? (planilhaSaida - mesEmFoco!.total_saidas).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
                       : '–'}
                   </td>
                 </tr>
-                <tr className="border-t border-gray-200 hover:bg-gray-50">
-                  <td className="py-3 px-4 font-medium text-gray-800">Saldo / Lucro</td>
+                <tr className="border-t border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800/60">
+                  <td className="py-3 px-4 font-medium text-gray-800 dark:text-slate-200">Saldo / Lucro</td>
                   <td className="py-3 px-4 text-right text-indigo-700">
                     {planilhaLucro != null ? planilhaLucro.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '–'}
                   </td>
                   <td className="py-3 px-4 text-right text-emerald-700">
                     {temDadosSupabase ? mesEmFoco!.saldo_mes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '–'}
                   </td>
-                  <td className="py-3 px-4 text-right text-gray-600">
+                  <td className="py-3 px-4 text-right text-gray-600 dark:text-slate-400">
                     {planilhaLucro != null && temDadosSupabase
                       ? (planilhaLucro - mesEmFoco!.saldo_mes).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
                       : '–'}
@@ -953,8 +993,8 @@ export function OverviewPage() {
           </div>
 
           <div>
-            <h3 className="text-sm font-semibold text-gray-800 mb-2">Entrada por modalidade e categoria (planilha)</h3>
-            <p className="text-xs text-gray-500 mb-3">
+            <h3 className="text-sm font-semibold text-gray-800 dark:text-slate-200 mb-2">Entrada por modalidade e categoria (planilha)</h3>
+            <p className="text-xs text-gray-500 dark:text-slate-400 mb-3">
               Filtre para ver quanto entrou por modalidade/categoria conforme a planilha CONTROLE DE CAIXA.
             </p>
             <input
@@ -962,7 +1002,7 @@ export function OverviewPage() {
               placeholder="Filtrar por nome da modalidade ou categoria..."
               value={filtroModalidade}
               onChange={(e) => setFiltroModalidade(e.target.value)}
-              className="w-full max-w-md rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
+              className="w-full max-w-md rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
             />
             <div className="mt-3 border rounded-lg overflow-hidden max-h-64 overflow-y-auto">
               <table className="w-full text-sm">
@@ -975,15 +1015,15 @@ export function OverviewPage() {
                 <tbody>
                   {linhasPorModalidade.length === 0 ? (
                     <tr>
-                      <td colSpan={2} className="py-6 px-3 text-center text-gray-500">
+                      <td colSpan={2} className="py-6 px-3 text-center text-gray-500 dark:text-slate-400">
                         {filtroModalidade.trim() ? 'Nenhum item encontrado para o filtro.' : 'Nenhuma linha de modalidade/categoria na planilha para este mês.'}
                       </td>
                     </tr>
                   ) : (
                     linhasPorModalidade.map((l, i) => (
-                      <tr key={i} className="border-t border-gray-100 hover:bg-amber-50/50">
-                        <td className="py-2 px-3 text-gray-800">{l.label}</td>
-                        <td className="py-2 px-3 text-right font-medium text-gray-900">
+                      <tr key={i} className="border-t border-gray-100 dark:border-slate-800 hover:bg-amber-50/50">
+                        <td className="py-2 px-3 text-gray-800 dark:text-slate-200">{l.label}</td>
+                        <td className="py-2 px-3 text-right font-medium text-gray-900 dark:text-slate-100">
                           {l.valorNum != null ? l.valorNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : l.valor ?? '–'}
                         </td>
                       </tr>

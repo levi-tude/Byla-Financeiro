@@ -24,7 +24,7 @@ export function ResumoMensalTable({ rows, isLoading }: ResumoMensalTableProps) {
     return (
       <div className="space-y-2">
         {[1, 2, 3, 4, 5].map((i) => (
-          <div key={i} className="h-10 bg-gray-100 rounded animate-pulse" />
+          <div key={i} className="h-10 bg-gray-100 dark:bg-slate-800 rounded animate-pulse" />
         ))}
       </div>
     );
@@ -32,7 +32,7 @@ export function ResumoMensalTable({ rows, isLoading }: ResumoMensalTableProps) {
 
   if (!rows.length) {
     return (
-      <p className="text-sm text-gray-500 py-6 text-center">
+      <p className="text-sm text-gray-500 dark:text-slate-400 py-6 text-center">
         Sem meses registrados ainda.
       </p>
     );
@@ -42,7 +42,7 @@ export function ResumoMensalTable({ rows, isLoading }: ResumoMensalTableProps) {
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-gray-200 text-left text-gray-500 font-medium">
+          <tr className="border-b border-gray-200 dark:border-slate-700 text-left text-gray-500 dark:text-slate-400 font-medium">
             <th className="pb-2 pr-4">Mês</th>
             <th className="pb-2 pr-4 text-right">Entradas</th>
             <th className="pb-2 pr-4 text-right">Saídas</th>
@@ -59,15 +59,15 @@ export function ResumoMensalTable({ rows, isLoading }: ResumoMensalTableProps) {
             return (
               <tr
                 key={`${row.ano}-${row.mes}`}
-                className="border-b border-gray-100 hover:bg-gray-50"
+                className="border-b border-gray-100 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/50"
               >
-                <td className="py-2 pr-4 font-medium text-gray-900">
+                <td className="py-2 pr-4 font-medium text-gray-900 dark:text-slate-100">
                   {formatMesAno(row.mes, row.ano)}
                 </td>
-                <td className="py-2 pr-4 text-right text-gray-700">
+                <td className="py-2 pr-4 text-right text-gray-700 dark:text-slate-300">
                   {formatCurrency(row.total_entradas)}
                 </td>
-                <td className="py-2 pr-4 text-right text-gray-700">
+                <td className="py-2 pr-4 text-right text-gray-700 dark:text-slate-300">
                   {formatCurrency(row.total_saidas)}
                 </td>
                 <td
@@ -77,7 +77,7 @@ export function ResumoMensalTable({ rows, isLoading }: ResumoMensalTableProps) {
                 >
                   {formatCurrency(row.saldo_mes)}
                 </td>
-                <td className="py-2 text-right text-gray-600">
+                <td className="py-2 text-right text-gray-600 dark:text-slate-400">
                   {pct.toFixed(1)}%
                 </td>
               </tr>

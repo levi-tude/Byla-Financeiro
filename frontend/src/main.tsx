@@ -5,13 +5,22 @@ import App from './App';
 import './index.css';
 import { MonthYearProvider } from './context/MonthYearContext';
 import { queryClient } from './queryClient';
+import { AuthProvider } from './auth/AuthContext';
+import { ToastProvider } from './context/ToastContext';
+import { ThemeProvider } from './context/ThemeContext';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <MonthYearProvider>
-        <App />
-      </MonthYearProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <ToastProvider>
+            <MonthYearProvider>
+              <App />
+            </MonthYearProvider>
+          </ToastProvider>
+        </AuthProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   </React.StrictMode>
 );

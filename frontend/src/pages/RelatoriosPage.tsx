@@ -456,6 +456,10 @@ export function RelatoriosPage() {
             Relatórios para gestão e administração: fluxo de caixa (diário/mensal/trimestral/anual), operacional mensal, alunos e inadimplência. O mensal e o operacional mostram as linhas da planilha CONTROLE de caixa antes do texto com IA. O relatório R4 (panorama de alunos) usa a planilha <strong className="font-medium text-gray-800">FLUXO DE CAIXA BYLA</strong> — alunos ativos por aba e modalidade, com mensalidade na competência do mês escolhido. Confira os blocos abaixo e depois gere o parecer com IA para enviar por WhatsApp.
           </p>
 
+          <div className="rounded-lg border border-indigo-100 bg-indigo-50/90 p-3 text-xs text-indigo-950">
+            <strong>Transparência (IA):</strong> o parecer usa somente os dados carregados nesta página para o período que você selecionar abaixo. Sempre revise valores antes de enviar. O modelo em uso é o configurado no servidor (ex.: Gemini ou Groq via variáveis de ambiente no backend).
+          </div>
+
           <div className="text-xs text-gray-600 border border-gray-200 rounded-lg p-3 bg-white">
             <span className="font-medium text-gray-700">Legenda de fontes: </span>
             <span className="mr-3"><span className="font-mono text-[11px] bg-slate-100 px-1 rounded">banco</span> extrato / Supabase oficial</span>

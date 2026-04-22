@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Topbar } from '../app/Topbar';
 import { KpiCard } from '../components/ui/KpiCard';
 import { useAlunosCompleto } from '../hooks/useAlunosCompleto';
@@ -93,7 +94,33 @@ export function AlunosPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
       <div className="p-6 max-w-7xl mx-auto">
-        <Topbar title="Alunos e matrículas" subtitle={subtitulo} />
+        <Topbar
+          title="Alunos e matrículas"
+          subtitle={`${subtitulo} Campos financeiros na planilha costumam aparecer como mensalidade ou valor mensal — no fluxo operacional usamos o termo «valor de referência» para o mesmo dado salvo no cadastro.`}
+        />
+        <section className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label="Atalhos secretaria">
+          <Link
+            to="/fluxo-caixa"
+            className="rounded-xl border border-indigo-200 bg-white p-4 shadow-sm transition hover:border-indigo-300 hover:shadow focus-visible:outline focus-visible:ring-2 focus-visible:ring-indigo-400"
+          >
+            <h2 className="text-sm font-semibold text-indigo-900">Fluxo de caixa operacional</h2>
+            <p className="mt-1 text-xs text-slate-600">Editar alunos, valor mensal de referência, vencimentos e pagamentos.</p>
+          </Link>
+          <Link
+            to="/validacao-pagamentos-diaria"
+            className="rounded-xl border border-emerald-200 bg-white p-4 shadow-sm transition hover:border-emerald-300 hover:shadow focus-visible:outline focus-visible:ring-2 focus-visible:ring-emerald-400"
+          >
+            <h2 className="text-sm font-semibold text-emerald-900">Validação de pagamentos</h2>
+            <p className="mt-1 text-xs text-slate-600">Conferir o que falta casar entre planilha e banco.</p>
+          </Link>
+          <Link
+            to="/pagamentos-planilha"
+            className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:shadow focus-visible:outline focus-visible:ring-2 focus-visible:ring-slate-400 sm:col-span-2 lg:col-span-1"
+          >
+            <h2 className="text-sm font-semibold text-slate-900">Pagamentos (planilha)</h2>
+            <p className="mt-1 text-xs text-slate-600">Visão focada nos lançamentos como na planilha.</p>
+          </Link>
+        </section>
         {error && (
           <div className="mb-4 p-4 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-800">{error}</div>
         )}

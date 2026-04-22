@@ -296,6 +296,13 @@ export function CalendarioFinanceiroPage() {
         subtitle="Por dia: entradas no banco (oficiais) vs pagamentos na planilha FLUXO BYLA pela data de pagamento."
       />
 
+      <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+        <strong className="text-slate-900">Legenda de status:</strong>{' '}
+        <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5">OK</span> conferido ·{' '}
+        <span className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5">Atenção</span> revisar ·{' '}
+        <span className="rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5">Divergente</span> planilha × banco · passe o mouse no dia para detalhes.
+      </div>
+
       <div className="mt-4 flex flex-wrap gap-3 items-end">
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">Mês</label>

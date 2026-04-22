@@ -595,6 +595,16 @@ export function ValidacaoPagamentosDiariaPage() {
         subtitle="Confere pagamentos declarados na planilha versus entradas reais no banco (por data e, se quiser, por mês de competência)."
       />
 
+      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <h2 className="text-sm font-semibold text-slate-900">Checklist do dia</h2>
+        <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-slate-700">
+          <li>Selecione a <strong>data</strong> do extrato (atalho «Hoje» ou «Ontem»).</li>
+          <li>Filtre <strong>aba</strong> e <strong>modalidade</strong> quando quiser reduzir o volume.</li>
+          <li>Compare totais <strong>planilha × banco</strong> e abra a lista de não confirmados.</li>
+          <li>Use <strong>vínculo manual</strong> quando o sistema marcar match apenas como possível.</li>
+        </ol>
+      </div>
+
       <div className="mt-4 flex flex-wrap gap-3 items-end">
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-2">
           <div className="text-[11px] font-medium text-gray-500 mb-1">Acesso rápido</div>

@@ -16,6 +16,7 @@ import {
 } from '../services/backendApi';
 import { useSaidasPainel } from '../hooks/useSaidasPainel';
 import { useManualLinhaPlanilha } from '../hooks/useManualLinhaPlanilha';
+import { downloadCsv } from '../lib/csv';
 
 const HAS_BACKEND = Boolean((import.meta.env.VITE_BACKEND_URL ?? '').trim());
 
@@ -533,6 +534,16 @@ export function DespesasPage() {
   );
   const totalLinhasPendentes = Math.max(0, totalLinhasValidacao - totalLinhasValidadas);
 
+  const totaisComparacaoFiltrada = useMemo(() => {
+    let banco = 0;
+    let plan = 0;
+    for (const r of comparacaoValidacaoExibicao) {
+      banco += r.totalBanco ?? 0;
+      plan += r.totalPlanilha ?? 0;
+    }
+    return { banco, plan, diff: banco - plan };
+  }, [comparacaoValidacaoExibicao]);
+
   const itensDrillLinhaPlanilha = useMemo(() => {
     if (!usandoPainel || !drillLinhaPlanilha) return [];
     const list = itensPainelMerged;
@@ -809,6 +820,39 @@ export function DespesasPage() {
                 <div className="text-lg font-semibold text-amber-800">{totalLinhasPendentes}</div>
               </div>
             </div>
+            {comparacaoValidacaoExibicao.length > 0 && (
+              <div className="mb-3 flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-slate-700">
+                  <strong>Totais do filtro:</strong> Extrato{' '}
+                  {totaisComparacaoFiltrada.banco.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} · Planilha{' '}
+                  {totaisComparacaoFiltrada.plan.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} · Diferença{' '}
+                  {totaisComparacaoFiltrada.diff.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                </p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    downloadCsv(
+                      `saidas-comparacao-linhas-${monthYear.mes}-${monthYear.ano}.csv`,
+                      ['linha_controle', 'total_extrato', 'total_planilha', 'diferenca', 'qtd_extrato', 'status'],
+                      comparacaoValidacaoExibicao.map((row) => {
+                        const st = statusComparacaoLinha(row);
+                        return [
+                          row.label,
+                          row.totalBanco ?? '',
+                          row.totalPlanilha ?? '',
+                          row.diff ?? '',
+                          row.qtdBanco ?? '',
+                          st.label,
+                        ];
+                      }),
+                    )
+                  }
+                  className="shrink-0 rounded-md border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-100"
+                >
+                  Exportar CSV (filtro)
+                </button>
+              </div>
+            )}
             <div className="mb-3 flex flex-wrap gap-3 items-end">
               <div className="min-w-[14rem] flex-1">
                 <label htmlFor="filtro-linha-validacao" className="block text-xs font-medium text-slate-700 mb-1">

@@ -9,6 +9,7 @@ import {
   type ConciliacaoVencimentoItem,
   type ConciliacaoVencimentoSituacao,
 } from '../services/backendApi';
+import { downloadCsv } from '../lib/csv';
 
 const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL ?? '').trim();
 
@@ -161,6 +162,46 @@ export function ConciliacaoPage() {
 
   const kpis = payload?.kpis;
 
+  const somaValoresPlanilhaFiltrados = useMemo(
+    () => filtrados.reduce((s, r) => s + (r.valor_pagamento_planilha ?? 0), 0),
+    [filtrados],
+  );
+
+  const nSemMatchBanco = useMemo(
+    () => filtrados.filter((r) => r.pago_na_planilha && r.banco_status === 'nao').length,
+    [filtrados],
+  );
+
+  function exportarCsv() {
+    downloadCsv(
+      `conciliacao-vencimentos-${monthYear.mes}-${monthYear.ano}.csv`,
+      [
+        'aba',
+        'modalidade',
+        'aluno',
+        'situacao',
+        'valor_planilha',
+        'venc_mes',
+        'pago_planilha',
+        'data_pag_planilha',
+        'banco_status',
+        'mensagem',
+      ],
+      filtrados.map((r) => [
+        r.aba,
+        r.modalidade,
+        r.aluno,
+        r.situacao,
+        r.valor_pagamento_planilha ?? '',
+        r.data_vencimento_mes ?? '',
+        r.pago_na_planilha ? 'sim' : 'nao',
+        r.data_pagamento_planilha ?? '',
+        r.banco_status,
+        `${r.mensagem} ${r.banco_mensagem ?? ''}`.trim(),
+      ]),
+    );
+  }
+
   return (
     <div className="p-6">
       <Topbar
@@ -281,9 +322,37 @@ export function ConciliacaoPage() {
         <KpiCard label="Banco ambíguo" value={String(kpis?.banco_ambiguo ?? '—')} accentColor="primary" isLoading={loading} />
       </div>
 
+      {!loading && filtrados.length > 0 && (
+        <div className="mt-4 flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-sm text-slate-700">
+            <p>
+              <strong>Lista filtrada:</strong> {filtrados.length} registro(s) ·{' '}
+              <strong>Soma dos valores (planilha):</strong>{' '}
+              {somaValoresPlanilhaFiltrados.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}{' '}
+              <span className="text-slate-500">(linhas sem valor não entram na soma)</span>
+            </p>
+            {nSemMatchBanco > 0 ? (
+              <p className="mt-1 text-amber-800">
+                <strong>Atenção:</strong> {nSemMatchBanco} lançamento(s) marcados como pagos na planilha sem correspondência clara no banco — revise na coluna Banco.
+              </p>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={exportarCsv}
+            className="shrink-0 rounded-lg border border-slate-300 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-100 focus-visible:outline focus-visible:ring-2 focus-visible:ring-indigo-500"
+          >
+            Exportar CSV (filtro atual)
+          </button>
+        </div>
+      )}
+
       <div className="mt-6 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="px-4 py-3 border-b bg-gray-50">
+        <div className="px-4 py-3 border-b bg-gray-50 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold text-gray-800">Lista ({filtrados.length} registro(s))</h2>
+          <p className="text-xs text-gray-500 max-w-xl">
+            Linhas com borda colorida: verde = em dia; âmbar = atraso no pagamento; vermelho = em aberto; azul = a vencer.
+          </p>
         </div>
         <div className="overflow-x-auto">
           {loading ? (
@@ -293,7 +362,12 @@ export function ConciliacaoPage() {
               ))}
             </div>
           ) : filtrados.length === 0 ? (
-            <p className="p-6 text-sm text-gray-500">Nenhum registro para os filtros.</p>
+            <div className="p-6 text-sm text-gray-600">
+              <p>Nenhum registro para os filtros atuais.</p>
+              <p className="mt-2 text-gray-500">
+                Limpe a busca por nome, volte <strong>Aba</strong> e <strong>Situação</strong> para «todas» ou troque o mês no topo do painel.
+              </p>
+            </div>
           ) : (
             <div className="p-3 space-y-4">
               {agrupadosPorAba.map(([abaNome, itensAba]) => {
