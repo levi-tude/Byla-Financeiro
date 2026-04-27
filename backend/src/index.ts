@@ -12,6 +12,7 @@ function corsOriginHandler(origin: string | undefined, cb: (err: Error | null, a
   if (!origin) return cb(null, true);
   if (corsOrigins.includes(origin)) return cb(null, true);
   if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) return cb(null, true);
+  if (origin.endsWith('.vercel.app')) return cb(null, true);
   return cb(null, false);
 }
 app.use(cors({ origin: corsOriginHandler, optionsSuccessStatus: 200 }));
