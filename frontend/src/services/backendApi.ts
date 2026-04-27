@@ -195,6 +195,10 @@ export interface ControleCaixaLinha {
   valor: number | null;
   valorTexto: string | null;
   ordem: number;
+  templateKey?: string | null;
+  isDefault?: boolean;
+  isCustom?: boolean;
+  lockedLevel?: 'none' | 'warn' | 'strong';
 }
 
 export interface ControleCaixaBloco {
@@ -202,6 +206,10 @@ export interface ControleCaixaBloco {
   tipo: 'entrada' | 'saida';
   titulo: string;
   ordem: number;
+  templateKey?: string | null;
+  isDefault?: boolean;
+  isCustom?: boolean;
+  lockedLevel?: 'none' | 'warn' | 'strong';
   linhas: ControleCaixaLinha[];
 }
 
@@ -210,6 +218,7 @@ export interface ControleCaixaResponse {
   ano: number;
   abaRef: string | null;
   origem: string;
+  updatedAt?: string | null;
   totais: {
     entradaTotal: number | null;
     saidaTotal: number | null;
@@ -276,7 +285,7 @@ export interface FluxoOperacionalAlunosResponse {
 export interface FluxoOperacionalAlunoPayload {
   aba: string;
   modalidade: string;
-  linhaPlanilha: number;
+  linhaPlanilha?: number;
   alunoNome: string;
   wpp?: string | null;
   responsaveis?: string | null;
@@ -364,7 +373,7 @@ export interface FluxoOperacionalPagamentosResponse {
 export interface FluxoOperacionalPagamentoPayload {
   aba: string;
   modalidade: string;
-  linhaPlanilha: number;
+  linhaPlanilha?: number;
   ordemLancamento?: number;
   alunoNome: string;
   dataPagamento: string;

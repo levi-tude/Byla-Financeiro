@@ -229,7 +229,7 @@ router.get('/validacao-pagamentos-diaria', async (req: Request, res: Response) =
     const delta = totalPlanilha - totalBancoMatch;
     const statusGeral = itensNaoConfirmadosFinais.length > 0 ? 'divergente' : itensPossivelMatchFinais.length > 0 ? 'atencao' : 'ok';
 
-    res.json({
+    const payload = {
       meta: { data: dataStr, ano, aba: normalizeText(abaReq) === 'TODAS' ? 'TODAS' : abaReq, abas_consideradas: abasSelecionadas, modalidade: modalidadeReq || null },
       planilha: { total: totalPlanilha, quantidade: planilhaItens.length, itens: planilhaItens },
       banco: { total: totalBancoMatch, quantidade: bancoItensMatch.length, itens: bancoItensDiaExibicao },
@@ -244,7 +244,22 @@ router.get('/validacao-pagamentos-diaria', async (req: Request, res: Response) =
         itens_possivel_match: itensPossivelMatchFinais,
         itens_banco_sem_correspondencia: itensBancoSemCorrespondencia,
       },
-    });
+    };
+
+    if (req.authUser?.role === 'secretaria') {
+      return res.json({
+        ...payload,
+        banco: { total: 0, quantidade: 0, itens: [] },
+        validacao: {
+          ...payload.validacao,
+          itens_confirmados: payload.validacao.itens_confirmados.map((item) => ({ planilha: item.planilha })),
+          itens_possivel_match: payload.validacao.itens_possivel_match.map((item) => ({ planilha: item.planilha })),
+          itens_banco_sem_correspondencia: [],
+        },
+      });
+    }
+
+    res.json(payload);
   } catch (e) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }

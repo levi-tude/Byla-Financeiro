@@ -27,6 +27,29 @@ function formatBrl(n: number | null | undefined): string {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(n));
 }
 
+function parseCurrencyNumber(raw: string): number | null {
+  const normalized = raw
+    .trim()
+    .replace(/[^\d,.-]/g, '')
+    .replace(/\.(?=\d{3}(\D|$))/g, '')
+    .replace(',', '.');
+  if (!normalized) return null;
+  const n = Number(normalized);
+  return Number.isFinite(n) ? n : null;
+}
+
+function toEditableCurrency(raw: string): string {
+  const n = parseCurrencyNumber(raw);
+  if (n == null) return '';
+  return n.toFixed(2).replace('.', ',');
+}
+
+function toFormattedCurrency(raw: string): string {
+  const n = parseCurrencyNumber(raw);
+  if (n == null) return '';
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n);
+}
+
 function formatDataBr(iso: string): string {
   if (!iso) return '—';
   const [y, m, d] = iso.split('-').map(Number);
@@ -205,11 +228,12 @@ function initialForm(): FormState {
 }
 
 function toPayload(form: FormState): FluxoOperacionalAlunoPayload {
-  const valor = form.valorReferencia.trim() ? Number(form.valorReferencia.replace(',', '.')) : null;
+  const valor = parseCurrencyNumber(form.valorReferencia);
+  const linha = Number(form.linhaPlanilha);
   return {
     aba: form.aba.trim(),
     modalidade: form.modalidade.trim(),
-    linhaPlanilha: Number(form.linhaPlanilha),
+    linhaPlanilha: Number.isInteger(linha) && linha > 0 ? linha : undefined,
     alunoNome: form.alunoNome.trim(),
     wpp: form.wpp.trim() || null,
     responsaveis: form.responsaveis.trim() || null,
@@ -234,7 +258,7 @@ function toForm(item: FluxoOperacionalAluno): FormState {
     plano: item.plano ?? '',
     matricula: item.matricula ?? '',
     venc: item.venc ?? '',
-    valorReferencia: item.valor_referencia != null ? String(item.valor_referencia) : '',
+    valorReferencia: item.valor_referencia != null ? formatBrl(item.valor_referencia) : '',
     pagadorPix: item.pagador_pix ?? '',
     observacoes: item.observacoes ?? '',
     ativo: item.ativo,
@@ -281,16 +305,17 @@ function initialPagamentoForm(mes: number, ano: number): PagamentoFormState {
 }
 
 function toPagamentoPayload(form: PagamentoFormState): FluxoOperacionalPagamentoPayload {
-  const valor = Number(form.valor.replace(',', '.'));
+  const valor = parseCurrencyNumber(form.valor);
+  const linha = Number(form.linhaPlanilha);
   return {
     aba: form.aba.trim(),
     modalidade: form.modalidade.trim(),
-    linhaPlanilha: Number(form.linhaPlanilha),
+    linhaPlanilha: Number.isInteger(linha) && linha > 0 ? linha : undefined,
     ordemLancamento: Number(form.ordemLancamento || '1'),
     alunoNome: form.alunoNome.trim(),
     dataPagamento: form.dataPagamento,
     forma: form.forma.trim() || null,
-    valor: Number.isFinite(valor) ? valor : NaN,
+    valor: valor != null && Number.isFinite(valor) ? valor : NaN,
     mesCompetencia: Number(form.mesCompetencia),
     anoCompetencia: Number(form.anoCompetencia),
     responsaveis: form.responsaveis.trim() || null,
@@ -307,7 +332,7 @@ function toPagamentoForm(item: FluxoOperacionalPagamento): PagamentoFormState {
     alunoNome: item.aluno_nome,
     dataPagamento: item.data_pagamento,
     forma: item.forma ?? '',
-    valor: String(item.valor),
+    valor: formatBrl(item.valor),
     mesCompetencia: String(item.mes_competencia),
     anoCompetencia: String(item.ano_competencia),
     responsaveis: item.responsaveis ?? '',
@@ -589,8 +614,6 @@ export function FluxoCaixaOperacionalPage() {
     if (!formState.aba.trim()) return 'Informe a aba.';
     if (!formState.modalidade.trim()) return 'Informe a modalidade.';
     if (!formState.alunoNome.trim()) return 'Informe o nome do aluno.';
-    const linha = Number(formState.linhaPlanilha);
-    if (!Number.isInteger(linha) || linha < 1) return 'Linha da planilha deve ser um número inteiro maior que zero.';
     return null;
   }
 
@@ -599,10 +622,8 @@ export function FluxoCaixaOperacionalPage() {
     if (!formState.modalidade.trim()) return 'Informe a modalidade do pagamento.';
     if (!formState.alunoNome.trim()) return 'Informe o aluno do pagamento.';
     if (!formState.dataPagamento.trim()) return 'Informe a data do pagamento.';
-    const linha = Number(formState.linhaPlanilha);
-    if (!Number.isInteger(linha) || linha < 1) return 'Linha da planilha deve ser um número inteiro maior que zero.';
-    const valor = Number(formState.valor.replace(',', '.'));
-    if (!Number.isFinite(valor) || valor <= 0) return 'Valor do pagamento deve ser maior que zero.';
+    const valor = parseCurrencyNumber(formState.valor);
+    if (valor == null || !Number.isFinite(valor) || valor <= 0) return 'Valor do pagamento deve ser maior que zero.';
     const mesComp = Number(formState.mesCompetencia);
     if (!Number.isInteger(mesComp) || mesComp < 1 || mesComp > 12) return 'Mês de competência inválido.';
     const anoComp = Number(formState.anoCompetencia);
@@ -684,7 +705,7 @@ export function FluxoCaixaOperacionalPage() {
       responsaveis: p.responsaveis ?? p.aluno_responsaveis ?? '',
       pagadorPix: p.pagador_pix ?? p.aluno_pagador_pix ?? '',
       venc: p.aluno_venc ?? '',
-      valorReferencia: p.aluno_valor_referencia != null ? String(p.aluno_valor_referencia) : '',
+      valorReferencia: p.aluno_valor_referencia != null ? formatBrl(p.aluno_valor_referencia) : '',
     });
     setAlunoModalOpen(true);
   }
@@ -1527,7 +1548,7 @@ export function FluxoCaixaOperacionalPage() {
                 />
               </label>
               <label className="text-xs text-slate-600">
-                Linha (planilha)
+                Linha (planilha) - opcional
                 <input
                   className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
                   value={form.linhaPlanilha}
@@ -1586,9 +1607,12 @@ export function FluxoCaixaOperacionalPage() {
                 Valor referência (mensal)
                 <input
                   className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
-                  placeholder="ex: 150 ou 150,50"
+                  placeholder="R$ 0,00"
                   value={form.valorReferencia}
                   onChange={(e) => setForm((p) => ({ ...p, valorReferencia: e.target.value }))}
+                  onFocus={(e) => setForm((p) => ({ ...p, valorReferencia: toEditableCurrency(e.target.value) }))}
+                  onBlur={(e) => setForm((p) => ({ ...p, valorReferencia: toFormattedCurrency(e.target.value) }))}
+                  inputMode="decimal"
                 />
               </label>
               <label className="text-xs text-slate-600 sm:col-span-2">
@@ -1710,7 +1734,7 @@ export function FluxoCaixaOperacionalPage() {
                 />
               </label>
               <label className="text-xs text-slate-600">
-                Linha
+                Linha - opcional
                 <input
                   className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
                   value={pagForm.linhaPlanilha}
@@ -1754,8 +1778,12 @@ export function FluxoCaixaOperacionalPage() {
                 Valor
                 <input
                   className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+                  placeholder="R$ 0,00"
                   value={pagForm.valor}
                   onChange={(e) => setPagForm((p) => ({ ...p, valor: e.target.value }))}
+                  onFocus={(e) => setPagForm((p) => ({ ...p, valor: toEditableCurrency(e.target.value) }))}
+                  onBlur={(e) => setPagForm((p) => ({ ...p, valor: toFormattedCurrency(e.target.value) }))}
+                  inputMode="decimal"
                 />
               </label>
               <label className="text-xs text-slate-600">

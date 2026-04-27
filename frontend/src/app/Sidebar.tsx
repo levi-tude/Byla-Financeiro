@@ -3,17 +3,17 @@ import { useAuth } from '../auth/AuthContext';
 import type { AppRole } from '../auth/types';
 
 const navItems: Array<{ path: string; label: string; roles: AppRole[] }> = [
-  { path: '/', label: 'Visão geral', roles: ['secretaria', 'admin'] },
-  { path: '/conciliacao', label: 'Conciliação', roles: ['admin'] },
-  { path: '/entradas', label: 'Entradas', roles: ['admin'] },
-  { path: '/atividades', label: 'Atividades', roles: ['secretaria', 'admin'] },
-  { path: '/alunos', label: 'Alunos', roles: ['secretaria', 'admin'] },
-  { path: '/saidas', label: 'Saídas', roles: ['admin'] },
-  { path: '/relatorios-ia', label: 'Relatórios IA', roles: ['admin'] },
+  { path: '/controle-caixa', label: 'Controle de caixa', roles: ['admin'] },
   { path: '/fluxo-caixa', label: 'Fluxo de caixa', roles: ['secretaria', 'admin'] },
+  { path: '/', label: 'Visão geral', roles: ['secretaria', 'admin'] },
+  { path: '/alunos', label: 'Alunos', roles: ['secretaria', 'admin'] },
+  { path: '/atividades', label: 'Atividades', roles: ['secretaria', 'admin'] },
   { path: '/pagamentos-planilha', label: 'Pagamentos planilha', roles: ['secretaria', 'admin'] },
   { path: '/validacao-pagamentos-diaria', label: 'Validação de pagamentos', roles: ['secretaria', 'admin'] },
-  { path: '/controle-caixa', label: 'Controle de caixa', roles: ['admin'] },
+  { path: '/conciliacao', label: 'Conciliação', roles: ['admin'] },
+  { path: '/entradas', label: 'Entradas', roles: ['admin'] },
+  { path: '/saidas', label: 'Saídas', roles: ['admin'] },
+  { path: '/relatorios-ia', label: 'Relatórios IA', roles: ['admin'] },
   { path: '/calendario-financeiro', label: 'Calendário financeiro', roles: ['admin'] },
 ];
 
@@ -35,9 +35,19 @@ export function Sidebar({ mobileOpen = false, onNavigate }: SidebarProps) {
       }`}
     >
       <div className="p-4 border-b border-byla-navy-border">
-        <span className="text-white font-semibold text-lg tracking-wide">
-          BYLA
-        </span>
+        <Link
+          to="/perfil"
+          onClick={() => onNavigate?.()}
+          className="group flex items-center gap-3 rounded-lg px-2 py-1.5 transition hover:bg-byla-navy-light focus-visible:outline focus-visible:ring-2 focus-visible:ring-white/80"
+        >
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-sm font-semibold text-white">
+            {(auth.email?.trim().charAt(0) || 'U').toUpperCase()}
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate text-white font-semibold text-lg tracking-wide">BYLA</span>
+            <span className="block truncate text-[11px] text-gray-300">{auth.email ?? 'Meu perfil'}</span>
+          </span>
+        </Link>
       </div>
       <nav className="flex-1 p-3 space-y-0.5">
         {visibleItems.map((item) => {

@@ -24,6 +24,19 @@ export function mergePriorizarPlanilha<T extends Record<string, unknown>>(
   return { combinado: supabaseRows, origem: 'supabase', regra_usada: regraDesc };
 }
 
+/** Prioriza Supabase; se vazio, usa planilha. */
+export function mergePriorizarSupabase<T extends Record<string, unknown>>(
+  planilhaRows: SheetRow[],
+  supabaseRows: T[],
+  regraDesc: string
+): MergeResult<T> {
+  if (supabaseRows.length > 0) {
+    return { combinado: supabaseRows, origem: 'supabase', regra_usada: regraDesc };
+  }
+  const fromSheet = planilhaRows as unknown as T[];
+  return { combinado: fromSheet, origem: fromSheet.length > 0 ? 'planilha' : 'merge', regra_usada: regraDesc };
+}
+
 /** Enriquece: usa supabase como base e adiciona/sobrescreve campos com dados da planilha quando chave bate. */
 export function mergeEnriquecerPorChave<T extends Record<string, unknown>>(
   planilhaRows: SheetRow[],

@@ -4,12 +4,17 @@
  * Retorna dados agrupados por aba e, dentro de cada aba, por modalidade.
  */
 
-import { mergePriorizarPlanilha } from '../logic/merge.js';
+import { mergePriorizarPlanilha, mergePriorizarSupabase } from '../logic/merge.js';
 import type { IAlunosRepository } from '../ports/IAlunosRepository.js';
 import type { IPlanilhaAlunosRepository } from '../ports/IPlanilhaAlunosRepository.js';
 import type { OrigemDados } from '../domain/OrigemDados.js';
 
-const REGRA = 'Alunos: planilhas prevalecem (informações a mais e mais verificadas). docs/REGRAS_FONTES_SUPABASE_PLANILHAS.md';
+const REGRA_PLANILHA = 'Alunos: planilhas prevalecem (modo legado). docs/REGRAS_FONTES_SUPABASE_PLANILHAS.md';
+const REGRA_SUPABASE = 'Alunos: Supabase prevalece (fonte principal); planilha apenas fallback temporário.';
+
+function useSupabaseAsPrimary(): boolean {
+  return (process.env.BYLA_SOURCE_CADASTRO_PRIMARY ?? 'supabase').trim().toLowerCase() === 'supabase';
+}
 
 /** Colunas que indicam modalidade (ou vinda do parser de blocos: _modalidade). */
 const COLS_MODALIDADE = ['_modalidade', 'MODALIDADE', 'MODALIDADE ', 'Modalidade', 'TIPO', 'Tipo', 'ATIVIDADE', 'Atividade'];
@@ -80,11 +85,9 @@ export class GetAlunosCompletoUseCase {
       planilhaRows = res.rows as { [key: string]: string | number }[];
       sheetError = res.error;
     }
-    const merged = mergePriorizarPlanilha(
-      planilhaRows,
-      supabaseRows as Record<string, unknown>[],
-      REGRA
-    );
+    const merged = useSupabaseAsPrimary()
+      ? mergePriorizarSupabase(planilhaRows, supabaseRows as Record<string, unknown>[], REGRA_SUPABASE)
+      : mergePriorizarPlanilha(planilhaRows, supabaseRows as Record<string, unknown>[], REGRA_PLANILHA);
     let porAba = agruparPorAbaEModalidade(merged.combinado as Record<string, unknown>[]);
     if (abasLidas?.length) {
       for (const nomeAba of abasLidas) {

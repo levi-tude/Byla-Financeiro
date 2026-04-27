@@ -20,7 +20,10 @@
     "n8n:list-workflows": "tsx scripts/n8nListWorkflowsApi.ts",
     "n8n:verify-montar-linhas": "tsx scripts/n8nVerifyMontarLinhas.ts",
     "n8n:push-export-workflow": "tsx scripts/n8nPushWebhookExportWorkflow.ts",
-    "inspect:controle": "tsx scripts/inspectControleCaixa.ts"
+    "inspect:controle": "tsx scripts/inspectControleCaixa.ts",
+    "migrate:controle-mes": "tsx scripts/migrateControleCaixaMes.ts",
+    "migrate:fluxo-operacional": "tsx scripts/migrateFluxoBylaOperacional.ts",
+    "validate:fluxo-migracao": "tsx scripts/validateFluxoMigracao.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

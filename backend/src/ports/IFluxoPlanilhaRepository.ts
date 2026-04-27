@@ -7,5 +7,7 @@ import type { FluxoPlanilhaTotais } from '../domain/FluxoPlanilhaTotais.js';
 import type { MesAno } from '../domain/MesAno.js';
 
 export interface IFluxoPlanilhaRepository {
-  obterTotais(mesAno: MesAno): Promise<{ totais: FluxoPlanilhaTotais; error?: string; fallbackMessage?: string }>;
+  obterTotais(
+    mesAno: MesAno
+  ): Promise<{ totais: FluxoPlanilhaTotais; error?: string; fallbackMessage?: string; origem?: 'supabase' | 'planilha' | 'erro' }>;
 }

@@ -64,7 +64,7 @@ export const config = {
   openaiApiKey: getOpenAIKey(),
   supabase: {
     url: (env.SUPABASE_URL ?? '').trim(),
-    serviceRoleKey: (env.SUPABASE_SERVICE_ROLE_KEY ?? env.SUPABASE_ANON_KEY ?? '').trim(),
+    serviceRoleKey: (env.SUPABASE_SERVICE_ROLE_KEY ?? '').trim(),
   },
   sheets: {
     /** Planilha Entrada/Saída (export n8n, aba Movimentações) — mesmo ID que variáveis n8n */

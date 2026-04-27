@@ -12,6 +12,7 @@ import { ValidacaoPagamentosDiariaPage } from './pages/ValidacaoPagamentosDiaria
 import { CalendarioFinanceiroPage } from './pages/CalendarioFinanceiroPage';
 import { ControleCaixaPage } from './pages/ControleCaixaPage';
 import { FluxoCaixaOperacionalPage } from './pages/FluxoCaixaOperacionalPage';
+import { ProfilePage } from './pages/ProfilePage';
 import { RequireAuth } from './auth/RequireAuth';
 import { LoginPage } from './pages/LoginPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
@@ -110,6 +111,14 @@ export default function App() {
             element={
               <RequireAuth roles={['secretaria', 'admin']}>
                 <FluxoCaixaOperacionalPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="perfil"
+            element={
+              <RequireAuth roles={['secretaria', 'admin']}>
+                <ProfilePage />
               </RequireAuth>
             }
           />

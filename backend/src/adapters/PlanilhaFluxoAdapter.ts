@@ -176,9 +176,11 @@ function parseParesColunas(s: string): [number, number][] {
 export class PlanilhaFluxoAdapter implements IFluxoPlanilhaRepository {
   private readonly fluxoSpreadsheetId = config.sheets.fluxoSpreadsheetId;
 
-  async obterTotais(mesAno: MesAno): Promise<{ totais: FluxoPlanilhaTotais; error?: string; fallbackMessage?: string }> {
+  async obterTotais(
+    mesAno: MesAno
+  ): Promise<{ totais: FluxoPlanilhaTotais; error?: string; fallbackMessage?: string; origem?: 'supabase' | 'planilha' | 'erro' }> {
     if (!this.fluxoSpreadsheetId) {
-      return { totais: criarFluxoPlanilhaVazio(), error: 'GOOGLE_SHEETS_FLUXO_ID não configurado' };
+      return { totais: criarFluxoPlanilhaVazio(), error: 'GOOGLE_SHEETS_FLUXO_ID não configurado', origem: 'erro' };
     }
     const tituloAba = tituloAbaControleParaMesReferencia(mesAno.mes, mesAno.ano);
     const range = rangeA1ZQuoted(tituloAba);
@@ -308,6 +310,6 @@ export class PlanilhaFluxoAdapter implements IFluxoPlanilhaRepository {
     totais.saidaTotal = saidaTotal;
     totais.lucroTotal = reconcileLucro(entradaTotal, saidaTotal, lucroTotal);
 
-    return { totais, error: sheetError };
+    return { totais, error: sheetError, origem: sheetError ? 'erro' : 'planilha' };
   }
 }

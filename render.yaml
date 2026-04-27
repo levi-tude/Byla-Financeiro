@@ -25,6 +25,10 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      - key: BYLA_AUTH_ENFORCE
+        value: "true"
+      - key: BYLA_SOURCE_CADASTRO_PRIMARY
+        value: supabase
       - key: GOOGLE_SHEETS_ENTRADA_SAIDA_ID
         sync: false
       # Mesmos IDs do backend/.env local — necessários para /api/alunos-completo, fluxo-completo, /api/fontes planilha1+2

@@ -28,7 +28,7 @@ export interface GetFluxoCompletoResult {
   fallback_message?: string;
 }
 
-const REGRA = 'CONTROLE DE CAIXA (planilha). docs/REGRAS_FONTES_SUPABASE_PLANILHAS.md';
+const REGRA = 'CONTROLE DE CAIXA: Supabase como fonte principal, planilha como fallback temporário.';
 
 export class GetFluxoCompletoUseCase {
   constructor(private readonly fluxoRepo: IFluxoPlanilhaRepository) {}
@@ -42,7 +42,7 @@ export class GetFluxoCompletoUseCase {
       mesAno = criarMesAno(d.getMonth() + 1, d.getFullYear());
     }
 
-    const { totais, error: sheetError, fallbackMessage } = await this.fluxoRepo.obterTotais(mesAno);
+    const { totais, error: sheetError, fallbackMessage, origem } = await this.fluxoRepo.obterTotais(mesAno);
     return {
       combinado: {
         entradaTotal: totais.entradaTotal,
@@ -59,7 +59,7 @@ export class GetFluxoCompletoUseCase {
         ano: totais.ano,
         aba: totais.aba,
       },
-      origem: sheetError ? 'erro' : 'planilha',
+      origem: origem ?? (sheetError ? 'erro' : 'planilha'),
       regra_usada: REGRA,
       sheet_error: sheetError,
       fallback_message: fallbackMessage,
