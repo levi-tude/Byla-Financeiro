@@ -48,6 +48,16 @@ const fluxoPagamentosListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(1000).optional().default(300),
 });
 
+const fluxoResumoMultiMesQuerySchema = z.object({
+  ano: z.coerce.number().int().min(2000).max(2100),
+  mes: z.coerce.number().int().min(1).max(12),
+  janela: z.coerce.number().int().min(2).max(12).optional().default(3),
+  aba: z.string().trim().optional(),
+  modalidade: z.string().trim().optional(),
+  q: z.string().trim().optional(),
+  limit: z.coerce.number().int().min(1).max(5000).optional().default(2500),
+});
+
 const fluxoPagamentoUpsertBodySchema = z.object({
   aba: z.string().trim().min(1).max(120),
   modalidade: z.string().trim().min(1).max(220),
@@ -164,6 +174,29 @@ function parseMoneyBr(v: string): number | null {
   else if (hasComma) normalized = cleaned.replace(',', '.');
   const n = Number(normalized);
   return Number.isFinite(n) ? n : null;
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+function competenciaKey(ano: number, mes: number): string {
+  return `${ano}-${pad2(mes)}`;
+}
+
+function addMonths(baseAno: number, baseMes: number, delta: number): { ano: number; mes: number } {
+  const dt = new Date(baseAno, baseMes - 1 + delta, 1);
+  return { ano: dt.getFullYear(), mes: dt.getMonth() + 1 };
+}
+
+function normalizarAbaFluxo(aba: string): string {
+  const raw = String(aba ?? '').trim();
+  const upper = raw
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toUpperCase();
+  if (upper === 'PILATES MARINA') return 'PILATES';
+  return raw;
 }
 
 /** Lê colunas comuns da planilha salvas em raw_row (quando a migração não preencheu o campo tipado). */
@@ -729,6 +762,162 @@ export default function createFluxoOperacionalRouter(): Router {
       afterData: null,
     });
     return res.json({ ok: true });
+  });
+
+  router.get('/fluxo-operacional/resumo-multi-mes', async (req: Request, res: Response) => {
+    const q = parseQuery(fluxoResumoMultiMesQuerySchema, req.query as Record<string, unknown>);
+    if (!q.ok) return res.status(400).json({ error: q.message });
+    const supabase = getSupabase();
+    if (!supabase) return res.status(500).json({ error: 'Supabase não configurado no backend.' });
+
+    const anoRef = 2026;
+    const mesRef = 12;
+    const janelaRef = 12;
+
+    const mesesDesc = Array.from({ length: janelaRef }, (_, idx) => addMonths(anoRef, mesRef, -idx));
+    const mesesJanela = [...mesesDesc].reverse();
+    const janelaKeys = new Set(mesesJanela.map((x) => competenciaKey(x.ano, x.mes)));
+    const inicio = competenciaKey(mesesJanela[0].ano, mesesJanela[0].mes) + '-01';
+    const fimDate = new Date(anoRef, mesRef, 0);
+    const fim = `${anoRef}-${pad2(mesRef)}-${pad2(fimDate.getDate())}`;
+
+    let alunosQuery = supabase
+      .from('fluxo_alunos_operacionais')
+      .select('id, aba, modalidade, linha_planilha, aluno_nome, wpp, responsaveis, plano, venc, valor_referencia, pagador_pix, ativo')
+      .eq('ativo', true)
+      .order('aba', { ascending: true })
+      .order('modalidade', { ascending: true })
+      .order('aluno_nome', { ascending: true })
+      .limit(q.data.limit);
+
+    if (q.data.aba) alunosQuery = alunosQuery.eq('aba', q.data.aba);
+    if (q.data.modalidade) alunosQuery = alunosQuery.eq('modalidade', q.data.modalidade);
+    if (q.data.q) {
+      const safe = q.data.q.replace(/[,%]/g, ' ');
+      alunosQuery = alunosQuery.ilike('aluno_nome', `%${safe}%`);
+    }
+
+    const { data: alunosRows, error: alunosErr } = await alunosQuery;
+    if (alunosErr) return res.status(500).json({ error: alunosErr.message });
+
+    const { data: pagamentosRows, error: pagErr } = await supabase
+      .from('fluxo_pagamentos_operacionais')
+      .select('aba, modalidade, linha_planilha, aluno_nome, data_pagamento, forma, valor, mes_competencia, ano_competencia')
+      .gte('data_pagamento', inicio)
+      .lte('data_pagamento', fim)
+      .limit(25000);
+    if (pagErr) return res.status(500).json({ error: pagErr.message });
+
+    const keyAluno = (aba: string, modalidade: string, linha: number, nome: string) =>
+      `${normalizarAbaFluxo(aba).trim().toLowerCase()}|${modalidade.trim().toLowerCase()}|${linha}|${nome.trim().toLowerCase()}`;
+
+    const pagoPorAlunoMes = new Map<string, number>();
+    const detalhePorAlunoMes = new Map<string, { dataPagamento: string | null; formaPagamento: string | null; valorPago: number }>();
+    for (const p of pagamentosRows ?? []) {
+      const keyMes = competenciaKey(Number(p.ano_competencia), Number(p.mes_competencia));
+      if (!janelaKeys.has(keyMes)) continue;
+      const k = `${keyAluno(String(p.aba), String(p.modalidade), Number(p.linha_planilha), String(p.aluno_nome))}|${keyMes}`;
+      const prev = pagoPorAlunoMes.get(k) ?? 0;
+      const valorAtual = Number(p.valor ?? 0);
+      pagoPorAlunoMes.set(k, prev + valorAtual);
+      const det = detalhePorAlunoMes.get(k);
+      const dataPagamento = String(p.data_pagamento ?? '') || null;
+      if (!det || (dataPagamento != null && (det.dataPagamento ?? '') < dataPagamento)) {
+        detalhePorAlunoMes.set(k, {
+          dataPagamento,
+          formaPagamento: String(p.forma ?? '').trim() || null,
+          valorPago: valorAtual,
+        });
+      }
+    }
+
+    const mesAtualKey = competenciaKey(anoRef, mesRef);
+    const mesAnterior = addMonths(anoRef, mesRef, -1);
+    const mesAnteriorKey = competenciaKey(mesAnterior.ano, mesAnterior.mes);
+
+    const itens = (alunosRows ?? []).map((a) => {
+      const alunoKey = keyAluno(String(a.aba), String(a.modalidade), Number(a.linha_planilha), String(a.aluno_nome));
+      const esperado = a.valor_referencia != null ? Number(a.valor_referencia) : null;
+
+      const historico = mesesJanela.map((m) => {
+        const keyMes = competenciaKey(m.ano, m.mes);
+        const pago = pagoPorAlunoMes.get(`${alunoKey}|${keyMes}`) ?? 0;
+        const detalhe = detalhePorAlunoMes.get(`${alunoKey}|${keyMes}`);
+        const agora = new Date();
+        const mesAtualRealKey = competenciaKey(agora.getFullYear(), agora.getMonth() + 1);
+        let status: 'pago' | 'parcial' | 'pendente' | 'sem_dado' | 'futuro' = 'sem_dado';
+        if (keyMes > mesAtualRealKey) {
+          status = 'futuro';
+        } else if (esperado == null) {
+          status = pago > 0 ? 'pago' : 'sem_dado';
+        } else if (pago <= 0) {
+          status = 'pendente';
+        } else if (pago < esperado) {
+          status = 'parcial';
+        } else {
+          status = 'pago';
+        }
+        return {
+          ano: m.ano,
+          mes: m.mes,
+          key: keyMes,
+          valorEsperado: esperado,
+          valorPago: pago,
+          dataPagamento: detalhe?.dataPagamento ?? null,
+          formaPagamento: detalhe?.formaPagamento ?? null,
+          status,
+        };
+      });
+
+      const atual = historico.find((h) => h.key === mesAtualKey);
+      const anterior = historico.find((h) => h.key === mesAnteriorKey);
+      const mesesEmAberto = historico.filter((h) => h.status === 'pendente' || h.status === 'parcial').length;
+      const voltouAPagar = !!anterior && anterior.status !== 'pago' && atual?.status === 'pago';
+
+      return {
+        id: String(a.id),
+        aba: normalizarAbaFluxo(String(a.aba)),
+        modalidade: String(a.modalidade),
+        linhaPlanilha: Number(a.linha_planilha),
+        alunoNome: String(a.aluno_nome),
+        whatsapp: a.wpp != null ? String(a.wpp) : null,
+        responsaveis: a.responsaveis != null ? String(a.responsaveis) : null,
+        plano: a.plano != null ? String(a.plano) : null,
+        vencimento: a.venc != null ? String(a.venc) : null,
+        pagadorPix: a.pagador_pix != null ? String(a.pagador_pix) : null,
+        valorReferencia: esperado,
+        historico,
+        mesesEmAberto,
+        voltouAPagar,
+      };
+    });
+
+    const pendentesMesAtual = itens.filter((i) => {
+      const m = i.historico.find((h) => h.key === mesAtualKey);
+      return m?.status === 'pendente' || m?.status === 'parcial';
+    }).length;
+    const atrasados2Mais = itens.filter((i) => i.mesesEmAberto >= 2).length;
+    const voltaramAPagar = itens.filter((i) => i.voltouAPagar).length;
+
+    const prioridade = itens
+      .filter((i) => i.mesesEmAberto > 0)
+      .sort((a, b) => b.mesesEmAberto - a.mesesEmAberto || a.alunoNome.localeCompare(b.alunoNome, 'pt-BR'))
+      .slice(0, 30)
+      .map((i) => ({
+        id: i.id,
+        alunoNome: i.alunoNome,
+        aba: i.aba,
+        modalidade: i.modalidade,
+        mesesEmAberto: i.mesesEmAberto,
+      }));
+
+    return res.json({
+      referencia: { ano: anoRef, mes: mesRef, janela: janelaRef },
+      kpis: { pendentesMesAtual, atrasados2Mais, voltaramAPagar },
+      meses: mesesJanela,
+      itens,
+      prioridade,
+    });
   });
 
   router.get('/fluxo-operacional/auditoria', async (req: Request, res: Response) => {

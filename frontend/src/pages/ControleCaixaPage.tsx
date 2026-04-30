@@ -12,6 +12,7 @@ import {
 import { useToast } from '../context/ToastContext';
 import { ApiErrorPanel } from '../components/ui/ApiErrorPanel';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import { Link } from 'react-router-dom';
 
 type DraftState = {
   abaRef: string;
@@ -54,6 +55,17 @@ const BRL_FORMATTER = new Intl.NumberFormat('pt-BR', {
 function formatNullableCurrency(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '';
   return BRL_FORMATTER.format(value);
+}
+
+function normalizeText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toUpperCase();
+}
+
+function sumBloco(bloco: ControleCaixaBloco): number {
+  return bloco.linhas.reduce((acc, linha) => acc + (linha.valor ?? 0), 0);
 }
 
 function createDefaultDraft(): DraftState {
@@ -225,7 +237,7 @@ export function ControleCaixaPage() {
     mutationFn: (state: DraftState) =>
       putControleCaixa(monthYear.mes, monthYear.ano, {
         abaRef: state.abaRef.trim() || null,
-        totais: state.totais,
+        totais: totaisCalculados,
         blocos: state.blocos,
       }),
     onSuccess: async (data) => {
@@ -260,6 +272,59 @@ export function ControleCaixaPage() {
     }
     const percentPreservado = totalLinhas === 0 ? 0 : Math.round((defaultLinhas / totalLinhas) * 100);
     return { totalBlocos, totalLinhas, defaultBlocos, defaultLinhas, customLinhas, percentPreservado };
+  }, [draft]);
+
+  const totaisCalculados = useMemo(() => {
+    if (!draft) {
+      return {
+        entradaTotal: null,
+        saidaTotal: null,
+        lucroTotal: null,
+        saidaParceirosTotal: null,
+        saidaFixasTotal: null,
+        saidaSomaSecoesPrincipais: null,
+      };
+    }
+
+    let entradaTotal = 0;
+    let saidaTotal = 0;
+    let saidaParceirosTotal = 0;
+    let saidaFixasTotal = 0;
+
+    for (const bloco of draft.blocos) {
+      const totalBloco = sumBloco(bloco);
+      const titulo = normalizeText(bloco.titulo ?? '');
+      if (bloco.tipo === 'entrada') {
+        entradaTotal += totalBloco;
+      } else {
+        saidaTotal += totalBloco;
+        if (titulo.includes('PARCEIR')) saidaParceirosTotal += totalBloco;
+        if (titulo.includes('FIXA') || titulo.includes('GASTOS FIXOS')) saidaFixasTotal += totalBloco;
+      }
+    }
+
+    const lucroTotal = entradaTotal - saidaTotal;
+    const saidaSomaSecoesPrincipais = saidaParceirosTotal + saidaFixasTotal;
+
+    return {
+      entradaTotal,
+      saidaTotal,
+      lucroTotal,
+      saidaParceirosTotal: saidaParceirosTotal || null,
+      saidaFixasTotal: saidaFixasTotal || null,
+      saidaSomaSecoesPrincipais: saidaSomaSecoesPrincipais || null,
+    };
+  }, [draft]);
+
+  const totaisPorBloco = useMemo(() => {
+    if (!draft) return { entradas: [] as Array<{ titulo: string; total: number }>, saidas: [] as Array<{ titulo: string; total: number }> };
+    const entradas = draft.blocos
+      .filter((b) => b.tipo === 'entrada')
+      .map((b) => ({ titulo: b.titulo, total: sumBloco(b) }));
+    const saidas = draft.blocos
+      .filter((b) => b.tipo === 'saida')
+      .map((b) => ({ titulo: b.titulo, total: sumBloco(b) }));
+    return { entradas, saidas };
   }, [draft]);
 
   const lastUpdateLabel = useMemo(() => {
@@ -323,7 +388,17 @@ export function ControleCaixaPage() {
       <Topbar
         title="Controle de Caixa"
         subtitle="Estrutura padrão mensal com liberdade para customização. Todos os meses ficam salvos para consulta."
-        childrenRight={<MonthYearPicker />}
+        childrenRight={
+          <div className="flex items-center gap-2">
+            <MonthYearPicker />
+            <Link
+              to={`/relatorios-ia?tipo=mensal_operacional&mes=${monthYear.mes}&ano=${monthYear.ano}`}
+              className="rounded-md border border-rose-300 bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700"
+            >
+              Relatório do mês
+            </Link>
+          </div>
+        }
       />
 
       {controleQuery.isLoading && <div className="text-sm text-gray-500">Carregando dados do mês...</div>}
@@ -339,15 +414,15 @@ export function ControleCaixaPage() {
           <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
               <p className="text-xs font-semibold text-emerald-700">Entradas</p>
-              <p className="mt-1 text-lg font-semibold text-emerald-900">{formatNullableCurrency(draft.totais.entradaTotal) || 'R$ 0,00'}</p>
+              <p className="mt-1 text-lg font-semibold text-emerald-900">{formatNullableCurrency(totaisCalculados.entradaTotal) || 'R$ 0,00'}</p>
             </div>
             <div className="rounded-xl border border-rose-200 bg-rose-50/70 p-4">
               <p className="text-xs font-semibold text-rose-700">Saídas</p>
-              <p className="mt-1 text-lg font-semibold text-rose-900">{formatNullableCurrency(draft.totais.saidaTotal) || 'R$ 0,00'}</p>
+              <p className="mt-1 text-lg font-semibold text-rose-900">{formatNullableCurrency(totaisCalculados.saidaTotal) || 'R$ 0,00'}</p>
             </div>
             <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-4">
               <p className="text-xs font-semibold text-indigo-700">Resultado</p>
-              <p className="mt-1 text-lg font-semibold text-indigo-900">{formatNullableCurrency(draft.totais.lucroTotal) || 'R$ 0,00'}</p>
+              <p className="mt-1 text-lg font-semibold text-indigo-900">{formatNullableCurrency(totaisCalculados.lucroTotal) || 'R$ 0,00'}</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
               <p className="text-xs font-semibold text-slate-600">Última atualização</p>
@@ -370,9 +445,26 @@ export function ControleCaixaPage() {
             </div>
           </section>
 
-          <section className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
+          <section className="bg-white rounded-xl border border-slate-200 p-4 space-y-4">
             <h2 className="text-sm font-semibold text-slate-800">Cabeçalho e totais</h2>
-            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-2 md:grid-cols-3">
+              {[
+                ['entradaTotal', 'Entrada total'],
+                ['saidaTotal', 'Saída total'],
+                ['lucroTotal', 'Lucro total'],
+              ].map(([key, label]) => (
+                <label key={key} className="rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-700">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">{label}</span>
+                  <input
+                    value={formatNullableCurrency(totaisCalculados[key as keyof DraftState['totais']])}
+                    readOnly
+                    className="mt-0.5 w-full border-none bg-transparent px-0 py-0 text-sm font-medium text-slate-700 focus:outline-none"
+                  />
+                </label>
+              ))}
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-1">
               <label className="text-sm text-slate-700">
                 Aba de referência
                 <input
@@ -381,38 +473,33 @@ export function ControleCaixaPage() {
                   className="mt-1 w-full rounded border border-slate-300 px-2 py-1.5"
                 />
               </label>
-              {[
-                ['entradaTotal', 'Entrada total'],
-                ['saidaTotal', 'Saída total'],
-                ['lucroTotal', 'Lucro total'],
-                ['saidaParceirosTotal', 'Saída parceiros'],
-                ['saidaFixasTotal', 'Saída fixas'],
-                ['saidaSomaSecoesPrincipais', 'Saída soma seções principais'],
-              ].map(([key, label]) => (
-                <label key={key} className="text-sm text-slate-700">
-                  {label}
-                  <input
-                    value={formatNullableCurrency(draft.totais[key as keyof DraftState['totais']])}
-                    onChange={(e) =>
-                      setDraft((prev) =>
-                        prev
-                          ? {
-                              ...prev,
-                              totais: {
-                                ...prev.totais,
-                                [key]: parseNullableNumber(e.target.value),
-                              },
-                            }
-                          : prev
-                      )
-                    }
-                    className="mt-1 w-full rounded border border-slate-300 px-2 py-1.5"
-                    inputMode="decimal"
-                    placeholder="R$ 0,00"
-                  />
-                </label>
-              ))}
             </div>
+
+            <div className="grid gap-3 lg:grid-cols-2">
+              <div className="rounded-lg border-2 border-emerald-300 bg-emerald-50 p-3 shadow-sm">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Totais por bloco de entrada</h3>
+                <ul className="mt-2 space-y-1.5 text-sm text-emerald-900">
+                  {totaisPorBloco.entradas.map((b) => (
+                    <li key={`ent-${b.titulo}`} className="flex items-center justify-between gap-2">
+                      <span className="truncate font-medium">{b.titulo}</span>
+                      <span className="rounded bg-emerald-100 px-2 py-0.5 font-bold">{formatNullableCurrency(b.total) || 'R$ 0,00'}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="rounded-lg border-2 border-rose-300 bg-rose-50 p-3 shadow-sm">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-rose-700">Totais por bloco de saída</h3>
+                <ul className="mt-2 space-y-1.5 text-sm text-rose-900">
+                  {totaisPorBloco.saidas.map((b) => (
+                    <li key={`sai-${b.titulo}`} className="flex items-center justify-between gap-2">
+                      <span className="truncate font-medium">{b.titulo}</span>
+                      <span className="rounded bg-rose-100 px-2 py-0.5 font-bold">{formatNullableCurrency(b.total) || 'R$ 0,00'}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+            <p className="text-xs text-slate-500">Totais do cabeçalho são calculados automaticamente pela soma das linhas (não editável manualmente).</p>
           </section>
 
           <section className="bg-white rounded-xl border border-slate-200 p-4 space-y-4">
@@ -483,7 +570,12 @@ export function ControleCaixaPage() {
             )}
 
             {draft.blocos.map((bloco, blocoIdx) => (
-              <div key={`${bloco.tipo}-${blocoIdx}`} className="rounded-lg border border-slate-200 p-3 space-y-3">
+              <div
+                key={`${bloco.tipo}-${blocoIdx}`}
+                className={`rounded-lg border p-3 space-y-3 ${
+                  bloco.tipo === 'entrada' ? 'border-emerald-200 bg-emerald-50/30' : 'border-rose-200 bg-rose-50/30'
+                }`}
+              >
                 <div className="flex items-center gap-2">
                   {bloco.isDefault ? (
                     <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">Padrão</span>
@@ -492,7 +584,7 @@ export function ControleCaixaPage() {
                     <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-900">Customizado</span>
                   ) : null}
                 </div>
-                <div className="grid gap-2 md:grid-cols-4">
+                <div className="grid gap-2 md:grid-cols-3">
                   <label className="text-sm text-slate-700">
                     Tipo
                     <select
@@ -531,21 +623,6 @@ export function ControleCaixaPage() {
                           if (!prev) return prev;
                           const blocos = [...prev.blocos];
                           blocos[blocoIdx] = { ...blocos[blocoIdx], titulo: e.target.value };
-                          return { ...prev, blocos };
-                        })
-                      }
-                      className="mt-1 w-full rounded border border-slate-300 px-2 py-1.5"
-                    />
-                  </label>
-                  <label className="text-sm text-slate-700">
-                    Ordem
-                    <input
-                      value={bloco.ordem}
-                      onChange={(e) =>
-                        setDraft((prev) => {
-                          if (!prev) return prev;
-                          const blocos = [...prev.blocos];
-                          blocos[blocoIdx] = { ...blocos[blocoIdx], ordem: Number(e.target.value || 0) };
                           return { ...prev, blocos };
                         })
                       }
@@ -598,44 +675,18 @@ export function ControleCaixaPage() {
                             if (!prev) return prev;
                             const blocos = [...prev.blocos];
                             const linhas = [...blocos[blocoIdx].linhas];
-                            linhas[linhaIdx] = { ...linhas[linhaIdx], valor: parseNullableNumber(e.target.value) };
+                            linhas[linhaIdx] = {
+                              ...linhas[linhaIdx],
+                              valor: parseNullableNumber(e.target.value),
+                              valorTexto: null,
+                            };
                             blocos[blocoIdx] = { ...blocos[blocoIdx], linhas };
                             return { ...prev, blocos };
                           })
                         }
-                        className="md:col-span-2 rounded border border-slate-300 px-2 py-1.5 text-sm"
+                        className="md:col-span-5 rounded border border-slate-300 px-2 py-1.5 text-sm"
                         placeholder="R$ 0,00"
                         inputMode="decimal"
-                      />
-                      <input
-                        value={linha.valorTexto ?? ''}
-                        onChange={(e) =>
-                          setDraft((prev) => {
-                            if (!prev) return prev;
-                            const blocos = [...prev.blocos];
-                            const linhas = [...blocos[blocoIdx].linhas];
-                            linhas[linhaIdx] = { ...linhas[linhaIdx], valorTexto: e.target.value || null };
-                            blocos[blocoIdx] = { ...blocos[blocoIdx], linhas };
-                            return { ...prev, blocos };
-                          })
-                        }
-                        className="md:col-span-3 rounded border border-slate-300 px-2 py-1.5 text-sm"
-                        placeholder="Valor texto"
-                      />
-                      <input
-                        value={linha.ordem}
-                        onChange={(e) =>
-                          setDraft((prev) => {
-                            if (!prev) return prev;
-                            const blocos = [...prev.blocos];
-                            const linhas = [...blocos[blocoIdx].linhas];
-                            linhas[linhaIdx] = { ...linhas[linhaIdx], ordem: Number(e.target.value || 0) };
-                            blocos[blocoIdx] = { ...blocos[blocoIdx], linhas };
-                            return { ...prev, blocos };
-                          })
-                        }
-                        className="md:col-span-1 rounded border border-slate-300 px-2 py-1.5 text-sm"
-                        placeholder="Ord."
                       />
                       <button
                         type="button"
@@ -654,6 +705,14 @@ export function ControleCaixaPage() {
                       </button>
                     </div>
                   ))}
+                </div>
+
+                <div className={`rounded-md border px-3 py-2 text-sm font-semibold ${
+                  bloco.tipo === 'entrada'
+                    ? 'border-emerald-300 bg-emerald-100/70 text-emerald-900'
+                    : 'border-rose-300 bg-rose-100/70 text-rose-900'
+                }`}>
+                  Total do bloco: {formatNullableCurrency(sumBloco(bloco)) || 'R$ 0,00'}
                 </div>
 
                 <div className="flex items-center gap-2">

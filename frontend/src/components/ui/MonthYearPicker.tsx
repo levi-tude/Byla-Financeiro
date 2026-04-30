@@ -19,6 +19,11 @@ export function MonthYearPicker() {
     }
   };
 
+  const goNovoMes = () => {
+    const dt = new Date(monthYear.ano, monthYear.mes, 1);
+    setMonthYear(dt.getMonth() + 1, dt.getFullYear());
+  };
+
   return (
     <div className="flex items-center gap-2">
       <button
@@ -54,6 +59,14 @@ export function MonthYearPicker() {
         title="Mês seguinte"
       >
         ▶
+      </button>
+      <button
+        type="button"
+        onClick={goNovoMes}
+        className="rounded-md border border-indigo-300 bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-200"
+        title="Ir para o próximo mês"
+      >
+        + Novo mês
       </button>
     </div>
   );

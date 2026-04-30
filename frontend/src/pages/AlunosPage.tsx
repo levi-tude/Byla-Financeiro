@@ -26,7 +26,6 @@ function labelColuna(key: string): string {
     _modalidade: 'Modalidade',
     _modalidade_aba: 'Modalidade (aba)',
     _ativo: 'Status',
-    _linha: 'Linha',
   };
   return labels[key] ?? key.replace(/\\/g, '').trim();
 }
@@ -381,7 +380,7 @@ function TabelaAlunos({
     const rest = colunas.filter((c) => !prefer.includes(c));
     const base = [...prefer.filter((c) => colunas.includes(c)), ...rest];
     if (!showStatus) return base.filter((c) => c !== '_ativo' && c !== '_linha').slice(0, 14);
-    return base.slice(0, 14);
+    return base.filter((c) => c !== '_linha').slice(0, 14);
   }, [colunas, showStatus]);
 
   if (rows.length === 0) return <p className="p-4 text-sm text-slate-500">Nenhuma linha.</p>;
