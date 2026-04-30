@@ -9,18 +9,22 @@ import {
   getFluxoOperacionalAuditoria,
   getFluxoOperacionalAlunos,
   getFluxoOperacionalPagamentos,
+  getFluxoOperacionalResumoMultiMes,
   updateFluxoOperacionalAluno,
   updateFluxoOperacionalPagamento,
   type FluxoOperacionalAluno,
   type FluxoOperacionalAlunoPayload,
   type FluxoOperacionalPagamento,
   type FluxoOperacionalPagamentoPayload,
+  type FluxoOperacionalResumoAlunoItem,
+  type FluxoOperacionalResumoMesItem,
 } from '../services/backendApi';
 import { useToast } from '../context/ToastContext';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { ApiErrorPanel } from '../components/ui/ApiErrorPanel';
 import { TableSkeleton } from '../components/ui/TableSkeleton';
 import { getFluxoAbaTabStyle, getFluxoModalidadeTabStyle } from '../fluxo/fluxoPlanilhaCores';
+import { Link } from 'react-router-dom';
 
 function formatBrl(n: number | null | undefined): string {
   if (n == null || Number.isNaN(Number(n))) return '—';
@@ -62,6 +66,48 @@ function mesReferenciaLegivel(mes: number, ano: number): string {
   const s = d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
+
+function mesAnoCurto(mes: number, ano: number): string {
+  const d = new Date(ano, mes - 1, 1);
+  return d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', '');
+}
+
+const MULTI_ABAS_ORDEM = ['BYLA DANÇA', 'PILATES', 'TEATRO', 'YOGA', 'G.R.', 'TEATRO INFANTIL'] as const;
+
+function normalizarAbaMulti(aba: string): string {
+  const base = String(aba ?? '')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .trim()
+    .toUpperCase();
+  if (base === 'PILATES MARINA') return 'PILATES';
+  if (base === 'BYLA DANCA') return 'BYLA DANÇA';
+  if (base === 'GR') return 'G.R.';
+  if (base === 'TEATRO INFANTIL') return 'TEATRO INFANTIL';
+  if (base === 'PILATES') return 'PILATES';
+  if (base === 'TEATRO') return 'TEATRO';
+  if (base === 'YOGA') return 'YOGA';
+  return String(aba ?? '').trim() || '—';
+}
+
+function statusMesClasse(status: FluxoOperacionalResumoMesItem['status']): string {
+  if (status === 'pago') return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200';
+  if (status === 'parcial') return 'bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200';
+  if (status === 'pendente') return 'bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-200';
+  if (status === 'futuro') return 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300';
+  return 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300';
+}
+
+function statusMesLabel(status: FluxoOperacionalResumoMesItem['status']): string {
+  if (status === 'pago') return 'Pago';
+  if (status === 'parcial') return 'Parcial';
+  if (status === 'pendente') return 'Pendente';
+  if (status === 'futuro') return 'Aguardando mês';
+  return 'Sem dado';
+}
+
+const PLANO_OPTIONS = ['Mensal', 'Trimestral', 'Semestral'] as const;
+const FORMA_OPTIONS = ['PIX', 'Crédito', 'Débito', 'Dinheiro', 'Transferência', 'Boleto'] as const;
 
 function textoPagamentoResponsavel(p: FluxoOperacionalPagamento): string {
   const a = p.responsaveis?.trim();
@@ -358,6 +404,8 @@ export function FluxoCaixaOperacionalPage() {
   const [ativoFiltro, setAtivoFiltro] = useState<'todos' | 'ativos' | 'inativos'>('ativos');
   const [busca, setBusca] = useState('');
   const [soPendencias, setSoPendencias] = useState(false);
+  const [modoVisao, setModoVisao] = useState<'mensal' | 'multi'>('mensal');
+  const [multiAbaAtiva, setMultiAbaAtiva] = useState<string>('BYLA DANÇA');
   const [pagForm, setPagForm] = useState<PagamentoFormState>(initialPagamentoForm(monthYear.mes, monthYear.ano));
   const [pagEditId, setPagEditId] = useState<string | null>(null);
   const [historicoAberto, setHistoricoAberto] = useState(false);
@@ -393,10 +441,27 @@ export function FluxoCaixaOperacionalPage() {
       }),
   });
 
+  const pagamentosAnoMultiQuery = useQuery({
+    queryKey: ['fluxo-operacional-pagamentos-ano-multi', 2026],
+    queryFn: () => getFluxoOperacionalPagamentos({ ano: 2026, limit: 5000 }),
+    enabled: modoVisao === 'multi',
+  });
+
   const auditoriaQuery = useQuery({
     queryKey: ['fluxo-operacional-auditoria'],
     queryFn: () => getFluxoOperacionalAuditoria({ limit: 30 }),
     enabled: historicoAberto,
+  });
+
+  const resumoMultiMesQuery = useQuery({
+    queryKey: ['fluxo-operacional-resumo-multi', '2026'],
+    queryFn: () =>
+      getFluxoOperacionalResumoMultiMes({
+        ano: 2026,
+        mes: 12,
+        janela: 12,
+      }),
+    enabled: modoVisao === 'multi',
   });
 
   const createMut = useMutation({
@@ -407,6 +472,7 @@ export function FluxoCaixaOperacionalPage() {
       setAlunoModalOpen(false);
       setEditId(null);
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-alunos'] });
+      await qc.invalidateQueries({ queryKey: ['fluxo-operacional-resumo-multi'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-auditoria'] });
     },
     onError: (e) => {
@@ -428,6 +494,7 @@ export function FluxoCaixaOperacionalPage() {
       setEditId(null);
       setAlunoModalOpen(false);
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-alunos'] });
+      await qc.invalidateQueries({ queryKey: ['fluxo-operacional-resumo-multi'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-auditoria'] });
     },
     onError: (e) => {
@@ -461,6 +528,8 @@ export function FluxoCaixaOperacionalPage() {
       }
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-alunos'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos'] });
+      await qc.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos-ano-multi'] });
+      await qc.invalidateQueries({ queryKey: ['fluxo-operacional-resumo-multi'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-auditoria'] });
     },
     onError: (e) => {
@@ -476,6 +545,8 @@ export function FluxoCaixaOperacionalPage() {
       setPagModalOpen(false);
       setPagEditId(null);
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos'] });
+      await qc.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos-ano-multi'] });
+      await qc.invalidateQueries({ queryKey: ['fluxo-operacional-resumo-multi'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-auditoria'] });
     },
     onError: (e) => {
@@ -492,6 +563,8 @@ export function FluxoCaixaOperacionalPage() {
       setPagEditId(null);
       setPagModalOpen(false);
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos'] });
+      await qc.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos-ano-multi'] });
+      await qc.invalidateQueries({ queryKey: ['fluxo-operacional-resumo-multi'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-auditoria'] });
     },
     onError: (e) => {
@@ -508,6 +581,8 @@ export function FluxoCaixaOperacionalPage() {
       setPagEditId(null);
       setPagForm(initialPagamentoForm(monthYear.mes, monthYear.ano));
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos'] });
+      await qc.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos-ano-multi'] });
+      await qc.invalidateQueries({ queryKey: ['fluxo-operacional-resumo-multi'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-auditoria'] });
     },
     onError: (e) => {
@@ -525,6 +600,68 @@ export function FluxoCaixaOperacionalPage() {
   );
   const totalPagamentosMes = pagamentosQuery.data?.itens.length ?? 0;
 
+  const painelOperacional = useMemo(() => {
+    const hoje = new Date();
+    const ano = hoje.getFullYear();
+    const mes = hoje.getMonth() + 1;
+    const pagamentosMes = new Set(
+      (pagamentosQuery.data?.itens ?? [])
+        .filter((p) => p.ano_competencia === ano && p.mes_competencia === mes)
+        .map((p) => `${normalizarAbaMulti(p.aba)}\u0000${p.modalidade}\u0000${p.linha_planilha}\u0000${p.aluno_nome.toLowerCase()}`),
+    );
+
+    const cadastroPendencias: FluxoOperacionalAluno[] = [];
+    const pagamentoPendencias: FluxoOperacionalAluno[] = [];
+    const cobrancaVenceAmanha: FluxoOperacionalAluno[] = [];
+    const cobrancaHoje: FluxoOperacionalAluno[] = [];
+    const cobrancaVencidos: FluxoOperacionalAluno[] = [];
+    const cobrancaPlanos: FluxoOperacionalAluno[] = [];
+
+    for (const a of alunosQuery.data?.itens ?? []) {
+      if (!a.ativo) continue;
+      if (camposCadastroFaltantes(a).length > 0) cadastroPendencias.push(a);
+
+      const key = `${normalizarAbaMulti(a.aba)}\u0000${a.modalidade}\u0000${a.linha_planilha}\u0000${a.aluno_nome.toLowerCase()}`;
+      const venceuDia = Number(String(a.venc_exibicao ?? a.venc ?? '').replace(/\D/g, ''));
+      const temPagamentoMes = pagamentosMes.has(key);
+      if (!temPagamentoMes && Number.isFinite(venceuDia) && venceuDia >= 1 && venceuDia <= 31) {
+        if (hoje.getDate() > venceuDia) pagamentoPendencias.push(a);
+        if (hoje.getDate() === venceuDia) cobrancaHoje.push(a);
+        if (hoje.getDate() + 1 === venceuDia) cobrancaVenceAmanha.push(a);
+        if (hoje.getDate() > venceuDia) cobrancaVencidos.push(a);
+      }
+
+      const plano = String(a.plano ?? '').toLowerCase();
+      if (plano.includes('trimes') || plano.includes('semes')) {
+        const pagamentosAluno = (pagamentosAnoMultiQuery.data?.itens ?? []).filter(
+          (p) =>
+            normalizarAbaMulti(p.aba) === normalizarAbaMulti(a.aba) &&
+            p.modalidade === a.modalidade &&
+            p.linha_planilha === a.linha_planilha &&
+            p.aluno_nome.toLowerCase() === a.aluno_nome.toLowerCase(),
+        );
+        const ultimo = pagamentosAluno.sort((x, y) => y.data_pagamento.localeCompare(x.data_pagamento))[0];
+        if (ultimo) {
+          const dt = new Date(ultimo.data_pagamento);
+          dt.setMonth(dt.getMonth() + (plano.includes('semes') ? 6 : 3));
+          const diffDias = Math.ceil((dt.getTime() - hoje.getTime()) / 86400000);
+          if (diffDias <= 7) cobrancaPlanos.push(a);
+        }
+      }
+    }
+
+    return {
+      pendenciasGeral: new Set([...cadastroPendencias, ...pagamentoPendencias].map((a) => a.id)).size,
+      cadastroPendencias,
+      pagamentoPendencias,
+      cobrancaVenceAmanha,
+      cobrancaHoje,
+      cobrancaVencidos,
+      cobrancaPlanos,
+      referencia: { ano, mes },
+    };
+  }, [alunosQuery.data?.itens, pagamentosQuery.data?.itens, pagamentosAnoMultiQuery.data?.itens]);
+
   const alunoPorChave = useMemo(() => {
     const m = new Map<string, FluxoOperacionalAluno>();
     for (const a of alunosQuery.data?.itens ?? []) {
@@ -532,6 +669,51 @@ export function FluxoCaixaOperacionalPage() {
     }
     return m;
   }, [alunosQuery.data?.itens]);
+
+  const alunoPorId = useMemo(() => {
+    const m = new Map<string, FluxoOperacionalAluno>();
+    for (const a of alunosQuery.data?.itens ?? []) m.set(a.id, a);
+    return m;
+  }, [alunosQuery.data?.itens]);
+
+  const pagamentosPorAlunoMesMulti = useMemo(() => {
+    const map = new Map<string, FluxoOperacionalPagamento>();
+    const itens = pagamentosAnoMultiQuery.data?.itens ?? [];
+    for (const p of itens) {
+      const aba = normalizarAbaMulti(p.aba);
+      const key = `${aba}\u0000${p.modalidade}\u0000${p.linha_planilha}\u0000${p.aluno_nome.toLowerCase()}\u0000${p.ano_competencia}-${String(p.mes_competencia).padStart(2, '0')}`;
+      const prev = map.get(key);
+      if (!prev || prev.data_pagamento < p.data_pagamento) map.set(key, p);
+    }
+    return map;
+  }, [pagamentosAnoMultiQuery.data?.itens]);
+
+  const multiAgrupadoPorAba = useMemo(() => {
+    const m = new Map<string, Map<string, FluxoOperacionalResumoAlunoItem[]>>();
+    const itens = resumoMultiMesQuery.data?.itens ?? [];
+    for (const item of itens) {
+      const aba = normalizarAbaMulti(item.aba);
+      if (!m.has(aba)) m.set(aba, new Map());
+      const porModalidade = m.get(aba)!;
+      const modalidade = item.modalidade?.trim() || 'Sem modalidade';
+      if (!porModalidade.has(modalidade)) porModalidade.set(modalidade, []);
+      porModalidade.get(modalidade)!.push(item);
+    }
+    return m;
+  }, [resumoMultiMesQuery.data?.itens]);
+
+  const multiAbasComDados = useMemo(() => {
+    const presentes = new Set(multiAgrupadoPorAba.keys());
+    const ordered = MULTI_ABAS_ORDEM.filter((a) => presentes.has(a));
+    const extras = [...presentes].filter((a) => !MULTI_ABAS_ORDEM.includes(a as (typeof MULTI_ABAS_ORDEM)[number])).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    return [...ordered, ...extras];
+  }, [multiAgrupadoPorAba]);
+
+  useEffect(() => {
+    if (modoVisao !== 'multi') return;
+    if (multiAbasComDados.length === 0) return;
+    if (!multiAbasComDados.includes(multiAbaAtiva)) setMultiAbaAtiva(multiAbasComDados[0]);
+  }, [modoVisao, multiAbasComDados, multiAbaAtiva]);
 
   const linhasUnificadas = useMemo((): LinhaUnificadaFluxo[] => {
     const pagamentos = pagamentosQuery.data?.itens ?? [];
@@ -694,6 +876,83 @@ export function FluxoCaixaOperacionalPage() {
     setPagModalOpen(true);
   }
 
+  function abrirPagamentoProximoMes(aluno: FluxoOperacionalAluno) {
+    const proximo = new Date(monthYear.ano, monthYear.mes, 1);
+    setPagEditId(null);
+    setPagForm({
+      ...initialPagamentoForm(proximo.getMonth() + 1, proximo.getFullYear()),
+      aba: aluno.aba,
+      modalidade: aluno.modalidade,
+      linhaPlanilha: String(aluno.linha_planilha),
+      alunoNome: aluno.aluno_nome,
+      valor: aluno.valor_referencia != null ? formatBrl(aluno.valor_referencia) : '',
+      responsaveis: aluno.responsaveis ?? '',
+      pagadorPix: aluno.pagador_pix ?? '',
+    });
+    setPagModalOpen(true);
+  }
+
+  function abrirEditarCadastroMulti(item: FluxoOperacionalResumoAlunoItem) {
+    const aluno = alunoPorId.get(item.id);
+    if (aluno) {
+      abrirEditarAluno(aluno);
+      return;
+    }
+    setEditId(null);
+    setForm({
+      ...initialForm(),
+      aba: item.aba,
+      modalidade: item.modalidade,
+      linhaPlanilha: String(item.linhaPlanilha),
+      alunoNome: item.alunoNome,
+      wpp: item.whatsapp ?? '',
+      responsaveis: item.responsaveis ?? '',
+      plano: item.plano ?? '',
+      venc: item.vencimento ?? '',
+      valorReferencia: item.valorReferencia != null ? formatBrl(item.valorReferencia) : '',
+      pagadorPix: item.pagadorPix ?? '',
+      ativo: true,
+    });
+    setAlunoModalOpen(true);
+  }
+
+  function abrirPagamentoPorMesMulti(item: FluxoOperacionalResumoAlunoItem, mesItem: FluxoOperacionalResumoMesItem) {
+    const key = `${normalizarAbaMulti(item.aba)}\u0000${item.modalidade}\u0000${item.linhaPlanilha}\u0000${item.alunoNome.toLowerCase()}\u0000${mesItem.key}`;
+    const existente = pagamentosPorAlunoMesMulti.get(key);
+    if (existente) {
+      abrirEditarPagamento(existente);
+      return;
+    }
+    const aluno = alunoPorId.get(item.id);
+    if (aluno) {
+      setPagEditId(null);
+      setPagForm({
+        ...initialPagamentoForm(mesItem.mes, mesItem.ano),
+        aba: aluno.aba,
+        modalidade: aluno.modalidade,
+        linhaPlanilha: String(aluno.linha_planilha),
+        alunoNome: aluno.aluno_nome,
+        valor: aluno.valor_referencia != null ? formatBrl(aluno.valor_referencia) : '',
+        responsaveis: aluno.responsaveis ?? '',
+        pagadorPix: aluno.pagador_pix ?? '',
+      });
+      setPagModalOpen(true);
+      return;
+    }
+    setPagEditId(null);
+    setPagForm({
+      ...initialPagamentoForm(mesItem.mes, mesItem.ano),
+      aba: item.aba,
+      modalidade: item.modalidade,
+      linhaPlanilha: String(item.linhaPlanilha),
+      alunoNome: item.alunoNome,
+      valor: item.valorReferencia != null ? formatBrl(item.valorReferencia) : '',
+      responsaveis: item.responsaveis ?? '',
+      pagadorPix: item.pagadorPix ?? '',
+    });
+    setPagModalOpen(true);
+  }
+
   function abrirCadastroAPartirDoPagamento(p: FluxoOperacionalPagamento) {
     setEditId(null);
     setForm({
@@ -810,7 +1069,6 @@ export function FluxoCaixaOperacionalPage() {
             : '';
       return (
         <tr key={`p-${p.id}`} className={`${rowHighlight} ${alertaPend}`}>
-          <td className="px-3 py-2.5 tabular-nums text-slate-600 dark:text-slate-400">{p.linha_planilha}</td>
           <td className="px-3 py-2.5 font-medium text-slate-900 dark:text-slate-100">{p.aluno_nome}</td>
           <td
             className={`px-3 py-2.5 ${aluno ? 'cursor-pointer select-none' : ''}`}
@@ -941,6 +1199,15 @@ export function FluxoCaixaOperacionalPage() {
               >
                 Pagamento
               </button>
+              {aluno ? (
+                <button
+                  type="button"
+                  onClick={() => abrirPagamentoProximoMes(aluno)}
+                  className="rounded-lg border border-indigo-300 bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-200"
+                >
+                  Próximo mês
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => setConfirm({ kind: 'pagamento', id: p.id, name: p.aluno_nome })}
@@ -961,7 +1228,6 @@ export function FluxoCaixaOperacionalPage() {
         : 'border-l-4 border-amber-400/80 bg-amber-50/25 dark:border-amber-500 dark:bg-amber-950/20';
     return (
       <tr key={`s-${item.id}`} className={`${rowHighlight} ${alertaPend}`}>
-        <td className="px-3 py-2.5 tabular-nums text-slate-600 dark:text-slate-400">{item.linha_planilha}</td>
         <td className="px-3 py-2.5 font-medium text-slate-900 dark:text-slate-100">{item.aluno_nome}</td>
         <td
           className="cursor-pointer select-none px-3 py-2.5"
@@ -1070,6 +1336,13 @@ export function FluxoCaixaOperacionalPage() {
             </button>
             <button
               type="button"
+              onClick={() => abrirPagamentoProximoMes(item)}
+              className="rounded-lg border border-indigo-300 bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-200"
+            >
+              Próximo mês
+            </button>
+            <button
+              type="button"
               onClick={() => setConfirm({ kind: 'aluno', id: item.id, name: item.aluno_nome })}
               className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-medium text-rose-800 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200"
             >
@@ -1093,6 +1366,12 @@ export function FluxoCaixaOperacionalPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Link
+              to={`/relatorios-ia?tipo=alunos_inadimplencia&mes=${monthYear.mes}&ano=${monthYear.ano}`}
+              className="rounded-xl border border-rose-300 bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-700"
+            >
+              Relatório do mês
+            </Link>
             <button
               type="button"
               onClick={abrirNovoAluno}
@@ -1110,7 +1389,278 @@ export function FluxoCaixaOperacionalPage() {
           </div>
         </header>
 
-        {opcoesAbasFiltro.length > 0 ? (
+        <section className="rounded-2xl border border-slate-200/90 bg-white/95 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/90">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Modo de visualização</span>
+            <button
+              type="button"
+              onClick={() => setModoVisao('mensal')}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+                modoVisao === 'mensal'
+                  ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
+                  : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200'
+              }`}
+            >
+              Mensal detalhado
+            </button>
+            <button
+              type="button"
+              onClick={() => setModoVisao('multi')}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+                modoVisao === 'multi'
+                  ? 'bg-indigo-600 text-white'
+                  : 'border border-indigo-300 text-indigo-700 dark:border-indigo-700 dark:text-indigo-300'
+              }`}
+            >
+              Multi-mês (2026)
+            </button>
+          </div>
+        </section>
+
+        <section className="grid gap-3 lg:grid-cols-2">
+          <div className="rounded-2xl border border-amber-200 bg-amber-50/40 p-3 dark:border-amber-800/50 dark:bg-amber-950/20">
+            <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200">Pendências</h3>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/80">
+                <p className="text-slate-500 dark:text-slate-400">Geral</p>
+                <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{painelOperacional.pendenciasGeral}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/80">
+                <p className="text-slate-500 dark:text-slate-400">Cadastro</p>
+                <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{painelOperacional.cadastroPendencias.length}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/80">
+                <p className="text-slate-500 dark:text-slate-400">Pagamento</p>
+                <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{painelOperacional.pagamentoPendencias.length}</p>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-3 dark:border-indigo-800/50 dark:bg-indigo-950/20">
+            <h3 className="text-sm font-semibold text-indigo-900 dark:text-indigo-200">Cobrança de vencimento</h3>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/80">
+                <p className="text-slate-500 dark:text-slate-400">Vence amanhã</p>
+                <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{painelOperacional.cobrancaVenceAmanha.length}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/80">
+                <p className="text-slate-500 dark:text-slate-400">Vence hoje</p>
+                <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{painelOperacional.cobrancaHoje.length}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/80">
+                <p className="text-slate-500 dark:text-slate-400">Vencidos</p>
+                <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{painelOperacional.cobrancaVencidos.length}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/80">
+                <p className="text-slate-500 dark:text-slate-400">Planos (tri/semes)</p>
+                <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{painelOperacional.cobrancaPlanos.length}</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="grid gap-3 lg:grid-cols-2">
+          <div className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/90">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Lista acionável — Pendências</h3>
+            <ul className="mt-2 space-y-2 text-xs">
+              {painelOperacional.pagamentoPendencias.slice(0, 8).map((a) => (
+                <li key={`pend-${a.id}`} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 px-2 py-2 dark:border-slate-700">
+                  <span className="truncate">{a.aluno_nome} · {a.modalidade}</span>
+                  <button
+                    type="button"
+                    onClick={() => abrirNovoPagamentoParaAluno(a)}
+                    className="rounded border border-rose-300 bg-rose-50 px-2 py-1 font-semibold text-rose-800 dark:border-rose-700 dark:bg-rose-950/40 dark:text-rose-200"
+                  >
+                    Lançar pagamento
+                  </button>
+                </li>
+              ))}
+              {painelOperacional.pagamentoPendencias.length === 0 ? <li className="text-slate-500">Sem pendências de pagamento agora.</li> : null}
+            </ul>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/90">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Lista acionável — Cobrança</h3>
+            <ul className="mt-2 space-y-2 text-xs">
+              {[...painelOperacional.cobrancaHoje, ...painelOperacional.cobrancaVenceAmanha, ...painelOperacional.cobrancaVencidos]
+                .slice(0, 8)
+                .map((a) => (
+                  <li key={`cob-${a.id}`} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 px-2 py-2 dark:border-slate-700">
+                    <span className="truncate">{a.aluno_nome} · {a.modalidade}</span>
+                    <button
+                      type="button"
+                      onClick={() => abrirNovoPagamentoParaAluno(a)}
+                      className="rounded border border-indigo-300 bg-indigo-50 px-2 py-1 font-semibold text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-200"
+                    >
+                      Abrir cobrança
+                    </button>
+                  </li>
+                ))}
+              {painelOperacional.cobrancaHoje.length + painelOperacional.cobrancaVenceAmanha.length + painelOperacional.cobrancaVencidos.length === 0 ? (
+                <li className="text-slate-500">Sem itens de cobrança no momento.</li>
+              ) : null}
+            </ul>
+          </div>
+        </section>
+
+        {modoVisao === 'multi' ? (
+          <section className="space-y-4 rounded-2xl border border-indigo-200/70 bg-indigo-50/40 p-4 dark:border-indigo-800/60 dark:bg-indigo-950/20">
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-xl border border-rose-200 bg-white p-3 dark:border-rose-800 dark:bg-slate-900/80">
+                <p className="text-xs font-semibold text-rose-700 dark:text-rose-300">Pendentes no mês</p>
+                <p className="mt-1 text-xl font-semibold text-rose-900 dark:text-rose-100">{resumoMultiMesQuery.data?.kpis.pendentesMesAtual ?? '—'}</p>
+              </div>
+              <div className="rounded-xl border border-amber-200 bg-white p-3 dark:border-amber-800 dark:bg-slate-900/80">
+                <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">Atrasados 2+ meses</p>
+                <p className="mt-1 text-xl font-semibold text-amber-900 dark:text-amber-100">{resumoMultiMesQuery.data?.kpis.atrasados2Mais ?? '—'}</p>
+              </div>
+              <div className="rounded-xl border border-emerald-200 bg-white p-3 dark:border-emerald-800 dark:bg-slate-900/80">
+                <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">Voltaram a pagar</p>
+                <p className="mt-1 text-xl font-semibold text-emerald-900 dark:text-emerald-100">{resumoMultiMesQuery.data?.kpis.voltaramAPagar ?? '—'}</p>
+              </div>
+            </div>
+
+            {resumoMultiMesQuery.isLoading ? <TableSkeleton rows={4} cols={6} /> : null}
+            {resumoMultiMesQuery.error ? (
+              <ApiErrorPanel
+                message={resumoMultiMesQuery.error instanceof Error ? resumoMultiMesQuery.error.message : 'Erro no resumo multi-mês.'}
+                onRetry={() => resumoMultiMesQuery.refetch()}
+              />
+            ) : null}
+
+            {resumoMultiMesQuery.data ? (
+              <div className="space-y-4">
+                <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/80">
+                  <h3 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">Atividades (separadas por aba)</h3>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {multiAbasComDados.map((aba) => {
+                      const chrome = getFluxoAbaTabStyle(aba);
+                      const ativo = multiAbaAtiva === aba;
+                      return (
+                        <button
+                          key={aba}
+                          type="button"
+                          onClick={() => setMultiAbaAtiva(aba)}
+                          className="rounded-lg border-2 px-3 py-2 text-xs font-semibold shadow-sm transition"
+                          style={{
+                            borderColor: chrome.tab,
+                            backgroundColor: ativo ? chrome.soft : 'transparent',
+                            color: ativo ? '#0f172a' : chrome.tab,
+                          }}
+                        >
+                          {aba}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {(multiAgrupadoPorAba.get(multiAbaAtiva) ? [...multiAgrupadoPorAba.get(multiAbaAtiva)!.entries()] : [])
+                  .sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'))
+                  .map(([modalidade, itens]) => {
+                    const chrome = getFluxoModalidadeTabStyle(multiAbaAtiva, modalidade);
+                    return (
+                      <details
+                        key={`${multiAbaAtiva}\u0000${modalidade}`}
+                        className="group rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/80"
+                        style={{ borderLeftWidth: '5px', borderLeftColor: chrome.tab }}
+                      >
+                        <summary className="cursor-pointer list-none px-3 py-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                          Modalidade: <span style={{ color: chrome.tab }}>{modalidade}</span> · {itens.length} aluno(s)
+                        </summary>
+                        <div className="overflow-x-auto border-t border-slate-100 p-3 dark:border-slate-700">
+                          <table className="w-full min-w-[2200px] text-xs">
+                            <thead className="bg-slate-100 text-left font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                              <tr>
+                                <th className="px-2 py-2">Aluno</th>
+                                <th className="px-2 py-2">Vencimento</th>
+                                <th className="px-2 py-2">Valor ref.</th>
+                                <th className="px-2 py-2">Responsável</th>
+                                <th className="px-2 py-2">Pagador</th>
+                                <th className="px-2 py-2">Plano</th>
+                                <th className="px-2 py-2">WhatsApp</th>
+                                <th className="px-2 py-2">Ação</th>
+                                <th className="px-2 py-2 text-center">Ano</th>
+                                {resumoMultiMesQuery.data.meses.map((m) => (
+                                  <th key={`${modalidade}-${m.ano}-${m.mes}`} className="px-2 py-2 text-center">
+                                    {mesAnoCurto(m.mes, m.ano)}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                              {itens.map((item) => (
+                                <tr key={`linha-${item.id}`}>
+                                  <td className="px-2 py-2 font-medium text-slate-900 dark:text-slate-100">{item.alunoNome}</td>
+                                  <td className="px-2 py-2 text-slate-600 dark:text-slate-300">{item.vencimento || '—'}</td>
+                                  <td className="px-2 py-2 text-slate-600 dark:text-slate-300">{formatBrl(item.valorReferencia)}</td>
+                                  <td className="px-2 py-2 text-slate-600 dark:text-slate-300">{item.responsaveis || '—'}</td>
+                                  <td className="px-2 py-2 text-slate-600 dark:text-slate-300">{item.pagadorPix || '—'}</td>
+                                  <td className="px-2 py-2 text-slate-600 dark:text-slate-300">{item.plano || '—'}</td>
+                                  <td className="px-2 py-2 text-slate-600 dark:text-slate-300">{item.whatsapp || '—'}</td>
+                                  <td className="px-2 py-2">
+                                    <div className="flex flex-col gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => abrirEditarCadastroMulti(item)}
+                                        className="rounded border border-slate-300 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                                      >
+                                        Editar cadastro
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const aluno = alunoPorId.get(item.id);
+                                          if (aluno) abrirPagamentoProximoMes(aluno);
+                                        }}
+                                        className="rounded border border-indigo-300 bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-200"
+                                      >
+                                        Próximo mês
+                                      </button>
+                                    </div>
+                                  </td>
+                                  <td className="px-2 py-2 text-center font-semibold text-slate-700 dark:text-slate-200">2026</td>
+                                  {item.historico.map((mesItem) => (
+                                    <td key={`${item.id}-${mesItem.key}`} className="px-2 py-2 align-top">
+                                      <div className={`min-w-[145px] rounded-md p-2 ${statusMesClasse(mesItem.status)}`}>
+                                        <div className="font-semibold">{statusMesLabel(mesItem.status)}</div>
+                                        <div className="mt-1">Data: {mesItem.dataPagamento ? formatDataBr(mesItem.dataPagamento) : '—'}</div>
+                                        <div>Forma: {mesItem.formaPagamento || '—'}</div>
+                                        <div>Valor: {mesItem.valorPago > 0 ? formatBrl(mesItem.valorPago) : '—'}</div>
+                                        <button
+                                          type="button"
+                                          onClick={() => abrirPagamentoPorMesMulti(item, mesItem)}
+                                          className="mt-2 rounded border border-slate-400/60 bg-white/80 px-2 py-1 text-[11px] font-semibold text-slate-800 dark:border-slate-500 dark:bg-slate-900/60 dark:text-slate-200"
+                                        >
+                                          {mesItem.valorPago > 0 ? 'Editar mês' : 'Lançar mês'}
+                                        </button>
+                                      </div>
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </details>
+                    );
+                  })}
+
+                <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/80">
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Prioridade de cobrança</h3>
+                  <ul className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                    {resumoMultiMesQuery.data.prioridade.slice(0, 9).map((p) => (
+                      <li key={`${p.id}-${p.mesesEmAberto}`} className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700">
+                        <p className="font-medium text-slate-800 dark:text-slate-100">{p.alunoNome}</p>
+                        <p className="text-slate-500 dark:text-slate-400">{p.modalidade} — {p.mesesEmAberto} mês(es) em aberto</p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
+        {modoVisao === 'mensal' && opcoesAbasFiltro.length > 0 ? (
           <div className="rounded-2xl border border-slate-200/90 bg-white/95 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/90">
             <p className="mb-2 text-xs text-slate-600 dark:text-slate-400">
               <span className="font-medium">Atalho por aba</span> — cores no estilo das guias do Google Sheets; para igualar à planilha FLUXO BYLA, edite{' '}
@@ -1155,6 +1705,8 @@ export function FluxoCaixaOperacionalPage() {
           </div>
         ) : null}
 
+        {modoVisao === 'mensal' ? (
+        <>
         <details className="group rounded-2xl border border-slate-200/90 bg-white/95 shadow-sm open:shadow-md dark:border-slate-700 dark:bg-slate-900/90 [&_summary::-webkit-details-marker]:hidden">
           <summary className="flex cursor-pointer list-none items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50/80 dark:text-slate-100 dark:hover:bg-slate-800/80">
             <span
@@ -1413,7 +1965,6 @@ export function FluxoCaixaOperacionalPage() {
                             <table className="w-full min-w-[980px] text-sm">
                               <thead className="bg-slate-100/95 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800/95 dark:text-slate-400">
                                 <tr>
-                                  <th className="px-3 py-2">Linha</th>
                                   <th className="px-3 py-2">Aluno</th>
                                   <th className="px-3 py-2">Venc. (cad.)</th>
                                   <th className="px-3 py-2">Valor ref.</th>
@@ -1445,6 +1996,8 @@ export function FluxoCaixaOperacionalPage() {
             )}
           </div>
         </section>
+        </>
+        ) : null}
 
         <details
           className="group rounded-2xl border border-slate-200/90 bg-white/95 shadow-sm open:shadow-md dark:border-slate-700 dark:bg-slate-900/90 [&_summary::-webkit-details-marker]:hidden"
@@ -1525,35 +2078,43 @@ export function FluxoCaixaOperacionalPage() {
             </h2>
             <p className="text-xs text-slate-500 mt-1 mb-4">
               {editId
-                ? `Aba ${form.aba || '—'} · modalidade ${form.modalidade || '—'} · linha ${form.linhaPlanilha || '—'}. Os dados aparecem aqui no centro para não precisar rolar a página.`
+                ? `Aba ${form.aba || '—'} · modalidade ${form.modalidade || '—'}. Os dados aparecem aqui no centro para não precisar rolar a página.`
                 : 'Preencha como na planilha. Campo “Valor referência” grava o valor oficial no cadastro.'}
             </p>
             <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
               <label className="text-xs text-slate-600">
                 Aba
-                <input
-                  className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
-                  list="abas-sugestoes"
+                <select
+                  className="select-with-chevron mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
                   value={form.aba}
                   onChange={(e) => setForm((p) => ({ ...p, aba: e.target.value }))}
-                />
+                >
+                  <option value="">Selecionar</option>
+                  {opcoesAbasFiltro.map((a) => (
+                    <option key={a} value={a}>
+                      {a}
+                    </option>
+                  ))}
+                  {form.aba && !opcoesAbasFiltro.includes(form.aba) ? <option value={form.aba}>{form.aba}</option> : null}
+                </select>
               </label>
               <label className="text-xs text-slate-600">
                 Modalidade
-                <input
-                  className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
-                  list="modalidades-sugestoes"
+                <select
+                  className="select-with-chevron mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
                   value={form.modalidade}
                   onChange={(e) => setForm((p) => ({ ...p, modalidade: e.target.value }))}
-                />
-              </label>
-              <label className="text-xs text-slate-600">
-                Linha (planilha) - opcional
-                <input
-                  className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
-                  value={form.linhaPlanilha}
-                  onChange={(e) => setForm((p) => ({ ...p, linhaPlanilha: e.target.value }))}
-                />
+                >
+                  <option value="">Selecionar</option>
+                  {opcoesModalidadesFiltro.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                  {form.modalidade && !opcoesModalidadesFiltro.includes(form.modalidade) ? (
+                    <option value={form.modalidade}>{form.modalidade}</option>
+                  ) : null}
+                </select>
               </label>
               <label className="text-xs text-slate-600 sm:col-span-2">
                 Nome do aluno
@@ -1581,11 +2142,21 @@ export function FluxoCaixaOperacionalPage() {
               </label>
               <label className="text-xs text-slate-600">
                 Plano
-                <input
-                  className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+                <select
+                  className="select-with-chevron mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
                   value={form.plano}
                   onChange={(e) => setForm((p) => ({ ...p, plano: e.target.value }))}
-                />
+                >
+                  <option value="">Selecionar</option>
+                  {PLANO_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                  {form.plano && !PLANO_OPTIONS.some((opt) => opt.toLowerCase() === form.plano.toLowerCase()) ? (
+                    <option value={form.plano}>{form.plano}</option>
+                  ) : null}
+                </select>
               </label>
               <label className="text-xs text-slate-600">
                 Matrícula
@@ -1717,29 +2288,37 @@ export function FluxoCaixaOperacionalPage() {
             <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
               <label className="text-xs text-slate-600">
                 Aba
-                <input
-                  className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
-                  list="abas-sugestoes"
+                <select
+                  className="select-with-chevron mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
                   value={pagForm.aba}
                   onChange={(e) => setPagForm((p) => ({ ...p, aba: e.target.value }))}
-                />
+                >
+                  <option value="">Selecionar</option>
+                  {opcoesAbasFiltro.map((a) => (
+                    <option key={a} value={a}>
+                      {a}
+                    </option>
+                  ))}
+                  {pagForm.aba && !opcoesAbasFiltro.includes(pagForm.aba) ? <option value={pagForm.aba}>{pagForm.aba}</option> : null}
+                </select>
               </label>
               <label className="text-xs text-slate-600">
                 Modalidade
-                <input
-                  className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
-                  list="modalidades-sugestoes"
+                <select
+                  className="select-with-chevron mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
                   value={pagForm.modalidade}
                   onChange={(e) => setPagForm((p) => ({ ...p, modalidade: e.target.value }))}
-                />
-              </label>
-              <label className="text-xs text-slate-600">
-                Linha - opcional
-                <input
-                  className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
-                  value={pagForm.linhaPlanilha}
-                  onChange={(e) => setPagForm((p) => ({ ...p, linhaPlanilha: e.target.value }))}
-                />
+                >
+                  <option value="">Selecionar</option>
+                  {opcoesModalidadesFiltro.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                  {pagForm.modalidade && !opcoesModalidadesFiltro.includes(pagForm.modalidade) ? (
+                    <option value={pagForm.modalidade}>{pagForm.modalidade}</option>
+                  ) : null}
+                </select>
               </label>
               <label className="text-xs text-slate-600">
                 Ordem lançamento
@@ -1768,11 +2347,21 @@ export function FluxoCaixaOperacionalPage() {
               </label>
               <label className="text-xs text-slate-600">
                 Forma
-                <input
-                  className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+                <select
+                  className="select-with-chevron mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
                   value={pagForm.forma}
                   onChange={(e) => setPagForm((p) => ({ ...p, forma: e.target.value }))}
-                />
+                >
+                  <option value="">Selecionar</option>
+                  {FORMA_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                  {pagForm.forma && !FORMA_OPTIONS.some((opt) => opt.toLowerCase() === pagForm.forma.toLowerCase()) ? (
+                    <option value={pagForm.forma}>{pagForm.forma}</option>
+                  ) : null}
+                </select>
               </label>
               <label className="text-xs text-slate-600">
                 Valor

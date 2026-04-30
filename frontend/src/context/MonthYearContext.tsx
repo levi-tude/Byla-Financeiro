@@ -42,18 +42,23 @@ function buildOpcoes(): { mes: number; ano: number; label: string }[] {
   const anoAtual = d.getFullYear();
   const mesAtual = d.getMonth() + 1;
   const out: { mes: number; ano: number; label: string }[] = [];
+  // Mantém o seletor curto: meses existentes recentes + 1 mês futuro.
   let ano = anoAtual;
-  let mes = mesAtual;
-  for (let i = 0; i < 120; i++) {
+  let mes = mesAtual + 1;
+  if (mes > 12) {
+    mes = 1;
+    ano += 1;
+  }
+  for (let i = 0; i < 25; i++) {
     out.push({
       mes,
       ano,
       label: `${MESES_NOMES[mes - 1]}/${String(ano).slice(-2)}`,
     });
-    mes--;
-    if (mes < 1) {
+    mes -= 1;
+    if (mes <= 0) {
       mes = 12;
-      ano--;
+      ano -= 1;
     }
   }
   return out;

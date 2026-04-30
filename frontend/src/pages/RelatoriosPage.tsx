@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import { Topbar } from '../app/Topbar';
 import {
   getRelatorioDiario,
@@ -20,6 +20,9 @@ import {
   type RelatorioAlunosInadimplenciaPayload,
   type ControleCaixaLeituraGestao,
 } from '../services/backendApi';
+import { useSearchParams } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
+import type { AppRole } from '../auth/types';
 
 /** Renderiza texto de relatório com headings e listas simples (## / -), sem depender de markdown completo. */
 function RelatorioTextoIaView({ text }: { text: string }) {
@@ -353,7 +356,95 @@ type TipoRelatorio =
   | 'alunos_panorama'
   | 'alunos_inadimplencia';
 
+const TIPO_RELATORIO_LABEL: Record<TipoRelatorio, string> = {
+  diario: 'R3 — Diário (fluxo)',
+  mensal: 'R1 — Mensal executivo',
+  mensal_operacional: 'R2 — Mensal operacional',
+  trimestral: 'Trimestral',
+  anual: 'Anual',
+  alunos_panorama: 'R4 — Alunos (FLUXO / panorama)',
+  alunos_inadimplencia: 'R5 — Alunos (inadimplência)',
+};
+
+const TIPO_RELATORIO_HINT: Record<TipoRelatorio, string> = {
+  diario: 'Use para fechamento de um dia específico.',
+  mensal: 'Resumo executivo do mês (gestão).',
+  mensal_operacional: 'Relatório mensal operacional com foco em execução.',
+  trimestral: 'Comparativo consolidado do trimestre.',
+  anual: 'Visão consolidada do ano.',
+  alunos_panorama: 'Panorama de alunos ativos e mensalidade por competência.',
+  alunos_inadimplencia: 'Foco em cobrança e pendências de pagamento.',
+};
+
+type FonteRelatorio = 'banco' | 'controle_caixa' | 'fluxo_caixa' | 'sistema';
+type RelatorioMeta = {
+  fontes: FonteRelatorio[];
+  temDadosBancoDigital: boolean;
+  fontePrincipal: FonteRelatorio;
+};
+type RelatorioPreset = {
+  id: 'mes' | 'inadimplencia' | 'operacional';
+  label: string;
+  descricao: string;
+  tipo: TipoRelatorio;
+};
+
+const FONTE_LABEL: Record<FonteRelatorio, string> = {
+  banco: 'Banco digital',
+  controle_caixa: 'Controle de Caixa',
+  fluxo_caixa: 'Fluxo de Caixa',
+  sistema: 'Sistema',
+};
+
+const TIPO_RELATORIO_META: Record<TipoRelatorio, RelatorioMeta> = {
+  diario: { fontes: ['banco', 'sistema'], temDadosBancoDigital: true, fontePrincipal: 'banco' },
+  mensal: { fontes: ['banco', 'controle_caixa', 'sistema'], temDadosBancoDigital: true, fontePrincipal: 'controle_caixa' },
+  mensal_operacional: {
+    fontes: ['banco', 'controle_caixa', 'fluxo_caixa', 'sistema'],
+    temDadosBancoDigital: true,
+    fontePrincipal: 'fluxo_caixa',
+  },
+  trimestral: { fontes: ['banco', 'controle_caixa', 'sistema'], temDadosBancoDigital: true, fontePrincipal: 'controle_caixa' },
+  anual: { fontes: ['banco', 'controle_caixa', 'sistema'], temDadosBancoDigital: true, fontePrincipal: 'controle_caixa' },
+  alunos_panorama: { fontes: ['fluxo_caixa', 'sistema'], temDadosBancoDigital: false, fontePrincipal: 'fluxo_caixa' },
+  alunos_inadimplencia: { fontes: ['fluxo_caixa', 'sistema'], temDadosBancoDigital: false, fontePrincipal: 'fluxo_caixa' },
+};
+
+const RELATORIO_SECOES: Array<{ label: string; fonte: FonteRelatorio; tipos: TipoRelatorio[] }> = [
+  { label: 'Controle de Caixa', fonte: 'controle_caixa', tipos: ['mensal', 'trimestral', 'anual'] },
+  { label: 'Fluxo de Caixa', fonte: 'fluxo_caixa', tipos: ['mensal_operacional', 'alunos_panorama', 'alunos_inadimplencia'] },
+  { label: 'Banco Digital / Extrato', fonte: 'banco', tipos: ['diario'] },
+];
+
+function isTipoPermitidoPorPerfil(tipo: TipoRelatorio, role: AppRole | null): boolean {
+  if (role !== 'secretaria') return true;
+  return !TIPO_RELATORIO_META[tipo].temDadosBancoDigital;
+}
+
+const RELATORIO_PRESETS: RelatorioPreset[] = [
+  {
+    id: 'mes',
+    label: 'Relatório do mês',
+    descricao: 'Resumo executivo do mês atual.',
+    tipo: 'mensal',
+  },
+  {
+    id: 'inadimplencia',
+    label: 'Inadimplência do mês',
+    descricao: 'Pendências de pagamento do mês atual.',
+    tipo: 'alunos_inadimplencia',
+  },
+  {
+    id: 'operacional',
+    label: 'Operacional do mês',
+    descricao: 'Leitura operacional consolidada do mês.',
+    tipo: 'mensal_operacional',
+  },
+];
+
 export function RelatoriosPage() {
+  const { role } = useAuth();
+  const [searchParams] = useSearchParams();
   const [tipo, setTipo] = useState<TipoRelatorio>('mensal');
   const [dataDiario, setDataDiario] = useState(hojeYYYYMMDD);
   const [mes, setMes] = useState(3);
@@ -371,12 +462,67 @@ export function RelatoriosPage() {
   const [novoNumeroWhatsApp, setNovoNumeroWhatsApp] = useState('');
   const [mostrarAddNumero, setMostrarAddNumero] = useState(false);
   const [iaConfigured, setIaConfigured] = useState<boolean | null>(null);
+  const [presetAtivo, setPresetAtivo] = useState<RelatorioPreset['id'] | null>(null);
+  const tiposPermitidos = useMemo(
+    () =>
+      (Object.keys(TIPO_RELATORIO_LABEL) as TipoRelatorio[]).filter((t) =>
+        isTipoPermitidoPorPerfil(t, role)
+      ),
+    [role]
+  );
+  const tipoPadraoPermitido = tiposPermitidos[0] ?? 'alunos_panorama';
+  const relatorioCardGroups = useMemo(
+    () =>
+      RELATORIO_SECOES.map((g) => ({
+        ...g,
+        tipos: g.tipos.filter((t) => isTipoPermitidoPorPerfil(t, role)),
+      })).filter((g) => g.tipos.length > 0),
+    [role]
+  );
+  const presetsDisponiveis = useMemo(
+    () => RELATORIO_PRESETS.filter((p) => isTipoPermitidoPorPerfil(p.tipo, role)),
+    [role]
+  );
+
+  useEffect(() => {
+    const t = (searchParams.get('tipo') ?? '').trim() as TipoRelatorio;
+    const tiposValidos: TipoRelatorio[] = [
+      'diario',
+      'mensal',
+      'mensal_operacional',
+      'trimestral',
+      'anual',
+      'alunos_panorama',
+      'alunos_inadimplencia',
+    ];
+    if (tiposValidos.includes(t) && isTipoPermitidoPorPerfil(t, role)) setTipo(t);
+    else setTipo(tipoPadraoPermitido);
+
+    const mesQ = Number(searchParams.get('mes') ?? '');
+    const anoQ = Number(searchParams.get('ano') ?? '');
+    if (Number.isInteger(mesQ) && mesQ >= 1 && mesQ <= 12) setMes(mesQ);
+    if (Number.isInteger(anoQ) && anoQ >= 2000 && anoQ <= 2100) setAno(anoQ);
+  }, [searchParams, role, tipoPadraoPermitido]);
+
+  useEffect(() => {
+    if (!tiposPermitidos.includes(tipo)) {
+      setTipo(tipoPadraoPermitido);
+      setDados(null);
+      setTextoIA(null);
+      setAprovado(false);
+      setPresetAtivo(null);
+    }
+  }, [tipo, tiposPermitidos, tipoPadraoPermitido]);
 
   useEffect(() => {
     getRelatoriosIAStatus().then((r) => setIaConfigured(r.configured)).catch(() => setIaConfigured(false));
   }, []);
 
   const handleGerar = async () => {
+    if (!isTipoPermitidoPorPerfil(tipo, role)) {
+      setError('Seu perfil não tem acesso a este relatório porque ele contém dados de banco digital.');
+      return;
+    }
     setLoading(true);
     setError(null);
     setDados(null);
@@ -410,6 +556,26 @@ export function RelatoriosPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const aplicarPreset = (preset: RelatorioPreset) => {
+    const agora = new Date();
+    const mesAtual = agora.getMonth() + 1;
+    const anoAtual = agora.getFullYear();
+
+    if (!isTipoPermitidoPorPerfil(preset.tipo, role)) {
+      setError('Seu perfil não tem acesso a este preset.');
+      return;
+    }
+
+    setPresetAtivo(preset.id);
+    setTipo(preset.tipo);
+    setMes(mesAtual);
+    setAno(anoAtual);
+    setError(null);
+    setDados(null);
+    setTextoIA(null);
+    setAprovado(false);
   };
 
   const handleGerarTextoIA = async () => {
@@ -466,25 +632,85 @@ export function RelatoriosPage() {
             <span className="mr-3"><span className="font-mono text-[11px] bg-slate-100 px-1 rounded">planilha</span> FLUXO / CONTROLE DE CAIXA</span>
             <span><span className="font-mono text-[11px] bg-slate-100 px-1 rounded">sistema</span> regras e agregações (ex.: conciliação)</span>
           </div>
+          {role === 'secretaria' && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+              Perfil Secretária: relatórios com valores de extrato/banco digital ficam ocultos automaticamente.
+            </div>
+          )}
+          <div className="rounded-xl border border-gray-200 bg-white p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Presets rápidos</p>
+            <div className="mt-2 grid gap-2 md:grid-cols-3">
+              {presetsDisponiveis.map((preset) => {
+                const ativo = presetAtivo === preset.id;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => aplicarPreset(preset)}
+                    className={`rounded-lg border px-3 py-2 text-left transition ${
+                      ativo
+                        ? 'border-rose-400 bg-rose-50 text-rose-900'
+                        : 'border-gray-200 bg-gray-50 text-gray-700 hover:border-gray-300'
+                    }`}
+                  >
+                    <p className="text-sm font-semibold">{preset.label}</p>
+                    <p className="mt-0.5 text-xs opacity-90">{preset.descricao}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           {/* Tipo + parâmetros */}
-          <div className="flex flex-wrap items-end gap-4 p-4 bg-gray-50 rounded-xl border border-gray-200">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Tipo</label>
-              <select
-                value={tipo}
-                onChange={(e) => setTipo(e.target.value as TipoRelatorio)}
-                className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
-              >
-                <option value="diario">R3 — Diário (fluxo)</option>
-                <option value="mensal">R1 — Mensal executivo</option>
-                <option value="mensal_operacional">R2 — Mensal operacional</option>
-                <option value="trimestral">Trimestral</option>
-                <option value="anual">Anual</option>
-                <option value="alunos_panorama">R4 — Alunos (FLUXO / panorama)</option>
-                <option value="alunos_inadimplencia">R5 — Alunos (inadimplência)</option>
-              </select>
+          <div className="space-y-3 p-4 bg-gray-50 rounded-xl border border-gray-200">
+            <div className="space-y-2">
+              {relatorioCardGroups.map((grupo) => (
+                <div key={grupo.label} className="rounded-lg border border-gray-200 bg-white p-2.5">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{grupo.label}</p>
+                    <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+                      {FONTE_LABEL[grupo.fonte]}
+                    </span>
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    {grupo.tipos.map((t) => {
+                      const ativo = tipo === t;
+                      const meta = TIPO_RELATORIO_META[t];
+                      return (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => {
+                            setTipo(t);
+                            setPresetAtivo(null);
+                          }}
+                          className={`rounded-lg border px-3 py-2 text-left transition ${
+                            ativo
+                              ? 'border-indigo-400 bg-indigo-50 text-indigo-900'
+                              : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
+                          }`}
+                        >
+                          <p className="text-sm font-semibold">{TIPO_RELATORIO_LABEL[t]}</p>
+                          <p className="mt-0.5 text-xs opacity-90">{TIPO_RELATORIO_HINT[t]}</p>
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {meta.fontes.map((fonte) => (
+                              <span
+                                key={`${t}-${fonte}`}
+                                className="rounded bg-white/80 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-600"
+                              >
+                                {FONTE_LABEL[fonte]}
+                              </span>
+                            ))}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
+
+            <div className="flex flex-wrap items-end gap-4">
             {tipo === 'diario' && (
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">Data</label>
@@ -575,6 +801,7 @@ export function RelatoriosPage() {
             >
               {loading ? 'Carregando…' : 'Gerar relatório'}
             </button>
+            </div>
           </div>
 
           {error && (

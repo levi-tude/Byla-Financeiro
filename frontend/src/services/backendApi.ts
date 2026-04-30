@@ -446,6 +446,63 @@ export interface FluxoOperacionalAuditoriaItem {
   created_at: string;
 }
 
+export interface FluxoOperacionalResumoMesItem {
+  ano: number;
+  mes: number;
+  key: string;
+  valorEsperado: number | null;
+  valorPago: number;
+  dataPagamento: string | null;
+  formaPagamento: string | null;
+  status: 'pago' | 'parcial' | 'pendente' | 'sem_dado' | 'futuro';
+}
+
+export interface FluxoOperacionalResumoAlunoItem {
+  id: string;
+  aba: string;
+  modalidade: string;
+  linhaPlanilha: number;
+  alunoNome: string;
+  whatsapp: string | null;
+  responsaveis: string | null;
+  plano: string | null;
+  vencimento: string | null;
+  pagadorPix: string | null;
+  valorReferencia: number | null;
+  historico: FluxoOperacionalResumoMesItem[];
+  mesesEmAberto: number;
+  voltouAPagar: boolean;
+}
+
+export interface FluxoOperacionalResumoMultiMesResponse {
+  referencia: { ano: number; mes: number; janela: number };
+  kpis: { pendentesMesAtual: number; atrasados2Mais: number; voltaramAPagar: number };
+  meses: { ano: number; mes: number }[];
+  itens: FluxoOperacionalResumoAlunoItem[];
+  prioridade: { id: string; alunoNome: string; aba: string; modalidade: string; mesesEmAberto: number }[];
+}
+
+export async function getFluxoOperacionalResumoMultiMes(params: {
+  ano: number;
+  mes: number;
+  janela?: number;
+  aba?: string;
+  modalidade?: string;
+  q?: string;
+  limit?: number;
+}): Promise<FluxoOperacionalResumoMultiMesResponse> {
+  const qs = new URLSearchParams({
+    ano: String(params.ano),
+    mes: String(params.mes),
+    janela: String(params.janela ?? 3),
+  });
+  if (params.aba) qs.set('aba', params.aba);
+  if (params.modalidade) qs.set('modalidade', params.modalidade);
+  if (params.q) qs.set('q', params.q);
+  if (params.limit != null) qs.set('limit', String(params.limit));
+  return request<FluxoOperacionalResumoMultiMesResponse>(`/api/fluxo-operacional/resumo-multi-mes?${qs.toString()}`);
+}
+
 export async function getFluxoOperacionalAuditoria(params?: {
   entidade?: 'aluno' | 'pagamento';
   limit?: number;

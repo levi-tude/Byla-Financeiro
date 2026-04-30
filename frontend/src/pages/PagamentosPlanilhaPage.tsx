@@ -12,7 +12,7 @@ function isAbaBylaDanca(aba: string): boolean {
   return u === 'BYLA DANCA' || u.includes('BYLA DAN');
 }
 
-type OrdenacaoAlunos = 'aluno_az' | 'aluno_za' | 'valor_desc' | 'valor_asc' | 'data_recente' | 'data_antiga' | 'linha';
+type OrdenacaoAlunos = 'aluno_az' | 'aluno_za' | 'valor_desc' | 'valor_asc' | 'data_recente' | 'data_antiga';
 type OrdenacaoModalidades = 'alfabetica_az' | 'alfabetica_za' | 'total_desc' | 'total_asc';
 
 type AlunoComPag = {
@@ -151,8 +151,6 @@ export function PagamentosPlanilhaPage() {
           return B.dataMaisRecente.localeCompare(A.dataMaisRecente);
         case 'data_antiga':
           return A.dataMaisRecente.localeCompare(B.dataMaisRecente);
-        case 'linha':
-          return A.linha - B.linha;
         case 'aluno_az':
         default:
           return A.aluno.localeCompare(B.aluno, 'pt-BR');
@@ -294,7 +292,6 @@ export function PagamentosPlanilhaPage() {
                 <option value="valor_asc">Valor total (menor primeiro)</option>
                 <option value="data_recente">Data pagamento (mais recente)</option>
                 <option value="data_antiga">Data pagamento (mais antiga)</option>
-                <option value="linha">Linha na planilha</option>
               </select>
             </div>
 
@@ -406,7 +403,6 @@ export function PagamentosPlanilhaPage() {
                     <thead>
                       <tr className="border-b text-left text-gray-500 font-medium">
                         <th className="py-2 pr-2">Aluno</th>
-                        <th className="py-2 pr-2">Linha</th>
                         <th className="py-2 pr-2">Venc.</th>
                         <th className="py-2 pr-2">Data</th>
                         <th className="py-2 pr-2">Forma</th>
@@ -419,7 +415,6 @@ export function PagamentosPlanilhaPage() {
                         a.pagamentos.map((p, idx2) => (
                           <tr key={`${a.aluno}-${a.linha}-${p.data}-${idx2}`} className="border-b border-gray-100 hover:bg-gray-50/80">
                             <td className="py-1.5 pr-2 font-medium text-gray-800">{a.aluno}</td>
-                            <td className="py-1.5 pr-2 text-gray-400">{a.linha}</td>
                             <td className="py-1.5 pr-2 text-gray-600 whitespace-nowrap">
                               {a.diaVencimento != null ? `${a.diaVencimento} (dia)` : '—'}
                             </td>

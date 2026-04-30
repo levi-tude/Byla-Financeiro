@@ -300,6 +300,15 @@ export function OverviewPage() {
     <div className="p-6 space-y-8 min-h-0">
       <Topbar title="Visão geral financeira" subtitle={subtitulo} />
 
+      <section className="flex justify-end">
+        <Link
+          to={`/relatorios-ia?tipo=mensal_operacional&mes=${monthYear.mes}&ano=${monthYear.ano}`}
+          className="rounded-lg border border-rose-300 bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700"
+        >
+          Relatório do mês
+        </Link>
+      </section>
+
       <section aria-label="Ações rápidas do mês" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Link
           to="/conciliacao"
