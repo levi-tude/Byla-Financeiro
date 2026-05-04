@@ -3,16 +3,15 @@ import { useAuth } from '../auth/AuthContext';
 import type { AppRole } from '../auth/types';
 
 const navItems: Array<{ path: string; label: string; roles: AppRole[] }> = [
+  { path: '/', label: 'Visão geral', roles: ['secretaria', 'admin'] },
+  { path: '/transacoes', label: 'Transações', roles: ['admin'] },
   { path: '/controle-caixa', label: 'Controle de caixa', roles: ['admin'] },
   { path: '/fluxo-caixa', label: 'Fluxo de caixa', roles: ['secretaria', 'admin'] },
-  { path: '/', label: 'Visão geral', roles: ['secretaria', 'admin'] },
   { path: '/alunos', label: 'Alunos', roles: ['secretaria', 'admin'] },
   { path: '/atividades', label: 'Atividades', roles: ['secretaria', 'admin'] },
   { path: '/pagamentos-planilha', label: 'Pagamentos planilha', roles: ['secretaria', 'admin'] },
   { path: '/validacao-pagamentos-diaria', label: 'Validação de pagamentos', roles: ['secretaria', 'admin'] },
   { path: '/conciliacao', label: 'Conciliação', roles: ['admin'] },
-  { path: '/entradas', label: 'Entradas', roles: ['admin'] },
-  { path: '/saidas', label: 'Saídas', roles: ['admin'] },
   { path: '/relatorios-ia', label: 'Relatórios IA', roles: ['admin'] },
   { path: '/calendario-financeiro', label: 'Calendário financeiro', roles: ['admin'] },
 ];

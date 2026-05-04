@@ -2,9 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { LayoutShell } from './app/LayoutShell';
 import { OverviewPage } from './pages/OverviewPage';
 import { ConciliacaoPage } from './pages/ConciliacaoPage';
-import { EntradasPage } from './pages/EntradasPage';
 import { AtividadesPage } from './pages/AtividadesPage';
-import { DespesasPage } from './pages/DespesasPage';
 import { AlunosPage } from './pages/AlunosPage';
 import { RelatoriosPage } from './pages/RelatoriosPage';
 import { PagamentosPlanilhaPage } from './pages/PagamentosPlanilhaPage';
@@ -17,6 +15,7 @@ import { RequireAuth } from './auth/RequireAuth';
 import { LoginPage } from './pages/LoginPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { useAuth } from './auth/AuthContext';
+import { TransacoesPage } from './pages/TransacoesPage';
 
 function HomeByRole() {
   const auth = useAuth();
@@ -50,14 +49,6 @@ export default function App() {
             }
           />
           <Route
-            path="entradas"
-            element={
-              <RequireAuth roles={['admin']}>
-                <EntradasPage />
-              </RequireAuth>
-            }
-          />
-          <Route
             path="atividades"
             element={
               <RequireAuth roles={['secretaria', 'admin']}>
@@ -74,14 +65,30 @@ export default function App() {
             }
           />
           <Route
-            path="saidas"
+            path="transacoes"
             element={
               <RequireAuth roles={['admin']}>
-                <DespesasPage />
+                <TransacoesPage />
               </RequireAuth>
             }
           />
-          <Route path="despesas" element={<Navigate to="/saidas" replace />} />
+          <Route
+            path="entradas"
+            element={
+              <RequireAuth roles={['admin']}>
+                <Navigate to="/transacoes" replace />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="saidas"
+            element={
+              <RequireAuth roles={['admin']}>
+                <Navigate to="/transacoes" replace />
+              </RequireAuth>
+            }
+          />
+          <Route path="despesas" element={<Navigate to="/transacoes" replace />} />
           <Route
             path="relatorios-ia"
             element={

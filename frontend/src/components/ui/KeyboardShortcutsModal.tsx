@@ -29,8 +29,7 @@ export function KeyboardShortcutsModal({ open, onClose, role }: Props) {
   const linksAdmin = [
     { to: '/', label: 'Visão geral' },
     { to: '/conciliacao', label: 'Conciliação' },
-    { to: '/entradas', label: 'Entradas' },
-    { to: '/saidas', label: 'Saídas' },
+    { to: '/transacoes', label: 'Transações' },
     { to: '/relatorios-ia', label: 'Relatórios IA' },
     { to: '/controle-caixa', label: 'Controle de caixa' },
     { to: '/calendario-financeiro', label: 'Calendário financeiro' },

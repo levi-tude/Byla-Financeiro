@@ -332,11 +332,11 @@ export function OverviewPage() {
           <p className="mt-1 text-xs text-indigo-900/90 dark:text-indigo-200/90">Cadastro de alunos, valores de referência e pagamentos no sistema.</p>
         </Link>
         <Link
-          to="/saidas"
+          to="/transacoes"
           className="rounded-xl border border-rose-200 bg-rose-50/90 p-4 shadow-sm transition hover:border-rose-300 hover:bg-rose-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-rose-400 dark:border-rose-800/50 dark:bg-rose-950/35 dark:hover:border-rose-700 dark:hover:bg-rose-950/50"
         >
-          <h2 className="text-sm font-semibold text-rose-950 dark:text-rose-100">Saídas</h2>
-          <p className="mt-1 text-xs text-rose-900/90 dark:text-rose-200/90">Despesas, planilha × banco e validação por linha.</p>
+          <h2 className="text-sm font-semibold text-rose-950 dark:text-rose-100">Transações</h2>
+          <p className="mt-1 text-xs text-rose-900/90 dark:text-rose-200/90">Entradas e saídas unificadas com filtros, resumo diário e métodos.</p>
         </Link>
       </section>
 

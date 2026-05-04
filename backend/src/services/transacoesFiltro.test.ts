@@ -1,7 +1,54 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { filtrarTransacoesOficiais, type TransacaoBase } from './transacoesFiltro.js';
+import {
+  filtrarTransacoesOficiais,
+  metodoPagamentoFinal,
+  normalizarMetodoPagamento,
+  type TransacaoBase,
+} from './transacoesFiltro.js';
 import { businessRules } from '../businessRules.js';
+
+describe('normalizarMetodoPagamento', () => {
+  it('detecta PIX em textos comuns de extrato e QR', () => {
+    assert.strictEqual(normalizarMetodoPagamento('Recebimento Pix - João'), 'PIX');
+    assert.strictEqual(normalizarMetodoPagamento('PIX'), 'PIX');
+    assert.strictEqual(normalizarMetodoPagamento('Pagamento QR Code'), 'PIX');
+    assert.strictEqual(normalizarMetodoPagamento('chave Pix'), 'PIX');
+    assert.strictEqual(normalizarMetodoPagamento('Transferência via SPI'), 'PIX');
+    assert.strictEqual(normalizarMetodoPagamento('Transferência instantânea'), 'PIX');
+    assert.strictEqual(normalizarMetodoPagamento('TRANSFERENCIA INSTANTANEA'), 'PIX');
+  });
+
+  it('classifica arranjo EDI (bandeira) como crédito em vez de Outros', () => {
+    assert.strictEqual(normalizarMetodoPagamento('VISA'), 'Crédito');
+    assert.strictEqual(normalizarMetodoPagamento('MASTERCARD'), 'Crédito');
+    assert.strictEqual(normalizarMetodoPagamento('ELO'), 'Crédito');
+    assert.strictEqual(normalizarMetodoPagamento('Liquidação AMEX'), 'Crédito');
+  });
+
+  it('prioriza débito quando indicado', () => {
+    assert.strictEqual(normalizarMetodoPagamento('VISA ELECTRON'), 'Débito');
+    assert.strictEqual(normalizarMetodoPagamento('Cartão de débito'), 'Débito');
+  });
+
+  it('mantém TED/DOC/transferência tradicional', () => {
+    assert.strictEqual(normalizarMetodoPagamento('TED recebida'), 'Transferência');
+    assert.strictEqual(normalizarMetodoPagamento('DOC entre bancos'), 'Transferência');
+    assert.strictEqual(normalizarMetodoPagamento('Transferência DOC'), 'Transferência');
+  });
+});
+
+describe('metodoPagamentoFinal', () => {
+  it('entrada: Outros vira PIX (domínio só cartão + PIX)', () => {
+    assert.strictEqual(metodoPagamentoFinal('Fulano de Tal', 'entrada'), 'PIX');
+    assert.strictEqual(metodoPagamentoFinal('', 'entrada'), 'PIX');
+    assert.strictEqual(metodoPagamentoFinal('VISA', 'entrada'), 'Crédito');
+  });
+
+  it('saída: mantém Outros quando o extrato não bate com regras', () => {
+    assert.strictEqual(metodoPagamentoFinal('Fulano de Tal', 'saida'), 'Outros');
+  });
+});
 
 describe('filtrarTransacoesOficiais', () => {
   it('remove entrada externa e saida correspondente do Samuel', () => {

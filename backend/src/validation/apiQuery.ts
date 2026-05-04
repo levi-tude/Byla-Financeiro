@@ -11,13 +11,37 @@ export const dataIsoQuerySchema = z.object({
 });
 
 export const tipoTransacaoQuerySchema = z.enum(['entrada', 'saida']);
+export const tipoTransacaoExtendedQuerySchema = z.enum(['entrada', 'saida', 'todos']);
 
 export const transacoesQuerySchema = mesAnoQuerySchema.extend({
-  tipo: z.preprocess(
-    (v) => (typeof v === 'string' ? v.toLowerCase() : v),
-    tipoTransacaoQuerySchema,
+  tipo: z.preprocess((v) => {
+    if (v === undefined || v === null || v === '') return 'todos';
+    return typeof v === 'string' ? v.toLowerCase() : v;
+  }, tipoTransacaoExtendedQuerySchema),
+  metodo: z.preprocess(
+    (v) => (v === '' || v == null ? undefined : v),
+    z.string().trim().min(1).max(40).optional(),
   ),
-});
+  q: z.preprocess(
+    (v) => (v === '' || v == null ? undefined : v),
+    z.string().trim().min(1).max(120).optional(),
+  ),
+  dia: z.preprocess(
+    (v) => (v === '' || v == null ? undefined : v),
+    z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.').optional(),
+  ),
+  /** Inclusive; com `dia` filtra intervalo [min(dia,dia_fim), max(dia,dia_fim)]. Só faz efeito se `dia` estiver definido. */
+  dia_fim: z.preprocess(
+    (v) => (v === '' || v == null ? undefined : v),
+    z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.').optional(),
+  ),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(100),
+  offset: z.coerce.number().int().min(0).optional().default(0),
+})
+  .refine((q) => !q.dia_fim || !!q.dia, {
+    message: 'Informe dia (início) quando usar dia_fim.',
+    path: ['dia'],
+  });
 
 export const trimestreAnoQuerySchema = z.object({
   trimestre: z.coerce.number().int().min(1).max(4),

@@ -576,18 +576,54 @@ export interface TransacaoItem {
   pessoa: string;
   valor: number;
   descricao: string | null;
-  tipo: string;
+  tipo: 'entrada' | 'saida';
+  metodo: 'PIX' | 'Crédito' | 'Débito' | 'Transferência' | 'Boleto' | 'Dinheiro' | 'Outros';
+  metodoRaw: string | null;
 }
 
 export interface TransacoesPorMesResponse {
   itens: TransacaoItem[];
   mes: number;
   ano: number;
-  tipo: 'entrada' | 'saida';
+  tipo: 'entrada' | 'saida' | 'todos';
+  resumo_geral?: {
+    total_entradas: number;
+    total_saidas: number;
+    saldo_liquido: number;
+    quantidade_total: number;
+  };
+  resumo_por_dia?: {
+    data: string;
+    entradas: number;
+    saidas: number;
+    saldo: number;
+    qtd: number;
+  }[];
+  resumo_por_metodo?: {
+    metodo: TransacaoItem['metodo'];
+    entradas_valor: number;
+    entradas_qtd: number;
+    saidas_valor: number;
+    saidas_qtd: number;
+    total_valor: number;
+    total_qtd: number;
+  }[];
+  total_filtrado?: number;
 }
 
-export async function getTransacoesPorMes(mes: number, ano: number, tipo: 'entrada' | 'saida'): Promise<TransacoesPorMesResponse> {
+export async function getTransacoesPorMes(
+  mes: number,
+  ano: number,
+  tipo: 'entrada' | 'saida' | 'todos',
+  extra?: { metodo?: string; q?: string; dia?: string; dia_fim?: string; limit?: number; offset?: number }
+): Promise<TransacoesPorMesResponse> {
   const params = new URLSearchParams({ mes: String(mes), ano: String(ano), tipo });
+  if (extra?.metodo) params.set('metodo', extra.metodo);
+  if (extra?.q) params.set('q', extra.q);
+  if (extra?.dia) params.set('dia', extra.dia);
+  if (extra?.dia_fim) params.set('dia_fim', extra.dia_fim);
+  if (extra?.limit != null) params.set('limit', String(extra.limit));
+  if (extra?.offset != null) params.set('offset', String(extra.offset));
   return request<TransacoesPorMesResponse>(`/api/transacoes?${params.toString()}`);
 }
 

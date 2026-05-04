@@ -38,7 +38,7 @@ export function KpiCard(props: KpiCardProps) {
       ) : (
         <span className={'text-2xl font-semibold ' + accent}>{value}</span>
       )}
-      {helperText && !isLoading && (
+      {helperText && (
         <span className={'text-xs font-medium ' + trendColor}>{helperText}</span>
       )}
     </div>

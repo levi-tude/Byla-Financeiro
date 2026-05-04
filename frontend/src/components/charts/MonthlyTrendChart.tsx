@@ -68,7 +68,7 @@ export function MonthlyTrendChart({ data, isLoading }: MonthlyTrendChartProps) {
           />
           <Tooltip
             formatter={(value: number) => [formatCurrency(value), '']}
-            labelFormatter={(label) => 'Mes: ' + label}
+            labelFormatter={(label) => 'Mês: ' + label}
             contentStyle={tooltipStyle}
           />
           <Legend />
