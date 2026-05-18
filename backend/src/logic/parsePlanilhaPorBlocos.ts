@@ -33,6 +33,19 @@ const COLS_BLOCO = [
   'DATA VENC', 'DATA VEN', 'DATA VENC.', 'VENCIMENTO', 'VEN',
 ];
 
+const MODALIDADE_MARKERS = [
+  'TURMA',
+  'DANCA',
+  'DANÇA',
+  'BALLET',
+  'HIP HOP',
+  'JAZZ',
+  'KPOP',
+  'PROGRAMA DE BOLSAS',
+  'CURSO DE CAPACITACAO',
+  'CURSO DE CAPACITAÇÃO',
+];
+
 /** Verifica se a linha parece ser a linha de cabeçalhos do bloco (contém ALUNO/CLIENTE e/ou WPP). */
 function isHeaderRow(cells: string[]): boolean {
   const up = cells.slice(0, 12).map((c) => (c ?? '').toUpperCase().trim());
@@ -51,6 +64,20 @@ function extrairModalidade(linha: string[]): string {
     if (v && v.length > 2 && !COLS_BLOCO.includes(v.toUpperCase())) return v;
   }
   return '(modalidade)';
+}
+
+function pareceLinhaModalidade(cells: string[]): boolean {
+  const first = (cells[0] ?? '').trim();
+  if (!first || first.length < 8) return false;
+  const normalized = first
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toUpperCase();
+  if (!MODALIDADE_MARKERS.some((m) => normalized.includes(m))) return false;
+
+  // Linha de modalidade costuma ter só a primeira célula preenchida.
+  const filled = cells.filter((c) => String(c ?? '').trim().length > 0).length;
+  return filled <= 2;
 }
 
 /** Encontra a linha de modalidade: última linha não vazia antes do índice headerIdx. */
@@ -149,11 +176,26 @@ export function parsearAbaEmBlocos(
       continue;
     }
 
+    if (pareceLinhaModalidade(cells)) {
+      modalidadeAtual = extrairModalidade(cells);
+      continue;
+    }
+
     if (headerAtual.length === 0) continue;
 
     const aluno = extrairNomeAlunoNaLinha(headerAtual, cells);
     if (!aluno) continue;
+    if (aluno.trim().toUpperCase() === modalidadeAtual.trim().toUpperCase()) continue;
     if (COLS_BLOCO.includes(aluno.toUpperCase()) || aluno === 'Sub total' || aluno === 'Subtotal' || aluno === 'TOTAL') continue;
+
+    const alunoUpper = aluno
+      .normalize('NFD')
+      .replace(/\p{Diacritic}/gu, '')
+      .toUpperCase();
+    const linhaPareceModalidade =
+      MODALIDADE_MARKERS.some((m) => alunoUpper.includes(m)) &&
+      cells.filter((c) => String(c ?? '').trim().length > 0).length <= 2;
+    if (linhaPareceModalidade) continue;
 
     const obj = rowToObj(headerAtual, cells) as Record<string, string | number | boolean>;
     obj._aba = nomeAba;

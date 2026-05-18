@@ -1,11 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { getSupabase } from '../services/supabaseClient.js';
-import { listSheetNames } from '../services/sheetsService.js';
-import { config } from '../config.js';
-import { lerPagamentosPorAbaEAno } from '../services/planilhaPagamentos.js';
-import { isEligibleSheet, businessRules } from '../businessRules.js';
+import { businessRules } from '../businessRules.js';
+import { carregarItensPlanilhaParaValidacao } from '../services/fluxoValidacaoPlanilhaItens.js';
 import { filtrarTransacoesOficiais } from '../services/transacoesFiltro.js';
-import { normalizeText, sameDayISO, shiftISODate } from '../logic/conciliacaoTexto.js';
+import { normalizeText, shiftISODate } from '../logic/conciliacaoTexto.js';
 import {
   matchUmPagamentoPlanilhaBanco,
   matchPagamentosAgrupadosPlanilhaBanco,
@@ -32,16 +30,22 @@ router.get('/validacao-pagamentos-diaria', async (req: Request, res: Response) =
     const modalidadeReq = (vq.data.modalidade ?? '').trim();
     const ano = Number(dataStr.slice(0, 4));
 
-    const idPlanilha = config.sheets.spreadsheetId;
-    if (!idPlanilha) {
-      return res.status(400).json({ error: 'Planilha FLUXO BYLA não configurada.' });
-    }
-
-    const { names, error: abasError } = await listSheetNames(idPlanilha);
-    if (abasError) {
+    const carregado = await carregarItensPlanilhaParaValidacao({
+      dataStr,
+      abaReq,
+      modalidadeReq,
+    });
+    const planilhaItens: PlanilhaItem[] = carregado.itens;
+    if (carregado.erro && planilhaItens.length === 0) {
       return res.json({
-        meta: { data: dataStr, ano, aba: abaReq, modalidade: modalidadeReq || null },
-        planilha: { total: 0, quantidade: 0, itens: [], erro: abasError },
+        meta: {
+          data: dataStr,
+          ano,
+          aba: abaReq,
+          modalidade: modalidadeReq || null,
+          fonte_pagamentos: carregado.fonte,
+        },
+        planilha: { total: 0, quantidade: 0, itens: [], erro: carregado.erro },
         banco: { total: 0, quantidade: 0, itens: [] },
         validacao: {
           status_geral: 'atencao',
@@ -55,39 +59,6 @@ router.get('/validacao-pagamentos-diaria', async (req: Request, res: Response) =
           itens_banco_sem_correspondencia: [],
         },
       });
-    }
-
-    const abasElegiveis = names.filter((n) => isEligibleSheet(n));
-    const abasSelecionadas =
-      normalizeText(abaReq) === 'TODAS'
-        ? abasElegiveis
-        : abasElegiveis.filter((a) => normalizeText(a) === normalizeText(abaReq) || normalizeText(a).includes(normalizeText(abaReq)));
-
-    const planilhaItens: PlanilhaItem[] = [];
-    for (const aba of abasSelecionadas) {
-      const { alunos, error } = await lerPagamentosPorAbaEAno(aba, ano);
-      if (error) continue;
-      for (const a of alunos) {
-        const mod = a.modalidade ?? aba;
-        if (modalidadeReq && normalizeText(mod) !== normalizeText(modalidadeReq)) continue;
-        for (const p of a.pagamentos ?? []) {
-          if (!sameDayISO(p.data, dataStr)) continue;
-          planilhaItens.push({
-            id: `${aba}::${a.linha}::${a.aluno}::${p.data}::${p.valor}::${p.forma}`,
-            aba,
-            modalidade: mod,
-            aluno: a.aluno,
-            linha: a.linha,
-            data: p.data,
-            forma: p.forma,
-            valor: Number(p.valor || 0),
-            mesCompetencia: Number((p as { mesCompetencia?: number; mes?: number }).mesCompetencia ?? p.mes ?? 0),
-            anoCompetencia: Number((p as { anoCompetencia?: number; ano?: number }).anoCompetencia ?? p.ano ?? 0),
-            responsaveis: Array.isArray((p as { responsaveis?: string[] }).responsaveis) ? ((p as { responsaveis?: string[] }).responsaveis as string[]) : [],
-            pagadorPix: (p as { pagadorPix?: string }).pagadorPix ? String((p as { pagadorPix?: string }).pagadorPix) : undefined,
-          });
-        }
-      }
     }
 
     const supabase = getSupabase();
@@ -230,7 +201,13 @@ router.get('/validacao-pagamentos-diaria', async (req: Request, res: Response) =
     const statusGeral = itensNaoConfirmadosFinais.length > 0 ? 'divergente' : itensPossivelMatchFinais.length > 0 ? 'atencao' : 'ok';
 
     const payload = {
-      meta: { data: dataStr, ano, aba: normalizeText(abaReq) === 'TODAS' ? 'TODAS' : abaReq, abas_consideradas: abasSelecionadas, modalidade: modalidadeReq || null },
+      meta: {
+        data: dataStr,
+        ano,
+        aba: normalizeText(abaReq) === 'TODAS' ? 'TODAS' : abaReq,
+        modalidade: modalidadeReq || null,
+        fonte_pagamentos: carregado.fonte,
+      },
       planilha: { total: totalPlanilha, quantidade: planilhaItens.length, itens: planilhaItens },
       banco: { total: totalBancoMatch, quantidade: bancoItensMatch.length, itens: bancoItensDiaExibicao },
       validacao: {

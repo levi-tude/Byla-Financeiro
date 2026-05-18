@@ -29,6 +29,7 @@ import { isEligibleSheet } from '../businessRules.js';
 import { lerPagamentosPorAbaEAno } from '../services/planilhaPagamentos.js';
 import createControleCaixaRouter from './controleCaixa.js';
 import createFluxoOperacionalRouter from './fluxoOperacional.js';
+import { createAiAssistantRouter } from './aiAssistant.js';
 
 const router = Router();
 
@@ -36,13 +37,26 @@ router.use(attachAuthUser);
 
 // Rotas operacionais (secretária e admin)
 router.use(
-  ['/alunos-completo', '/modalidades-completo', '/pendencias-completo', '/fluxo-completo', '/fluxo-operacional', '/planilha-fluxo-byla/pagamentos', '/planilha-fluxo-byla/pagamentos-todas', '/validacao-pagamentos-diaria'],
+  ['/fluxo-operacional', '/ai/assistant'],
   requireRoles(['secretaria', 'admin'])
+);
+
+router.use(
+  [
+    '/alunos-completo',
+    '/modalidades-completo',
+    '/pendencias-completo',
+    '/fluxo-completo',
+    '/planilha-fluxo-byla/pagamentos',
+    '/planilha-fluxo-byla/pagamentos-todas',
+  ],
+  requireRoles(['admin'])
 );
 
 // Rotas financeiras e administrativas (apenas admin)
 router.use(
   [
+    '/validacao-pagamentos-diaria',
     '/calendario-financeiro',
     '/validacao-vinculos',
     '/conciliacao-vencimentos',
@@ -138,6 +152,7 @@ router.use(transacoesRoutes);
 router.use(planilhaEntradaSaidaRoutes);
 router.use(createControleCaixaRouter());
 router.use(createFluxoOperacionalRouter());
+router.use(createAiAssistantRouter());
 router.use(despesasRoutes);
 router.use(categoriasBancoRoutes);
 router.use(entidadesBylaRoutes);

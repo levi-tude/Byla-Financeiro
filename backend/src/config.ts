@@ -83,6 +83,10 @@ export const config = {
     credentialsPath: env.GOOGLE_APPLICATION_CREDENTIALS?.trim() ?? '',
   },
   corsOrigin: (env.CORS_ORIGIN ?? 'http://localhost:5173').split(',').map((s) => s.trim()).filter(Boolean),
+  /** Validação diária usa pagamentos do fluxo operacional (padrão true). false = planilha Google. */
+  fluxoPrimaryForValidacao: (env.BYLA_SOURCE_FLUXO_PRIMARY ?? 'true').trim().toLowerCase() !== 'false',
+  /** Leitura da planilha para divergências e fallback (padrão true). */
+  planilhaReadEnabled: (env.BYLA_PLANILHA_READ ?? 'true').trim().toLowerCase() !== 'false',
 } as const;
 
 export function hasSupabase(): boolean {

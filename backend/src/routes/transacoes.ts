@@ -48,15 +48,17 @@ router.get('/transacoes', async (req: Request, res: Response) => {
     const supabase = getSupabase();
     if (!supabase) return res.status(503).json({ error: 'Supabase não configurado.', itens: [] });
 
-    const inicio = `${ano}-${String(mes).padStart(2, '0')}-01`;
+    const inicioMes = `${ano}-${String(mes).padStart(2, '0')}-01`;
     const ultimoDia = new Date(ano, mes, 0).getDate();
-    const fim = `${ano}-${String(mes).padStart(2, '0')}-${String(ultimoDia).padStart(2, '0')}`;
+    const fimMes = `${ano}-${String(mes).padStart(2, '0')}-${String(ultimoDia).padStart(2, '0')}`;
+    const inicioRange = dia && dia_fim ? (dia <= dia_fim ? dia : dia_fim) : dia ?? inicioMes;
+    const fimRange = dia && dia_fim ? (dia <= dia_fim ? dia_fim : dia) : dia ?? fimMes;
 
     const { data, error } = await supabase
       .from('transacoes')
       .select('id, data, pessoa, valor, descricao, tipo')
-      .gte('data', inicio)
-      .lte('data', fim)
+      .gte('data', inicioRange)
+      .lte('data', fimRange)
       .order('data', { ascending: false })
       .order('id', { ascending: false })
       .limit(5000);
@@ -86,13 +88,6 @@ router.get('/transacoes', async (req: Request, res: Response) => {
     const qNorm = (q ?? '').trim().toLowerCase();
     const metodoNorm = metodo ? normalizarMetodoPagamento(metodo) : null;
     const filtradas = comMetodo.filter((t) => {
-      if (dia && dia_fim) {
-        const dMin = dia <= dia_fim ? dia : dia_fim;
-        const dMax = dia <= dia_fim ? dia_fim : dia;
-        if (t.data < dMin || t.data > dMax) return false;
-      } else if (dia) {
-        if (t.data !== dia) return false;
-      }
       if (metodoNorm && t.metodo !== metodoNorm) return false;
       if (qNorm) {
         const hay = `${t.pessoa ?? ''} ${t.descricao ?? ''}`.toLowerCase();

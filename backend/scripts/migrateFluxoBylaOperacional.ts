@@ -156,6 +156,17 @@ async function main() {
     process.exit(1);
   }
 
+  // Limpa snapshot anterior da mesma origem para evitar acúmulo de linhas obsoletas
+  // quando o parser muda ou quando alunos saem da planilha.
+  const delAlunosMigracao = await supabase
+    .from('fluxo_alunos_operacionais')
+    .delete()
+    .eq('origem', 'migracao_planilha');
+  if (delAlunosMigracao.error) {
+    console.error(`Erro ao limpar snapshot anterior de alunos: ${delAlunosMigracao.error.message}`);
+    process.exit(1);
+  }
+
   const upAlunos = await supabase
     .from('fluxo_alunos_operacionais')
     .upsert(alunosPayload, { onConflict: 'aba,linha_planilha' });

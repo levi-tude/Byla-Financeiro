@@ -90,6 +90,18 @@ export const gerarTextoIaBodySchema = z.object({
   payload: z.record(z.string(), z.unknown()),
 });
 
+export const assistantChatBodySchema = z.object({
+  message: z.string().trim().min(2).max(1000),
+  conversationId: z.string().trim().min(1).max(120).optional(),
+  context: z
+    .object({
+      route: z.string().trim().max(120).optional(),
+      role: z.enum(['secretaria', 'admin']).nullable().optional(),
+      monthYear: z.string().trim().max(40).optional(),
+    })
+    .optional(),
+});
+
 export const validacaoVinculoUpsertBodySchema = z.object({
   data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.'),
   mes: z.coerce.number().int().min(1).max(12),

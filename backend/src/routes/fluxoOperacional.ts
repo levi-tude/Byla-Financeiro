@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { getSupabase } from '../services/supabaseClient.js';
 import { parseBody, parseQuery } from '../validation/apiQuery.js';
+import { computeFluxoDivergencias } from '../services/fluxoOperacionalDivergencias.js';
+import { isFluxoPrimaryForValidacao } from '../services/fluxoPrimarySource.js';
 
 const fluxoAlunosListQuerySchema = z.object({
   aba: z.string().trim().optional(),
@@ -37,6 +39,53 @@ const fluxoAlunoDeleteBodySchema = z.object({
   id: z.string().uuid(),
   force: z.boolean().optional().default(false),
 });
+
+/** Chaves alinhadas ao cálculo de pendências no frontend (`camposCadastroFaltantes`). */
+const PENDENCIA_CAMPOS_IGNORAVEIS = [
+  'wpp',
+  'responsaveis',
+  'venc',
+  'valor_ref',
+  'pagador_pix',
+  'plano',
+] as const;
+
+type PendenciaCampoIgnoravel = (typeof PENDENCIA_CAMPOS_IGNORAVEIS)[number];
+
+const pendenciaCampoIgnoravelZod = z.enum(PENDENCIA_CAMPOS_IGNORAVEIS);
+
+const pendenciasIgnoradasPatchSchema = z.object({
+  pendenciaCamposIgnorados: z.array(pendenciaCampoIgnoravelZod).max(12),
+});
+
+const cobrancaTentativaBodySchema = z.object({
+  nota: z.string().trim().min(1).max(500),
+});
+
+function parsePendenciaCamposIgnorados(v: unknown): PendenciaCampoIgnoravel[] {
+  if (!Array.isArray(v)) return [];
+  const allowed = new Set<string>(PENDENCIA_CAMPOS_IGNORAVEIS);
+  const out: PendenciaCampoIgnoravel[] = [];
+  for (const x of v) {
+    const s = String(x).trim();
+    if (allowed.has(s) && !(out as string[]).includes(s)) out.push(s as PendenciaCampoIgnoravel);
+  }
+  return out;
+}
+
+function parseCobrancaTentativasIn(v: unknown): { nota: string; registrado_em: string }[] {
+  if (!Array.isArray(v)) return [];
+  const out: { nota: string; registrado_em: string }[] = [];
+  for (const x of v) {
+    if (!x || typeof x !== 'object') continue;
+    const o = x as Record<string, unknown>;
+    const nota = String(o.nota ?? '').trim();
+    const registrado_em = String(o.registrado_em ?? o.em ?? '').trim();
+    if (!nota || !registrado_em) continue;
+    out.push({ nota, registrado_em });
+  }
+  return out.slice(-40);
+}
 
 const fluxoPagamentosListQuerySchema = z.object({
   ano: z.coerce.number().int().min(2000).max(2100).optional(),
@@ -275,7 +324,7 @@ export default function createFluxoOperacionalRouter(): Router {
     let query = supabase
       .from('fluxo_alunos_operacionais')
       .select(
-        'id, aba, modalidade, linha_planilha, aluno_nome, wpp, responsaveis, plano, matricula, fim, venc, valor_referencia, pagador_pix, observacoes, ativo, created_at, updated_at, raw_row'
+        'id, aba, modalidade, linha_planilha, aluno_nome, wpp, responsaveis, plano, matricula, fim, venc, valor_referencia, pagador_pix, observacoes, ativo, created_at, updated_at, raw_row, pendencia_campos_ignorados, cobranca_tentativas'
       )
       .order('aba', { ascending: true })
       .order('linha_planilha', { ascending: true })
@@ -329,8 +378,10 @@ export default function createFluxoOperacionalRouter(): Router {
       const respExibe = (row.responsaveis && String(row.responsaveis).trim()) || raw.responsaveis || null;
       const pixExibe = (row.pagador_pix && String(row.pagador_pix).trim()) || raw.pagador_pix || null;
 
-      const { raw_row: _omitRaw, ...rest } = row as {
+      const rowEx = row as {
         raw_row?: unknown;
+        pendencia_campos_ignorados?: unknown;
+        cobranca_tentativas?: unknown;
         id: string;
         aba: string;
         modalidade: string;
@@ -349,7 +400,10 @@ export default function createFluxoOperacionalRouter(): Router {
         created_at: string;
         updated_at: string;
       };
+      const { raw_row: _omitRaw, pendencia_campos_ignorados: _p, cobranca_tentativas: _c, ...rest } = rowEx;
       void _omitRaw;
+      void _p;
+      void _c;
       return {
         ...rest,
         venc_exibicao: vencExibe,
@@ -357,6 +411,8 @@ export default function createFluxoOperacionalRouter(): Router {
         pagador_pix_exibicao: pixExibe,
         valor_mensal_exibicao,
         valor_mensal_origem,
+        pendencia_campos_ignorados: parsePendenciaCamposIgnorados(rowEx.pendencia_campos_ignorados),
+        cobranca_tentativas: parseCobrancaTentativasIn(rowEx.cobranca_tentativas),
       };
     });
 
@@ -477,6 +533,85 @@ export default function createFluxoOperacionalRouter(): Router {
       afterData: data,
     });
     return res.json({ item: data });
+  });
+
+  router.patch('/fluxo-operacional/alunos/:id/pendencias-ignoradas', async (req: Request, res: Response) => {
+    const id = String(req.params.id ?? '').trim();
+    if (!id) return res.status(400).json({ error: 'ID inválido.' });
+    const b = parseBody(pendenciasIgnoradasPatchSchema, req.body);
+    if (!b.ok) return res.status(400).json({ error: b.message });
+    const supabase = getSupabase();
+    if (!supabase) return res.status(500).json({ error: 'Supabase não configurado no backend.' });
+
+    const normalized = parsePendenciaCamposIgnorados(b.data.pendenciaCamposIgnorados);
+    const { data: beforeRow, error: beforeErr } = await supabase
+      .from('fluxo_alunos_operacionais')
+      .select('id, pendencia_campos_ignorados, aba, modalidade, aluno_nome')
+      .eq('id', id)
+      .maybeSingle();
+    if (beforeErr) return res.status(500).json({ error: beforeErr.message });
+    if (!beforeRow) return res.status(404).json({ error: 'Registro de aluno não encontrado.' });
+
+    const { data, error } = await supabase
+      .from('fluxo_alunos_operacionais')
+      .update({ pendencia_campos_ignorados: normalized })
+      .eq('id', id)
+      .select('id, pendencia_campos_ignorados')
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    await logAuditoria(req, {
+      entidade: 'aluno',
+      acao: 'update',
+      registroId: id,
+      aba: String(beforeRow.aba ?? ''),
+      modalidade: String(beforeRow.modalidade ?? ''),
+      alunoNome: String(beforeRow.aluno_nome ?? ''),
+      beforeData: { pendencia_campos_ignorados: beforeRow.pendencia_campos_ignorados },
+      afterData: data,
+    });
+    return res.json({
+      pendenciaCamposIgnorados: parsePendenciaCamposIgnorados(data?.pendencia_campos_ignorados),
+    });
+  });
+
+  router.post('/fluxo-operacional/alunos/:id/cobranca-tentativa', async (req: Request, res: Response) => {
+    const id = String(req.params.id ?? '').trim();
+    if (!id) return res.status(400).json({ error: 'ID inválido.' });
+    const b = parseBody(cobrancaTentativaBodySchema, req.body);
+    if (!b.ok) return res.status(400).json({ error: b.message });
+    const supabase = getSupabase();
+    if (!supabase) return res.status(500).json({ error: 'Supabase não configurado no backend.' });
+
+    const { data: beforeRow, error: beforeErr } = await supabase
+      .from('fluxo_alunos_operacionais')
+      .select('id, cobranca_tentativas, aba, modalidade, aluno_nome')
+      .eq('id', id)
+      .maybeSingle();
+    if (beforeErr) return res.status(500).json({ error: beforeErr.message });
+    if (!beforeRow) return res.status(404).json({ error: 'Registro de aluno não encontrado.' });
+
+    const prev = parseCobrancaTentativasIn(beforeRow.cobranca_tentativas);
+    const entry = { nota: b.data.nota, registrado_em: new Date().toISOString() };
+    const next = [...prev, entry].slice(-40);
+
+    const { data, error } = await supabase
+      .from('fluxo_alunos_operacionais')
+      .update({ cobranca_tentativas: next })
+      .eq('id', id)
+      .select('id, cobranca_tentativas')
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    await logAuditoria(req, {
+      entidade: 'aluno',
+      acao: 'update',
+      registroId: id,
+      aba: String(beforeRow.aba ?? ''),
+      modalidade: String(beforeRow.modalidade ?? ''),
+      alunoNome: String(beforeRow.aluno_nome ?? ''),
+      beforeData: { cobranca_tentativas: prev },
+      afterData: { cobranca_tentativas: next },
+    });
+    return res.json({ cobrancaTentativas: parseCobrancaTentativasIn(data?.cobranca_tentativas) });
   });
 
   router.delete('/fluxo-operacional/alunos', async (req: Request, res: Response) => {
@@ -917,6 +1052,78 @@ export default function createFluxoOperacionalRouter(): Router {
       meses: mesesJanela,
       itens,
       prioridade,
+    });
+  });
+
+  router.get('/fluxo-operacional/divergencias', async (req: Request, res: Response) => {
+    if (req.authUser?.role !== 'admin') {
+      return res.status(403).json({ error: 'Somente administradores podem consultar divergências.' });
+    }
+    const q = parseQuery(
+      z.object({
+        mes: z.coerce.number().int().min(1).max(12),
+        ano: z.coerce.number().int().min(2000).max(2100),
+      }),
+      req.query as Record<string, unknown>
+    );
+    if (!q.ok) return res.status(400).json({ error: q.message });
+    try {
+      const payload = await computeFluxoDivergencias(q.data.mes, q.data.ano);
+      return res.json(payload);
+    } catch (e) {
+      return res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+
+  /** Metadados de abas/modalidades para filtros (validação diária usa fluxo quando BYLA_SOURCE_FLUXO_PRIMARY=true). */
+  router.get('/fluxo-operacional/pagamentos-meta-ano', async (req: Request, res: Response) => {
+    const q = parseQuery(
+      z.object({ ano: z.coerce.number().int().min(2000).max(2100) }),
+      req.query as Record<string, unknown>
+    );
+    if (!q.ok) return res.status(400).json({ error: q.message });
+
+    const supabase = getSupabase();
+    if (!supabase) return res.status(500).json({ error: 'Supabase não configurado no backend.' });
+
+    const { data, error } = await supabase
+      .from('fluxo_pagamentos_operacionais')
+      .select('aba, modalidade, aluno_nome, linha_planilha')
+      .gte('data_pagamento', `${q.data.ano}-01-01`)
+      .lte('data_pagamento', `${q.data.ano}-12-31`)
+      .limit(8000);
+    if (error) return res.status(500).json({ error: error.message });
+
+    const porAba = new Map<string, Map<string, Set<string>>>();
+    for (const row of data ?? []) {
+      const aba = String(row.aba ?? '').trim();
+      const mod = String(row.modalidade ?? aba).trim();
+      const aluno = String(row.aluno_nome ?? '').trim();
+      if (!aba) continue;
+      if (!porAba.has(aba)) porAba.set(aba, new Map());
+      const mods = porAba.get(aba)!;
+      if (!mods.has(mod)) mods.set(mod, new Set());
+      if (aluno) mods.get(mod)!.add(aluno);
+    }
+
+    const abas = Array.from(porAba.entries())
+      .map(([aba, mods]) => ({
+        aba,
+        alunos: Array.from(mods.entries()).flatMap(([modalidade, nomes]) =>
+          Array.from(nomes).map((aluno) => ({
+            aluno,
+            modalidade,
+            linha: 0,
+            pagamentos: [] as unknown[],
+          }))
+        ),
+      }))
+      .sort((a, b) => a.aba.localeCompare(b.aba, 'pt-BR'));
+
+    return res.json({
+      ano: q.data.ano,
+      fonte: isFluxoPrimaryForValidacao() ? 'fluxo_operacional' : 'fluxo_operacional',
+      abas,
     });
   });
 
