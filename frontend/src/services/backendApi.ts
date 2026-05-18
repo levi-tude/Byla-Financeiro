@@ -112,6 +112,22 @@ async function requestPut<T>(path: string, body: unknown): Promise<T> {
   return res.json();
 }
 
+async function requestPatch<T>(path: string, body: unknown): Promise<T> {
+  if (!BASE_URL) {
+    throw new Error('VITE_BACKEND_URL não configurado');
+  }
+  const res = await apiFetch(path, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(await parseBackendError(res, text));
+  }
+  return res.json();
+}
+
 async function getAuthHeaders(initialHeaders?: HeadersInit): Promise<Headers> {
   const headers = new Headers(initialHeaders ?? {});
   if (!headers.has('Content-Type')) {
@@ -250,6 +266,18 @@ export async function putControleCaixa(
   return requestPut<ControleCaixaResponse>(`/api/controle-caixa?${params.toString()}`, payload);
 }
 
+/** Alinhado ao backend (`camposCadastroFaltantes` / pendências de cadastro). */
+export const FLUXO_PENDENCIA_CAMPOS_IGNORAVEIS = [
+  'wpp',
+  'responsaveis',
+  'venc',
+  'valor_ref',
+  'pagador_pix',
+  'plano',
+] as const;
+
+export type FluxoPendenciaCampoIgnoravel = (typeof FLUXO_PENDENCIA_CAMPOS_IGNORAVEIS)[number];
+
 export interface FluxoOperacionalAluno {
   id: string;
   aba: string;
@@ -272,6 +300,8 @@ export interface FluxoOperacionalAluno {
   pagador_pix_exibicao?: string | null;
   valor_mensal_exibicao?: number | null;
   valor_mensal_origem?: 'cadastro' | 'planilha_bruta' | 'ultimo_pagamento' | null;
+  pendencia_campos_ignorados?: FluxoPendenciaCampoIgnoravel[];
+  cobranca_tentativas?: { nota: string; registrado_em: string }[];
 }
 
 export interface FluxoOperacionalAlunosResponse {
@@ -297,6 +327,25 @@ export interface FluxoOperacionalAlunoPayload {
   pagadorPix?: string | null;
   observacoes?: string | null;
   ativo?: boolean;
+}
+
+export type FluxoDivergenciasResponse = {
+  mes: number;
+  ano: number;
+  planilhaHabilitada: boolean;
+  alunos: {
+    totalBanco: number;
+    totalPlanilha: number;
+    soNoBanco: Array<{ aba: string; modalidade: string; linha: number; aluno: string; origem: string }>;
+    soNaPlanilha: Array<{ aba: string; modalidade: string; linha: number; aluno: string; origem: string }>;
+  };
+  pagamentos: { mes: number; ano: number; totalBanco: number; totalPlanilha: number; delta: number };
+  errosPlanilha: string[];
+};
+
+export async function getFluxoOperacionalDivergencias(mes: number, ano: number): Promise<FluxoDivergenciasResponse> {
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  return request<FluxoDivergenciasResponse>(`/api/fluxo-operacional/divergencias?${params.toString()}`);
 }
 
 export async function getFluxoOperacionalAlunos(params?: {
@@ -339,6 +388,22 @@ export async function deleteFluxoOperacionalAluno(id: string, force = false): Pr
     throw new Error(await parseBackendError(res, text));
   }
   return res.json();
+}
+
+export async function patchFluxoOperacionalAlunoPendenciasIgnoradas(
+  id: string,
+  pendenciaCamposIgnorados: FluxoPendenciaCampoIgnoravel[],
+): Promise<{ pendenciaCamposIgnorados: FluxoPendenciaCampoIgnoravel[] }> {
+  return requestPatch(`/api/fluxo-operacional/alunos/${encodeURIComponent(id)}/pendencias-ignoradas`, {
+    pendenciaCamposIgnorados,
+  });
+}
+
+export async function postFluxoOperacionalAlunoCobrancaTentativa(
+  id: string,
+  nota: string,
+): Promise<{ cobrancaTentativas: { nota: string; registrado_em: string }[] }> {
+  return requestPost(`/api/fluxo-operacional/alunos/${encodeURIComponent(id)}/cobranca-tentativa`, { nota });
 }
 
 export interface FluxoOperacionalPagamento {
@@ -1026,6 +1091,36 @@ export async function gerarTextoRelatorioIA(payload: RelatorioPayload): Promise<
   return { texto: data.texto ?? '' };
 }
 
+export interface AssistantChatRequest {
+  message: string;
+  conversationId?: string;
+  context?: {
+    route?: string;
+    role?: 'secretaria' | 'admin' | null;
+    monthYear?: string;
+  };
+}
+
+export interface AssistantChatResponse {
+  message: string;
+  intent: string;
+  confidence: number;
+  actions: Array<{ type: 'navigate'; label: string; to: string }>;
+  needsConfirmation: boolean;
+  quickReplies: string[];
+}
+
+export async function chatAcessibilidadeIA(payload: AssistantChatRequest): Promise<AssistantChatResponse> {
+  return requestPost<AssistantChatResponse>('/api/ai/assistant/chat', payload);
+}
+
+export async function getAcessibilidadeIAStatus(): Promise<{ configured: boolean; provider: 'gemini' | 'groq' | 'openai' | null }> {
+  if (!BASE_URL) return { configured: false, provider: null };
+  const res = await apiFetch('/api/ai/assistant/status', { method: 'GET' });
+  if (!res.ok) return { configured: false, provider: null };
+  return res.json();
+}
+
 // --- Pagamentos planilha (segunda parte das abas) ---
 
 export interface PagamentoPlanilha {
@@ -1063,6 +1158,11 @@ export interface PagamentosTodasAbasResponse {
 export async function getPagamentosPlanilhaTodasAbas(ano: number): Promise<PagamentosTodasAbasResponse> {
   const params = new URLSearchParams({ ano: String(ano) });
   return request<PagamentosTodasAbasResponse>(`/api/planilha-fluxo-byla/pagamentos-todas?${params.toString()}`);
+}
+
+export async function getFluxoOperacionalPagamentosMetaAno(ano: number): Promise<PagamentosTodasAbasResponse> {
+  const params = new URLSearchParams({ ano: String(ano) });
+  return request<PagamentosTodasAbasResponse>(`/api/fluxo-operacional/pagamentos-meta-ano?${params.toString()}`);
 }
 
 // --- Validação de pagamentos (planilha x banco) ---

@@ -16,7 +16,7 @@ export function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
 
   if (!auth.loading && auth.userId && auth.role) {
-    return <Navigate to={auth.role === 'admin' ? '/' : '/alunos'} replace />;
+    return <Navigate to={auth.role === 'admin' ? '/' : '/fluxo-caixa'} replace />;
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {

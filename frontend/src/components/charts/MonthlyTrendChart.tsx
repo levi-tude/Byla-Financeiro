@@ -9,6 +9,7 @@ import {
   Legend,
 } from 'recharts';
 import { useTheme } from '../../context/ThemeContext';
+import { DEFAULT_CHART_HEIGHT } from './chartLayout';
 
 export interface MonthlyTrendPoint {
   label: string;
@@ -20,6 +21,9 @@ export interface MonthlyTrendPoint {
 interface MonthlyTrendChartProps {
   data: MonthlyTrendPoint[];
   isLoading?: boolean;
+  showLucroLine?: boolean;
+  showSeriesChips?: boolean;
+  height?: number;
 }
 
 function formatCurrency(value: number): string {
@@ -30,7 +34,16 @@ function formatCurrency(value: number): string {
   });
 }
 
-export function MonthlyTrendChart({ data, isLoading }: MonthlyTrendChartProps) {
+const STROKE_ENTRADAS = '#4f46e5';
+const STROKE_SAIDAS = '#f97316';
+
+export function MonthlyTrendChart({
+  data,
+  isLoading,
+  showLucroLine = true,
+  showSeriesChips = false,
+  height = DEFAULT_CHART_HEIGHT,
+}: MonthlyTrendChartProps) {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
   const gridStroke = isDark ? '#334155' : '#e5e7eb';
@@ -39,65 +52,78 @@ export function MonthlyTrendChart({ data, isLoading }: MonthlyTrendChartProps) {
     ? { borderRadius: 8, border: '1px solid #475569', backgroundColor: '#0f172a', color: '#f1f5f9' }
     : { borderRadius: 8, border: '1px solid #e5e7eb', backgroundColor: '#fff', color: '#111827' };
 
+  const chipsH = showSeriesChips ? 40 : 0;
+  const plotHeight = Math.max(200, height - chipsH);
+
   if (isLoading) {
     return (
-      <div className="h-64 bg-gray-100 dark:bg-slate-800 rounded-lg animate-pulse flex items-center justify-center">
-        <span className="text-sm text-gray-400 dark:text-slate-500">Carregando...</span>
+      <div
+        className="flex w-full items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800/80 animate-pulse"
+        style={{ height }}
+      >
+        <span className="text-xs text-slate-400">Carregando…</span>
       </div>
     );
   }
 
   if (!data.length) {
     return (
-      <div className="h-64 flex items-center justify-center text-sm text-gray-500 dark:text-slate-400 bg-gray-50 dark:bg-slate-900/80 rounded-lg border border-transparent dark:border-slate-700">
+      <div
+        className="flex w-full items-center justify-center rounded-lg border border-dashed border-slate-200 text-sm text-slate-500 dark:border-slate-600 dark:text-slate-400"
+        style={{ height }}
+      >
         Nenhum dado encontrado para este período.
       </div>
     );
   }
 
+  const chipEntrada = isDark
+    ? 'border-indigo-500/40 bg-indigo-950/60 text-indigo-100'
+    : 'border-indigo-200 bg-indigo-50 text-indigo-900';
+  const chipSaida = isDark
+    ? 'border-orange-500/40 bg-orange-950/50 text-orange-100'
+    : 'border-orange-200 bg-orange-50 text-orange-900';
+
   return (
-    <div className="h-72">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
-          <XAxis dataKey="label" tick={{ fontSize: 12, fill: tickStroke }} stroke={tickStroke} />
-          <YAxis
-            tickFormatter={(v) => (v / 1000).toFixed(0) + 'k'}
-            tick={{ fontSize: 12, fill: tickStroke }}
-            stroke={tickStroke}
-          />
-          <Tooltip
-            formatter={(value: number) => [formatCurrency(value), '']}
-            labelFormatter={(label) => 'Mês: ' + label}
-            contentStyle={tooltipStyle}
-          />
-          <Legend />
-          <Line
-            type="monotone"
-            dataKey="totalEntradas"
-            name="Entradas"
-            stroke="#4f46e5"
-            strokeWidth={2}
-            dot={false}
-          />
-          <Line
-            type="monotone"
-            dataKey="totalSaidas"
-            name="Saidas"
-            stroke="#f97316"
-            strokeWidth={2}
-            dot={false}
-          />
-          <Line
-            type="monotone"
-            dataKey="saldoMes"
-            name="Saldo"
-            stroke="#22c55e"
-            strokeWidth={2}
-            dot={false}
-          />
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
+    <figure className="w-full" style={{ height }}>
+      {showSeriesChips ? (
+        <div className="mb-2 flex flex-wrap gap-2" role="group" aria-label="Legenda das séries">
+          <span className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1 text-xs font-semibold ${chipEntrada}`}>
+            <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: STROKE_ENTRADAS }} aria-hidden />
+            Entradas
+          </span>
+          <span className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1 text-xs font-semibold ${chipSaida}`}>
+            <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: STROKE_SAIDAS }} aria-hidden />
+            Saídas
+          </span>
+        </div>
+      ) : null}
+      <div className="w-full" style={{ height: plotHeight }}>
+        <ResponsiveContainer width="100%" height={plotHeight}>
+          <LineChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
+            <CartesianGrid strokeDasharray="4 4" stroke={gridStroke} vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 12, fill: tickStroke }} axisLine={false} tickLine={false} />
+            <YAxis
+              width={44}
+              tickFormatter={(v) => (v / 1000).toFixed(0) + 'k'}
+              tick={{ fontSize: 11, fill: tickStroke }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <Tooltip
+              formatter={(value: number) => [formatCurrency(value), '']}
+              labelFormatter={(label) => 'Mês: ' + label}
+              contentStyle={tooltipStyle}
+            />
+            {!showSeriesChips ? <Legend /> : null}
+            <Line type="monotone" dataKey="totalEntradas" name="Entradas" stroke={STROKE_ENTRADAS} strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+            <Line type="monotone" dataKey="totalSaidas" name="Saídas" stroke={STROKE_SAIDAS} strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+            {showLucroLine ? (
+              <Line type="monotone" dataKey="saldoMes" name="Lucro" stroke="#22c55e" strokeWidth={2} dot={false} />
+            ) : null}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </figure>
   );
 }

@@ -49,6 +49,7 @@ export function TransacoesPage() {
   const [tipo, setTipo] = useState<'todos' | 'entrada' | 'saida'>('todos');
   const [metodo, setMetodo] = useState<string>('');
   const [busca, setBusca] = useState('');
+  const [periodoModo, setPeriodoModo] = useState<'mes' | 'periodo'>('mes');
   /** Intervalo inclusivo (yyyy-mm-dd); dois cliques no calendário dos filtros. */
   const [periodoInicio, setPeriodoInicio] = useState('');
   const [periodoFim, setPeriodoFim] = useState('');
@@ -63,6 +64,7 @@ export function TransacoesPage() {
     setPeriodoFim('');
     setPeriodoCliquePendente(null);
     setCalendarioAberto(false);
+    setPeriodoModo('mes');
   }, [monthYear.mes, monthYear.ano]);
 
   useEffect(() => {
@@ -93,7 +95,7 @@ export function TransacoesPage() {
   const apiExtra = useMemo(() => {
     let dia: string | undefined;
     let dia_fim: string | undefined;
-    if (periodoInicio && periodoFim) {
+    if (periodoModo === 'periodo' && periodoInicio && periodoFim) {
       const { min, max } = ordenarDatasIso(periodoInicio, periodoFim);
       if (min === max) {
         dia = min;
@@ -110,7 +112,7 @@ export function TransacoesPage() {
       limit: 100,
       offset: 0,
     };
-  }, [metodo, busca, periodoInicio, periodoFim]);
+  }, [metodo, busca, periodoModo, periodoInicio, periodoFim]);
 
   const periodoLegivel = useMemo(() => {
     if (!periodoInicio || !periodoFim) return null;
@@ -197,6 +199,7 @@ export function TransacoesPage() {
     setTipo('todos');
     setMetodo('');
     setBusca('');
+    setPeriodoModo('mes');
     limparPeriodoDias();
   };
 
@@ -266,17 +269,45 @@ export function TransacoesPage() {
           </div>
           <div className="relative md:col-span-2" ref={calendarioTriggerRef}>
             <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Período no mês</label>
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setPeriodoModo('mes');
+                  limparPeriodoDias();
+                }}
+                className={`rounded-lg px-2.5 py-1.5 text-xs font-medium ${
+                  periodoModo === 'mes'
+                    ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
+                    : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200'
+                }`}
+              >
+                Por mês
+              </button>
+              <button
+                type="button"
+                onClick={() => setPeriodoModo('periodo')}
+                className={`rounded-lg px-2.5 py-1.5 text-xs font-medium ${
+                  periodoModo === 'periodo'
+                    ? 'bg-indigo-600 text-white'
+                    : 'border border-indigo-300 text-indigo-700 dark:border-indigo-700 dark:text-indigo-300'
+                }`}
+              >
+                Por período
+              </button>
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => setCalendarioAberto((v) => !v)}
+                disabled={periodoModo !== 'periodo'}
                 className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-900 shadow-sm hover:bg-indigo-100 dark:border-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-100 dark:hover:bg-indigo-900/60"
                 aria-expanded={calendarioAberto}
                 aria-haspopup="dialog"
               >
                 {calendarioAberto ? 'Fechar calendário' : 'Escolher período…'}
               </button>
-              {periodoLegivel ? (
+              {periodoModo === 'periodo' && periodoLegivel ? (
                 <span className="text-xs font-medium tabular-nums text-slate-700 dark:text-slate-200">{periodoLegivel}</span>
               ) : null}
               <button
@@ -288,15 +319,17 @@ export function TransacoesPage() {
                 Limpar período
               </button>
             </div>
-            <PeriodoMesCalendarioPopover
-              mes={monthYear.mes}
-              ano={monthYear.ano}
-              aberto={calendarioAberto}
-              onFechar={() => setCalendarioAberto(false)}
-              onDiaClick={handlePeriodoDiaCalendario}
-              getDiaClasse={getDiaCalendarioClasse}
-              popoverRef={calendarioPopoverRef}
-            />
+            {periodoModo === 'periodo' ? (
+              <PeriodoMesCalendarioPopover
+                mes={monthYear.mes}
+                ano={monthYear.ano}
+                aberto={calendarioAberto}
+                onFechar={() => setCalendarioAberto(false)}
+                onDiaClick={handlePeriodoDiaCalendario}
+                getDiaClasse={getDiaCalendarioClasse}
+                popoverRef={calendarioPopoverRef}
+              />
+            ) : null}
           </div>
           <div className="md:col-span-2">
             <label className="mb-1 block text-xs font-medium text-slate-500">Pesquisa</label>

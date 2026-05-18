@@ -30,8 +30,8 @@ export function AtividadesPage() {
   return (
     <div className="p-6">
       <Topbar
-        title="Atividades e performance"
-        subtitle={`Receita e alunos por modalidade – mês ${monthYear.mes}/${monthYear.ano}. Dados desta tela vêm do Supabase (tabela de atividades e visão de alunos por atividade).`}
+        title="Performance por atividade"
+        subtitle={`Receita e alunos por modalidade – mês ${monthYear.mes}/${monthYear.ano}. Dados do Supabase (cadastro de atividades). Para operação diária (cadastro e pagamentos), use o Fluxo de caixa.`}
       />
       {error && (
         <div className="mb-4">

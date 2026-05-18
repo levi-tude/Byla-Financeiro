@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMonthYear } from '../context/MonthYearContext';
 import {
@@ -10,6 +10,8 @@ import {
   getFluxoOperacionalAlunos,
   getFluxoOperacionalPagamentos,
   getFluxoOperacionalResumoMultiMes,
+  patchFluxoOperacionalAlunoPendenciasIgnoradas,
+  postFluxoOperacionalAlunoCobrancaTentativa,
   updateFluxoOperacionalAluno,
   updateFluxoOperacionalPagamento,
   type FluxoOperacionalAluno,
@@ -18,13 +20,16 @@ import {
   type FluxoOperacionalPagamentoPayload,
   type FluxoOperacionalResumoAlunoItem,
   type FluxoOperacionalResumoMesItem,
+  type FluxoPendenciaCampoIgnoravel,
 } from '../services/backendApi';
 import { useToast } from '../context/ToastContext';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { ApiErrorPanel } from '../components/ui/ApiErrorPanel';
 import { TableSkeleton } from '../components/ui/TableSkeleton';
+import { normalizarAbaMulti, ordenarAbasPresentes } from '../fluxo/fluxoAbaHierarchy';
 import { getFluxoAbaTabStyle, getFluxoModalidadeTabStyle } from '../fluxo/fluxoPlanilhaCores';
 import { Link } from 'react-router-dom';
+import { PeriodoMesCalendarioPopover } from '../components/transacoes/PeriodoMesCalendarioPopover';
 
 function formatBrl(n: number | null | undefined): string {
   if (n == null || Number.isNaN(Number(n))) return '—';
@@ -72,22 +77,8 @@ function mesAnoCurto(mes: number, ano: number): string {
   return d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', '');
 }
 
-const MULTI_ABAS_ORDEM = ['BYLA DANÇA', 'PILATES', 'TEATRO', 'YOGA', 'G.R.', 'TEATRO INFANTIL'] as const;
-
-function normalizarAbaMulti(aba: string): string {
-  const base = String(aba ?? '')
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .trim()
-    .toUpperCase();
-  if (base === 'PILATES MARINA') return 'PILATES';
-  if (base === 'BYLA DANCA') return 'BYLA DANÇA';
-  if (base === 'GR') return 'G.R.';
-  if (base === 'TEATRO INFANTIL') return 'TEATRO INFANTIL';
-  if (base === 'PILATES') return 'PILATES';
-  if (base === 'TEATRO') return 'TEATRO';
-  if (base === 'YOGA') return 'YOGA';
-  return String(aba ?? '').trim() || '—';
+function ordenarDatasIso(a: string, b: string): { min: string; max: string } {
+  return a <= b ? { min: a, max: b } : { min: b, max: a };
 }
 
 function statusMesClasse(status: FluxoOperacionalResumoMesItem['status']): string {
@@ -108,6 +99,35 @@ function statusMesLabel(status: FluxoOperacionalResumoMesItem['status']): string
 
 const PLANO_OPTIONS = ['Mensal', 'Trimestral', 'Semestral'] as const;
 const FORMA_OPTIONS = ['PIX', 'Crédito', 'Débito', 'Dinheiro', 'Transferência', 'Boleto'] as const;
+const FORMAS_RESUMO_ORDEM = [...FORMA_OPTIONS, 'Outros'] as const;
+
+function normalizarFormaPagamentoFluxo(raw: string | null | undefined): (typeof FORMAS_RESUMO_ORDEM)[number] {
+  const text = String(raw ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '');
+  if (!text) return 'Outros';
+
+  // PIX (inclui variações comuns e erros de digitação simples)
+  if (text.includes('pix') || text.includes('pi x') || text.includes('p ix')) return 'PIX';
+
+  // Cartão crédito
+  if (text.includes('credito') || text.includes('credit') || text.includes('cartao credito') || text.includes('cartao de credito')) {
+    return 'Crédito';
+  }
+
+  // Cartão débito
+  if (text.includes('debito') || text.includes('debit') || text.includes('cartao debito') || text.includes('cartao de debito')) {
+    return 'Débito';
+  }
+
+  if (text.includes('dinheiro') || text.includes('especie') || text === 'cash') return 'Dinheiro';
+  if (text.includes('transferencia') || text.includes('ted') || text.includes('doc')) return 'Transferência';
+  if (text.includes('boleto')) return 'Boleto';
+
+  return 'Outros';
+}
 
 function textoPagamentoResponsavel(p: FluxoOperacionalPagamento): string {
   const a = p.responsaveis?.trim();
@@ -181,19 +201,44 @@ function pagadorUnificado(aluno: FluxoOperacionalAluno | null, p?: FluxoOperacio
   return '—';
 }
 
+function isPlanoBolsa(plano: string | null | undefined): boolean {
+  const normalized = String(plano ?? '')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .trim()
+    .toLowerCase();
+  return normalized === 'bolsa' || normalized.includes('bolsa');
+}
+
+function ignoradosPendenciaDoAluno(a: FluxoOperacionalAluno): Set<FluxoPendenciaCampoIgnoravel> {
+  const raw = a.pendencia_campos_ignorados;
+  const allow = new Set<string>(['wpp', 'responsaveis', 'venc', 'valor_ref', 'pagador_pix', 'plano']);
+  const s = new Set<FluxoPendenciaCampoIgnoravel>();
+  if (!Array.isArray(raw)) return s;
+  for (const x of raw) {
+    const k = String(x).trim();
+    if (allow.has(k)) s.add(k as FluxoPendenciaCampoIgnoravel);
+  }
+  return s;
+}
+
 /** Campos do cadastro que costumam precisar estar preenchidos para a secretaria. */
 function camposCadastroFaltantes(a: FluxoOperacionalAluno): string[] {
+  const ign = ignoradosPendenciaDoAluno(a);
   const r: string[] = [];
-  if (!String(a.wpp ?? '').trim()) r.push('WhatsApp');
-  if (!(a.responsaveis_exibicao?.trim() || a.responsaveis?.trim())) r.push('Responsáveis');
-  if (!(a.venc_exibicao?.trim() || a.venc?.trim())) r.push('Vencimento');
-  if (a.valor_mensal_origem === 'planilha_bruta' || a.valor_mensal_origem === 'ultimo_pagamento') {
-    r.push('Valor ref. (confirmar no cadastro)');
-  } else if (a.valor_referencia == null && a.valor_mensal_exibicao == null) {
-    r.push('Valor ref.');
+  if (!ign.has('wpp') && !String(a.wpp ?? '').trim()) r.push('WhatsApp');
+  if (!ign.has('responsaveis') && !(a.responsaveis_exibicao?.trim() || a.responsaveis?.trim())) r.push('Responsáveis');
+  if (!ign.has('venc') && !(a.venc_exibicao?.trim() || a.venc?.trim())) r.push('Vencimento');
+  const planoBolsa = isPlanoBolsa(a.plano);
+  if (!ign.has('valor_ref') && !planoBolsa) {
+    if (a.valor_mensal_origem === 'planilha_bruta' || a.valor_mensal_origem === 'ultimo_pagamento') {
+      r.push('Valor ref. (confirmar no cadastro)');
+    } else if (a.valor_referencia == null && a.valor_mensal_exibicao == null) {
+      r.push('Valor ref.');
+    }
   }
-  if (!(a.pagador_pix_exibicao?.trim() || a.pagador_pix?.trim())) r.push('Pagador PIX');
-  if (!String(a.plano ?? '').trim()) r.push('Plano');
+  if (!ign.has('pagador_pix') && !(a.pagador_pix_exibicao?.trim() || a.pagador_pix?.trim())) r.push('Pagador PIX');
+  if (!ign.has('plano') && !String(a.plano ?? '').trim()) r.push('Plano');
   return r;
 }
 
@@ -271,6 +316,52 @@ function initialForm(): FormState {
     observacoes: '',
     ativo: true,
   };
+}
+
+/** Mescla o formulário do modal sobre o registro atual para recalcular pendências em tempo real. */
+function alunoMescladoFormComBase(base: FluxoOperacionalAluno, form: FormState): FluxoOperacionalAluno {
+  const parsedValor = parseCurrencyNumber(form.valorReferencia);
+  return {
+    ...base,
+    wpp: form.wpp.trim() || null,
+    responsaveis: form.responsaveis.trim() || null,
+    responsaveis_exibicao: null,
+    venc: form.venc.trim() || null,
+    venc_exibicao: null,
+    pagador_pix: form.pagadorPix.trim() || null,
+    pagador_pix_exibicao: null,
+    plano: form.plano.trim() || null,
+    valor_referencia: Number.isFinite(parsedValor as number) ? (parsedValor as number) : null,
+  };
+}
+
+type PendenciaFormCampo = 'wpp' | 'responsaveis' | 'venc' | 'valorReferencia' | 'pagadorPix' | 'plano';
+
+function camposFormMarcadosPeloRotulo(faltas: string[]): Set<PendenciaFormCampo> {
+  const s = new Set<PendenciaFormCampo>();
+  for (const f of faltas) {
+    if (f === 'WhatsApp') s.add('wpp');
+    else if (f === 'Responsáveis') s.add('responsaveis');
+    else if (f === 'Vencimento') s.add('venc');
+    else if (f === 'Valor ref.' || f.startsWith('Valor ref.')) s.add('valorReferencia');
+    else if (f === 'Pagador PIX') s.add('pagadorPix');
+    else if (f === 'Plano') s.add('plano');
+  }
+  return s;
+}
+
+function rotuloComAsteriscoPendencia(texto: string, pendente: boolean): ReactNode {
+  return (
+    <>
+      {pendente ? (
+        <span className="text-rose-600 font-semibold dark:text-rose-400" aria-hidden="true">
+          *{' '}
+        </span>
+      ) : null}
+      {texto}
+      {pendente ? <span className="sr-only"> — pendência no cadastro</span> : null}
+    </>
+  );
 }
 
 function toPayload(form: FormState): FluxoOperacionalAlunoPayload {
@@ -392,20 +483,52 @@ type ConfirmState =
   | { kind: 'pagamento'; id: string; name: string };
 
 type InlineAlunoEdit = { id: string; field: 'venc' | 'valor'; value: string };
+type BuscaEscopo = 'todos' | 'aluno' | 'responsavel' | 'pagador';
+type FiltroRapido = 'nenhum' | 'sem_pagamento_mes' | 'sem_cadastro_vinculado' | 'com_pendencias' | 'so_ativos';
+type OrdemListaCampo = 'aluno' | 'data_pagamento' | 'valor_pago' | 'vencimento';
+type OrdemListaDirecao = 'asc' | 'desc';
+
+const FLUXO_FILTROS_STORAGE_KEY = 'byla:fluxo-operacional:filtros-v2';
 
 export function FluxoCaixaOperacionalPage() {
   const { monthYear } = useMonthYear();
   const { showToast } = useToast();
   const qc = useQueryClient();
+  const [activeTopTab, setActiveTopTab] = useState<'atividades' | 'resumo_meio_pagamento' | 'pendencias_cobrancas'>(
+    'atividades'
+  );
+  const [abaDetalheAberta, setAbaDetalheAberta] = useState<string | null>(null);
+  const [modalidadesAbertasPorAba, setModalidadesAbertasPorAba] = useState<Record<string, string | null>>({});
   const [form, setForm] = useState<FormState>(initialForm);
   const [editId, setEditId] = useState<string | null>(null);
+  const [alunoModalDestacarPendencias, setAlunoModalDestacarPendencias] = useState(false);
+  const [alunoUiSnapshot, setAlunoUiSnapshot] = useState<FluxoOperacionalAluno | null>(null);
+  const [cobrancaModalAluno, setCobrancaModalAluno] = useState<FluxoOperacionalAluno | null>(null);
+  const [cobrancaNotaDraft, setCobrancaNotaDraft] = useState('');
+  /** Pendências de cadastro a ignorar para este aluno — gravado ao clicar em Salvar alterações. */
+  const [ignorarChavesDraft, setIgnorarChavesDraft] = useState<FluxoPendenciaCampoIgnoravel[]>([]);
+  const [isSavingAlunoModal, setIsSavingAlunoModal] = useState(false);
   const [abaFiltro, setAbaFiltro] = useState('');
   const [modalidadeFiltro, setModalidadeFiltro] = useState('');
   const [ativoFiltro, setAtivoFiltro] = useState<'todos' | 'ativos' | 'inativos'>('ativos');
   const [busca, setBusca] = useState('');
+  const [buscaDebounced, setBuscaDebounced] = useState('');
+  const [buscaEscopo, setBuscaEscopo] = useState<BuscaEscopo>('todos');
+  const [filtroRapido, setFiltroRapido] = useState<FiltroRapido>('nenhum');
+  const [ordemCampo, setOrdemCampo] = useState<OrdemListaCampo>('aluno');
+  const [ordemDirecao, setOrdemDirecao] = useState<OrdemListaDirecao>('asc');
   const [soPendencias, setSoPendencias] = useState(false);
   const [modoVisao, setModoVisao] = useState<'mensal' | 'multi'>('mensal');
   const [multiAbaAtiva, setMultiAbaAtiva] = useState<string>('BYLA DANÇA');
+  const [multiModalidadeAbertaPorAba, setMultiModalidadeAbertaPorAba] = useState<Record<string, string | null>>({});
+  const [formaResumoSelecionada, setFormaResumoSelecionada] = useState<string>('Todas');
+  const [resumoFiltroPeriodoModo, setResumoFiltroPeriodoModo] = useState<'mes' | 'periodo'>('mes');
+  const [resumoPeriodoInicio, setResumoPeriodoInicio] = useState('');
+  const [resumoPeriodoFim, setResumoPeriodoFim] = useState('');
+  const [resumoPeriodoCliquePendente, setResumoPeriodoCliquePendente] = useState<string | null>(null);
+  const [resumoCalendarioAberto, setResumoCalendarioAberto] = useState(false);
+  const resumoCalendarioPopoverRef = useRef<HTMLDivElement>(null);
+  const resumoCalendarioTriggerRef = useRef<HTMLDivElement>(null);
   const [pagForm, setPagForm] = useState<PagamentoFormState>(initialPagamentoForm(monthYear.mes, monthYear.ano));
   const [pagEditId, setPagEditId] = useState<string | null>(null);
   const [historicoAberto, setHistoricoAberto] = useState(false);
@@ -414,36 +537,48 @@ export function FluxoCaixaOperacionalPage() {
   const [confirm, setConfirm] = useState<ConfirmState>(null);
   const [inlineAluno, setInlineAluno] = useState<InlineAlunoEdit | null>(null);
   const alunoModalTitleRef = useRef<HTMLHeadingElement>(null);
+  const cobrancaModalTitleRef = useRef<HTMLHeadingElement>(null);
   const inlineInputRef = useRef<HTMLInputElement>(null);
   const alunoUpdateSourceRef = useRef<'inline' | 'modal'>('modal');
+  const listaMesRef = useRef<HTMLElement | null>(null);
 
   const alunosQuery = useQuery({
-    queryKey: ['fluxo-operacional-alunos', abaFiltro, modalidadeFiltro, ativoFiltro, busca],
+    queryKey: ['fluxo-operacional-alunos', abaFiltro, modalidadeFiltro, ativoFiltro, buscaDebounced, buscaEscopo],
     queryFn: () =>
       getFluxoOperacionalAlunos({
         aba: abaFiltro || undefined,
         modalidade: modalidadeFiltro || undefined,
         ativo: ativoFiltro === 'todos' ? undefined : ativoFiltro === 'ativos',
-        q: busca || undefined,
+        q: buscaEscopo === 'responsavel' || buscaEscopo === 'pagador' ? undefined : buscaDebounced || undefined,
         limit: 2500,
       }),
   });
 
   const pagamentosQuery = useQuery({
-    queryKey: ['fluxo-operacional-pagamentos', monthYear.mes, monthYear.ano, abaFiltro, modalidadeFiltro, busca],
+    queryKey: ['fluxo-operacional-pagamentos', monthYear.mes, monthYear.ano, abaFiltro, modalidadeFiltro, buscaDebounced, buscaEscopo],
     queryFn: () =>
       getFluxoOperacionalPagamentos({
         ano: monthYear.ano,
         mes: monthYear.mes,
         aba: abaFiltro || undefined,
         modalidade: modalidadeFiltro || undefined,
-        q: busca || undefined,
+        q: buscaEscopo === 'responsavel' || buscaEscopo === 'pagador' ? undefined : buscaDebounced || undefined,
       }),
+  });
+
+  const pagamentosResumoQuery = useQuery({
+    queryKey: ['fluxo-operacional-pagamentos-resumo', monthYear.ano],
+    queryFn: () =>
+      getFluxoOperacionalPagamentos({
+        ano: monthYear.ano,
+        limit: 1000,
+      }),
+    enabled: activeTopTab === 'resumo_meio_pagamento',
   });
 
   const pagamentosAnoMultiQuery = useQuery({
     queryKey: ['fluxo-operacional-pagamentos-ano-multi', 2026],
-    queryFn: () => getFluxoOperacionalPagamentos({ ano: 2026, limit: 5000 }),
+    queryFn: () => getFluxoOperacionalPagamentos({ ano: 2026, limit: 1000 }),
     enabled: modoVisao === 'multi',
   });
 
@@ -471,6 +606,9 @@ export function FluxoCaixaOperacionalPage() {
       setForm(initialForm());
       setAlunoModalOpen(false);
       setEditId(null);
+      setAlunoModalDestacarPendencias(false);
+      setAlunoUiSnapshot(null);
+      setIgnorarChavesDraft([]);
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-alunos'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-resumo-multi'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-auditoria'] });
@@ -493,6 +631,9 @@ export function FluxoCaixaOperacionalPage() {
       setForm(initialForm());
       setEditId(null);
       setAlunoModalOpen(false);
+      setAlunoModalDestacarPendencias(false);
+      setAlunoUiSnapshot(null);
+      setIgnorarChavesDraft([]);
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-alunos'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-resumo-multi'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-auditoria'] });
@@ -525,6 +666,9 @@ export function FluxoCaixaOperacionalPage() {
         setAlunoModalOpen(false);
         setEditId(null);
         setForm(initialForm());
+        setAlunoModalDestacarPendencias(false);
+        setAlunoUiSnapshot(null);
+        setIgnorarChavesDraft([]);
       }
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-alunos'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos'] });
@@ -590,7 +734,23 @@ export function FluxoCaixaOperacionalPage() {
     },
   });
 
-  const submitting = createMut.isPending || updateMut.isPending;
+  const postCobrancaTentativaMut = useMutation({
+    mutationFn: (args: { alunoId: string; nota: string }) =>
+      postFluxoOperacionalAlunoCobrancaTentativa(args.alunoId, args.nota),
+    onSuccess: async (data, args) => {
+      showToast('Tentativa de contato registrada.', 'success');
+      setCobrancaNotaDraft('');
+      setCobrancaModalAluno((prev) =>
+        prev && prev.id === args.alunoId ? { ...prev, cobranca_tentativas: data.cobrancaTentativas } : prev,
+      );
+      await qc.invalidateQueries({ queryKey: ['fluxo-operacional-alunos'] });
+    },
+    onError: (e) => {
+      showToast(e instanceof Error ? e.message : String(e), 'error');
+    },
+  });
+
+  const submitting = createMut.isPending || updateMut.isPending || isSavingAlunoModal;
   const submittingPagamento = createPagMut.isPending || updatePagMut.isPending;
 
   const totalVisivel = alunosQuery.data?.itens.length ?? 0;
@@ -599,6 +759,70 @@ export function FluxoCaixaOperacionalPage() {
     [alunosQuery.data?.itens]
   );
   const totalPagamentosMes = pagamentosQuery.data?.itens.length ?? 0;
+
+  const alunoEdicaoBase = useMemo(() => {
+    if (!editId) return null;
+    const fromList = (alunosQuery.data?.itens ?? []).find((x) => x.id === editId);
+    if (fromList) return fromList;
+    if (alunoUiSnapshot?.id === editId) return alunoUiSnapshot;
+    return null;
+  }, [alunosQuery.data?.itens, editId, alunoUiSnapshot]);
+
+  const cobrancaAlunoEfetivo = useMemo(() => {
+    if (!cobrancaModalAluno) return null;
+    const fresh = (alunosQuery.data?.itens ?? []).find((x) => x.id === cobrancaModalAluno.id);
+    return fresh ?? cobrancaModalAluno;
+  }, [cobrancaModalAluno, alunosQuery.data?.itens]);
+
+  const rotulosPendenciaNoModalCadastro = useMemo(() => {
+    if (!alunoModalOpen || !alunoModalDestacarPendencias || !editId || !alunoEdicaoBase) {
+      return new Set<PendenciaFormCampo>();
+    }
+    const merged = alunoMescladoFormComBase(alunoEdicaoBase, form);
+    return camposFormMarcadosPeloRotulo(camposCadastroFaltantes(merged));
+  }, [alunoModalOpen, alunoModalDestacarPendencias, editId, alunoEdicaoBase, form]);
+
+  const pagamentosResumoFiltrados = useMemo(() => {
+    const all = pagamentosResumoQuery.data?.itens ?? [];
+    const byMonth = all.filter(
+      (p) => p.ano_competencia === monthYear.ano && p.mes_competencia === monthYear.mes
+    );
+    if (resumoFiltroPeriodoModo === 'mes') return byMonth;
+    if (!resumoPeriodoInicio || !resumoPeriodoFim) return byMonth;
+    const { min, max } = ordenarDatasIso(resumoPeriodoInicio, resumoPeriodoFim);
+    return all.filter((p) => p.data_pagamento >= min && p.data_pagamento <= max);
+  }, [
+    pagamentosResumoQuery.data?.itens,
+    monthYear.ano,
+    monthYear.mes,
+    resumoFiltroPeriodoModo,
+    resumoPeriodoInicio,
+    resumoPeriodoFim,
+  ]);
+
+  const resumoPagamentosPorForma = useMemo(() => {
+    const base = pagamentosResumoFiltrados;
+    const map = new Map<string, { forma: string; quantidade: number; total: number; itens: FluxoOperacionalPagamento[] }>();
+    for (const forma of FORMAS_RESUMO_ORDEM) {
+      map.set(forma, { forma, quantidade: 0, total: 0, itens: [] });
+    }
+    for (const p of base) {
+      const bucket = normalizarFormaPagamentoFluxo(p.forma);
+      const current = map.get(bucket)!;
+      current.quantidade += 1;
+      current.total += Number(p.valor || 0);
+      current.itens.push(p);
+    }
+    return [...map.values()].filter((x) => x.quantidade > 0);
+  }, [pagamentosResumoFiltrados]);
+
+  const itensResumoFormaSelecionada = useMemo(() => {
+    if (formaResumoSelecionada === 'Todas') {
+      return pagamentosResumoFiltrados.slice().sort((a, b) => b.data_pagamento.localeCompare(a.data_pagamento));
+    }
+    const found = resumoPagamentosPorForma.find((x) => x.forma === formaResumoSelecionada);
+    return (found?.itens ?? []).slice().sort((a, b) => b.data_pagamento.localeCompare(a.data_pagamento));
+  }, [formaResumoSelecionada, pagamentosResumoFiltrados, resumoPagamentosPorForma]);
 
   const painelOperacional = useMemo(() => {
     const hoje = new Date();
@@ -624,7 +848,8 @@ export function FluxoCaixaOperacionalPage() {
       const key = `${normalizarAbaMulti(a.aba)}\u0000${a.modalidade}\u0000${a.linha_planilha}\u0000${a.aluno_nome.toLowerCase()}`;
       const venceuDia = Number(String(a.venc_exibicao ?? a.venc ?? '').replace(/\D/g, ''));
       const temPagamentoMes = pagamentosMes.has(key);
-      if (!temPagamentoMes && Number.isFinite(venceuDia) && venceuDia >= 1 && venceuDia <= 31) {
+      const planoBolsa = isPlanoBolsa(a.plano);
+      if (!planoBolsa && !temPagamentoMes && Number.isFinite(venceuDia) && venceuDia >= 1 && venceuDia <= 31) {
         if (hoje.getDate() > venceuDia) pagamentoPendencias.push(a);
         if (hoje.getDate() === venceuDia) cobrancaHoje.push(a);
         if (hoje.getDate() + 1 === venceuDia) cobrancaVenceAmanha.push(a);
@@ -661,6 +886,129 @@ export function FluxoCaixaOperacionalPage() {
       referencia: { ano, mes },
     };
   }, [alunosQuery.data?.itens, pagamentosQuery.data?.itens, pagamentosAnoMultiQuery.data?.itens]);
+
+  const pendenciasInternasCards = useMemo(() => {
+    const byId = new Map<
+      string,
+      {
+        aluno: FluxoOperacionalAluno;
+        motivos: string[];
+        recomendada: 'resolver' | 'cobrar';
+      }
+    >();
+
+    for (const aluno of painelOperacional.cadastroPendencias) {
+      const motivos = camposCadastroFaltantes(aluno);
+      byId.set(aluno.id, {
+        aluno,
+        motivos: motivos.length > 0 ? motivos : ['Cadastro incompleto'],
+        recomendada: 'resolver',
+      });
+    }
+
+    for (const aluno of painelOperacional.pagamentoPendencias) {
+      const found = byId.get(aluno.id);
+      const motivos = [...(found?.motivos ?? []), 'Pagamento do mês não lançado'];
+      byId.set(aluno.id, {
+        aluno,
+        motivos: [...new Set(motivos)],
+        recomendada: camposCadastroFaltantes(aluno).length > 0 ? 'resolver' : 'cobrar',
+      });
+    }
+
+    return [...byId.values()].slice(0, 10);
+  }, [painelOperacional]);
+
+  const cobrancasCards = useMemo(() => {
+    const rows: Array<{
+      aluno: FluxoOperacionalAluno;
+      status: 'Vence hoje' | 'Vence amanhã' | 'Vencido' | 'Plano próximo';
+      recomendada: 'resolver' | 'cobrar';
+      motivo: string;
+    }> = [];
+
+    for (const aluno of painelOperacional.cobrancaHoje) {
+      rows.push({
+        aluno,
+        status: 'Vence hoje',
+        recomendada: camposCadastroFaltantes(aluno).length > 0 ? 'resolver' : 'cobrar',
+        motivo: 'Cobrança com vencimento hoje.',
+      });
+    }
+    for (const aluno of painelOperacional.cobrancaVenceAmanha) {
+      rows.push({
+        aluno,
+        status: 'Vence amanhã',
+        recomendada: camposCadastroFaltantes(aluno).length > 0 ? 'resolver' : 'cobrar',
+        motivo: 'Cobrança com vencimento amanhã.',
+      });
+    }
+    for (const aluno of painelOperacional.cobrancaVencidos) {
+      rows.push({
+        aluno,
+        status: 'Vencido',
+        recomendada: camposCadastroFaltantes(aluno).length > 0 ? 'resolver' : 'cobrar',
+        motivo: 'Pagamento vencido sem baixa no mês.',
+      });
+    }
+    for (const aluno of painelOperacional.cobrancaPlanos) {
+      rows.push({
+        aluno,
+        status: 'Plano próximo',
+        recomendada: camposCadastroFaltantes(aluno).length > 0 ? 'resolver' : 'cobrar',
+        motivo: 'Plano trimestral/semestral próximo de nova cobrança.',
+      });
+    }
+
+    const unique = new Map<string, (typeof rows)[number]>();
+    for (const row of rows) {
+      const current = unique.get(row.aluno.id);
+      if (!current) {
+        unique.set(row.aluno.id, row);
+        continue;
+      }
+      if (current.status !== 'Vencido' && row.status === 'Vencido') {
+        unique.set(row.aluno.id, row);
+      }
+    }
+    return [...unique.values()].slice(0, 10);
+  }, [painelOperacional]);
+
+  const agrupadoPendenciasCobrancas = useMemo(() => {
+    type PendenciaItem = (typeof pendenciasInternasCards)[number];
+    type CobrancaItem = (typeof cobrancasCards)[number];
+    type Bucket = { pendencias: PendenciaItem[]; cobrancas: CobrancaItem[] };
+
+    const byAtividade = new Map<string, Map<string, Bucket>>();
+    const ensureBucket = (atividade: string, modalidade: string): Bucket => {
+      if (!byAtividade.has(atividade)) byAtividade.set(atividade, new Map());
+      const porModalidade = byAtividade.get(atividade)!;
+      if (!porModalidade.has(modalidade)) porModalidade.set(modalidade, { pendencias: [], cobrancas: [] });
+      return porModalidade.get(modalidade)!;
+    };
+
+    for (const p of pendenciasInternasCards) {
+      const bucket = ensureBucket(p.aluno.aba, p.aluno.modalidade);
+      bucket.pendencias.push(p);
+    }
+    for (const c of cobrancasCards) {
+      const bucket = ensureBucket(c.aluno.aba, c.aluno.modalidade);
+      bucket.cobrancas.push(c);
+    }
+
+    return [...byAtividade.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'))
+      .map(([atividade, porModalidade]) => ({
+        atividade,
+        modalidades: [...porModalidade.entries()]
+          .sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'))
+          .map(([modalidade, bucket]) => ({
+            modalidade,
+            pendencias: bucket.pendencias,
+            cobrancas: bucket.cobrancas,
+          })),
+      }));
+  }, [pendenciasInternasCards, cobrancasCards]);
 
   const alunoPorChave = useMemo(() => {
     const m = new Map<string, FluxoOperacionalAluno>();
@@ -702,18 +1050,111 @@ export function FluxoCaixaOperacionalPage() {
     return m;
   }, [resumoMultiMesQuery.data?.itens]);
 
-  const multiAbasComDados = useMemo(() => {
-    const presentes = new Set(multiAgrupadoPorAba.keys());
-    const ordered = MULTI_ABAS_ORDEM.filter((a) => presentes.has(a));
-    const extras = [...presentes].filter((a) => !MULTI_ABAS_ORDEM.includes(a as (typeof MULTI_ABAS_ORDEM)[number])).sort((a, b) => a.localeCompare(b, 'pt-BR'));
-    return [...ordered, ...extras];
-  }, [multiAgrupadoPorAba]);
+  const multiAbasComDados = useMemo(
+    () => ordenarAbasPresentes(multiAgrupadoPorAba.keys()),
+    [multiAgrupadoPorAba],
+  );
 
   useEffect(() => {
     if (modoVisao !== 'multi') return;
     if (multiAbasComDados.length === 0) return;
     if (!multiAbasComDados.includes(multiAbaAtiva)) setMultiAbaAtiva(multiAbasComDados[0]);
   }, [modoVisao, multiAbasComDados, multiAbaAtiva]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setBuscaDebounced(busca.trim()), 280);
+    return () => window.clearTimeout(t);
+  }, [busca]);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(FLUXO_FILTROS_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Partial<{
+        abaFiltro: string;
+        modalidadeFiltro: string;
+        ativoFiltro: 'todos' | 'ativos' | 'inativos';
+        buscaEscopo: BuscaEscopo;
+        ordemCampo: OrdemListaCampo;
+        ordemDirecao: OrdemListaDirecao;
+      }>;
+      if (typeof parsed.abaFiltro === 'string') setAbaFiltro(parsed.abaFiltro);
+      if (typeof parsed.modalidadeFiltro === 'string') setModalidadeFiltro(parsed.modalidadeFiltro);
+      if (parsed.ativoFiltro === 'todos' || parsed.ativoFiltro === 'ativos' || parsed.ativoFiltro === 'inativos') {
+        setAtivoFiltro(parsed.ativoFiltro);
+      }
+      if (
+        parsed.buscaEscopo === 'todos' ||
+        parsed.buscaEscopo === 'aluno' ||
+        parsed.buscaEscopo === 'responsavel' ||
+        parsed.buscaEscopo === 'pagador'
+      ) {
+        setBuscaEscopo(parsed.buscaEscopo);
+      }
+      if (
+        parsed.ordemCampo === 'aluno' ||
+        parsed.ordemCampo === 'data_pagamento' ||
+        parsed.ordemCampo === 'valor_pago' ||
+        parsed.ordemCampo === 'vencimento'
+      ) {
+        setOrdemCampo(parsed.ordemCampo);
+      }
+      if (parsed.ordemDirecao === 'asc' || parsed.ordemDirecao === 'desc') {
+        setOrdemDirecao(parsed.ordemDirecao);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    const payload = {
+      abaFiltro,
+      modalidadeFiltro,
+      ativoFiltro,
+      buscaEscopo,
+      ordemCampo,
+      ordemDirecao,
+    };
+    window.localStorage.setItem(FLUXO_FILTROS_STORAGE_KEY, JSON.stringify(payload));
+  }, [abaFiltro, modalidadeFiltro, ativoFiltro, buscaEscopo, ordemCampo, ordemDirecao]);
+
+  useEffect(() => {
+    if (modoVisao !== 'multi') return;
+    const entries = multiAgrupadoPorAba.get(multiAbaAtiva);
+    if (!entries) return;
+    const modalidades = [...entries.keys()].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    setMultiModalidadeAbertaPorAba((prev) => {
+      const atual = prev[multiAbaAtiva];
+      if (modalidades.length === 1 && atual !== modalidades[0]) {
+        return { ...prev, [multiAbaAtiva]: modalidades[0] };
+      }
+      if (modalidades.length > 1 && atual && !modalidades.includes(atual)) {
+        return { ...prev, [multiAbaAtiva]: null };
+      }
+      return prev;
+    });
+  }, [modoVisao, multiAbaAtiva, multiAgrupadoPorAba]);
+
+  useEffect(() => {
+    setResumoFiltroPeriodoModo('mes');
+    setResumoPeriodoInicio('');
+    setResumoPeriodoFim('');
+    setResumoPeriodoCliquePendente(null);
+    setResumoCalendarioAberto(false);
+  }, [monthYear.mes, monthYear.ano]);
+
+  useEffect(() => {
+    if (!resumoCalendarioAberto) return;
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (resumoCalendarioPopoverRef.current?.contains(target)) return;
+      if (resumoCalendarioTriggerRef.current?.contains(target)) return;
+      setResumoCalendarioAberto(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [resumoCalendarioAberto]);
 
   const linhasUnificadas = useMemo((): LinhaUnificadaFluxo[] => {
     const pagamentos = pagamentosQuery.data?.itens ?? [];
@@ -750,12 +1191,75 @@ export function FluxoCaixaOperacionalPage() {
     return todas;
   }, [pagamentosQuery.data?.itens, alunosQuery.data?.itens, alunoPorChave]);
 
+  function valorTextoEscopoLinha(linha: LinhaUnificadaFluxo, escopo: BuscaEscopo): string {
+    const alunoNome =
+      linha.kind === 'com_pagamento' ? linha.pagamento.aluno_nome : linha.aluno.aluno_nome;
+    const responsavel =
+      linha.kind === 'com_pagamento'
+        ? responsaveisUnificado(linha.aluno, linha.pagamento)
+        : linha.aluno.responsaveis_exibicao?.trim() || linha.aluno.responsaveis?.trim() || '';
+    const pagador =
+      linha.kind === 'com_pagamento'
+        ? pagadorUnificado(linha.aluno, linha.pagamento)
+        : linha.aluno.pagador_pix_exibicao?.trim() || linha.aluno.pagador_pix?.trim() || '';
+
+    if (escopo === 'aluno') return alunoNome;
+    if (escopo === 'responsavel') return responsavel;
+    if (escopo === 'pagador') return pagador;
+    return `${alunoNome} ${responsavel} ${pagador}`;
+  }
+
   const linhasParaLista = useMemo(() => {
-    if (!soPendencias) return linhasUnificadas;
-    return linhasUnificadas.filter(temPendenciaTrabalho);
-  }, [linhasUnificadas, soPendencias]);
+    const term = buscaDebounced.toLowerCase();
+    const pendenciasAtivo = soPendencias || filtroRapido === 'com_pendencias';
+    let out = linhasUnificadas.filter((linha) => {
+      if (pendenciasAtivo && !temPendenciaTrabalho(linha)) return false;
+      if (filtroRapido === 'sem_pagamento_mes' && linha.kind !== 'sem_pagamento_no_mes') return false;
+      if (filtroRapido === 'sem_cadastro_vinculado' && !(linha.kind === 'com_pagamento' && !linha.aluno)) return false;
+      if (filtroRapido === 'so_ativos') {
+        if (linha.kind === 'com_pagamento') {
+          if (linha.aluno && !linha.aluno.ativo) return false;
+        } else if (!linha.aluno.ativo) return false;
+      }
+      if (term) {
+        const hay = valorTextoEscopoLinha(linha, buscaEscopo).toLowerCase();
+        if (!hay.includes(term)) return false;
+      }
+      return true;
+    });
+
+    const direction = ordemDirecao === 'asc' ? 1 : -1;
+    out = out.slice().sort((a, b) => {
+      if (ordemCampo === 'aluno') {
+        const av = (a.kind === 'com_pagamento' ? a.pagamento.aluno_nome : a.aluno.aluno_nome).toLowerCase();
+        const bv = (b.kind === 'com_pagamento' ? b.pagamento.aluno_nome : b.aluno.aluno_nome).toLowerCase();
+        return av.localeCompare(bv, 'pt-BR') * direction;
+      }
+      if (ordemCampo === 'data_pagamento') {
+        const av = a.kind === 'com_pagamento' ? a.pagamento.data_pagamento : '';
+        const bv = b.kind === 'com_pagamento' ? b.pagamento.data_pagamento : '';
+        return av.localeCompare(bv) * direction;
+      }
+      if (ordemCampo === 'valor_pago') {
+        const av = a.kind === 'com_pagamento' ? Number(a.pagamento.valor || 0) : -1;
+        const bv = b.kind === 'com_pagamento' ? Number(b.pagamento.valor || 0) : -1;
+        return (av - bv) * direction;
+      }
+      const av = textoVencCadastro(a.kind === 'com_pagamento' ? a.aluno : a.aluno, a.kind === 'com_pagamento' ? a.pagamento : undefined);
+      const bv = textoVencCadastro(b.kind === 'com_pagamento' ? b.aluno : b.aluno, b.kind === 'com_pagamento' ? b.pagamento : undefined);
+      return av.localeCompare(bv, 'pt-BR') * direction;
+    });
+    return out;
+  }, [linhasUnificadas, soPendencias, filtroRapido, buscaDebounced, buscaEscopo, ordemCampo, ordemDirecao]);
 
   const gruposFluxo = useMemo(() => agruparLinhasFluxo(linhasParaLista), [linhasParaLista]);
+
+  useEffect(() => {
+    if (activeTopTab !== 'atividades' || modoVisao !== 'mensal') return;
+    if (!abaDetalheAberta && gruposFluxo.length > 0) {
+      setAbaDetalheAberta(gruposFluxo[0].aba);
+    }
+  }, [activeTopTab, modoVisao, abaDetalheAberta, gruposFluxo]);
 
   const opcoesAbasFiltro = useMemo(() => {
     const s = new Set<string>();
@@ -814,20 +1318,27 @@ export function FluxoCaixaOperacionalPage() {
   }
 
   useEffect(() => {
-    if (!alunoModalOpen && !pagModalOpen) return;
+    if (!alunoModalOpen && !pagModalOpen && !cobrancaModalAluno) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setAlunoModalOpen(false);
-        setPagModalOpen(false);
-        setEditId(null);
-        setPagEditId(null);
-        setForm(initialForm());
-        setPagForm(initialPagamentoForm(monthYear.mes, monthYear.ano));
+      if (e.key !== 'Escape') return;
+      if (cobrancaModalAluno) {
+        setCobrancaModalAluno(null);
+        setCobrancaNotaDraft('');
+        return;
       }
+      setAlunoModalOpen(false);
+      setPagModalOpen(false);
+      setEditId(null);
+      setPagEditId(null);
+      setForm(initialForm());
+      setPagForm(initialPagamentoForm(monthYear.mes, monthYear.ano));
+      setAlunoModalDestacarPendencias(false);
+      setAlunoUiSnapshot(null);
+      setIgnorarChavesDraft([]);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [alunoModalOpen, pagModalOpen, monthYear.mes, monthYear.ano]);
+  }, [alunoModalOpen, pagModalOpen, cobrancaModalAluno, monthYear.mes, monthYear.ano]);
 
   useEffect(() => {
     if (alunoModalOpen) {
@@ -835,6 +1346,13 @@ export function FluxoCaixaOperacionalPage() {
       return () => window.clearTimeout(t);
     }
   }, [alunoModalOpen]);
+
+  useEffect(() => {
+    if (cobrancaModalAluno) {
+      const t = window.setTimeout(() => cobrancaModalTitleRef.current?.focus(), 80);
+      return () => window.clearTimeout(t);
+    }
+  }, [cobrancaModalAluno]);
 
   useEffect(() => {
     if (!inlineAluno) return;
@@ -859,8 +1377,55 @@ export function FluxoCaixaOperacionalPage() {
     setModalidadeFiltro('');
     setAtivoFiltro('ativos');
     setBusca('');
+    setBuscaEscopo('todos');
+    setFiltroRapido('nenhum');
+    setOrdemCampo('aluno');
+    setOrdemDirecao('asc');
     setSoPendencias(false);
+    setFormaResumoSelecionada('Todas');
   }
+
+  const irParaListaDoMes = useCallback(() => {
+    window.setTimeout(() => {
+      listaMesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
+  }, []);
+
+  const resumoPeriodoLegivel = useMemo(() => {
+    if (!resumoPeriodoInicio || !resumoPeriodoFim) return null;
+    const { min, max } = ordenarDatasIso(resumoPeriodoInicio, resumoPeriodoFim);
+    if (min === max) return formatDataBr(min);
+    return `${formatDataBr(min)} — ${formatDataBr(max)}`;
+  }, [resumoPeriodoInicio, resumoPeriodoFim]);
+
+  const handleResumoDiaCalendario = useCallback((dataIso: string) => {
+    setResumoPeriodoCliquePendente((pend) => {
+      if (!pend) return dataIso;
+      const { min, max } = ordenarDatasIso(pend, dataIso);
+      setResumoPeriodoInicio(min);
+      setResumoPeriodoFim(max);
+      window.setTimeout(() => setResumoCalendarioAberto(false), 0);
+      return null;
+    });
+  }, []);
+
+  const getResumoDiaCalendarioClasse = useCallback(
+    (iso: string) => {
+      const base =
+        'border border-transparent text-slate-800 hover:border-indigo-300 hover:bg-indigo-50/90 dark:text-slate-100 dark:hover:border-indigo-600 dark:hover:bg-indigo-950/40';
+      if (resumoPeriodoCliquePendente === iso) {
+        return `${base} border-indigo-500 bg-indigo-100 text-indigo-950 ring-2 ring-indigo-400 dark:border-indigo-400 dark:bg-indigo-900/70 dark:text-indigo-50`;
+      }
+      if (resumoPeriodoInicio && resumoPeriodoFim) {
+        const { min, max } = ordenarDatasIso(resumoPeriodoInicio, resumoPeriodoFim);
+        if (iso >= min && iso <= max) {
+          return `${base} border-indigo-200 bg-indigo-50 text-indigo-950 dark:border-indigo-700 dark:bg-indigo-950/45 dark:text-indigo-100`;
+        }
+      }
+      return base;
+    },
+    [resumoPeriodoCliquePendente, resumoPeriodoInicio, resumoPeriodoFim]
+  );
 
   function abrirNovoPagamentoParaAluno(aluno: FluxoOperacionalAluno) {
     setPagEditId(null);
@@ -913,6 +1478,8 @@ export function FluxoCaixaOperacionalPage() {
       pagadorPix: item.pagadorPix ?? '',
       ativo: true,
     });
+    setAlunoModalDestacarPendencias(false);
+    setAlunoUiSnapshot(null);
     setAlunoModalOpen(true);
   }
 
@@ -966,6 +1533,8 @@ export function FluxoCaixaOperacionalPage() {
       venc: p.aluno_venc ?? '',
       valorReferencia: p.aluno_valor_referencia != null ? formatBrl(p.aluno_valor_referencia) : '',
     });
+    setAlunoModalDestacarPendencias(false);
+    setAlunoUiSnapshot(null);
     setAlunoModalOpen(true);
   }
 
@@ -1019,12 +1588,27 @@ export function FluxoCaixaOperacionalPage() {
   function abrirNovoAluno() {
     setEditId(null);
     setForm(initialForm());
+    setAlunoModalDestacarPendencias(false);
+    setAlunoUiSnapshot(null);
+    setIgnorarChavesDraft([]);
     setAlunoModalOpen(true);
   }
 
   function abrirEditarAluno(item: FluxoOperacionalAluno) {
+    setAlunoModalDestacarPendencias(false);
     setEditId(item.id);
     setForm(toForm(item));
+    setAlunoUiSnapshot(item);
+    setIgnorarChavesDraft(item.pendencia_campos_ignorados ?? []);
+    setAlunoModalOpen(true);
+  }
+
+  function abrirResolverPendencia(aluno: FluxoOperacionalAluno) {
+    setAlunoModalDestacarPendencias(true);
+    setEditId(aluno.id);
+    setForm(toForm(aluno));
+    setAlunoUiSnapshot(aluno);
+    setIgnorarChavesDraft(aluno.pendencia_campos_ignorados ?? []);
     setAlunoModalOpen(true);
   }
 
@@ -1032,6 +1616,38 @@ export function FluxoCaixaOperacionalPage() {
     setAlunoModalOpen(false);
     setEditId(null);
     setForm(initialForm());
+    setAlunoModalDestacarPendencias(false);
+    setAlunoUiSnapshot(null);
+    setIgnorarChavesDraft([]);
+  }
+
+  function setIgnorarChaveMarcada(chave: FluxoPendenciaCampoIgnoravel, marcado: boolean) {
+    setIgnorarChavesDraft((prev) => {
+      const s = new Set(prev);
+      if (marcado) s.add(chave);
+      else s.delete(chave);
+      return [...s];
+    });
+  }
+
+  function fecharModalCobranca() {
+    setCobrancaModalAluno(null);
+    setCobrancaNotaDraft('');
+  }
+
+  function abrirModalCobranca(aluno: FluxoOperacionalAluno) {
+    setCobrancaModalAluno(aluno);
+    setCobrancaNotaDraft('');
+  }
+
+  function lancarPagamentoDesdeCobranca(aluno: FluxoOperacionalAluno) {
+    fecharModalCobranca();
+    abrirNovoPagamentoParaAluno(aluno);
+  }
+
+  function abrirCadastroDesdeCobranca(aluno: FluxoOperacionalAluno) {
+    fecharModalCobranca();
+    abrirEditarAluno(aluno);
   }
 
   function abrirNovoPagamento() {
@@ -1390,6 +2006,51 @@ export function FluxoCaixaOperacionalPage() {
         </header>
 
         <section className="rounded-2xl border border-slate-200/90 bg-white/95 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/90">
+          <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Seções do fluxo de caixa">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTopTab === 'atividades'}
+              onClick={() => setActiveTopTab('atividades')}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+                activeTopTab === 'atividades'
+                  ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
+                  : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200'
+              }`}
+            >
+              Atividades
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTopTab === 'resumo_meio_pagamento'}
+              onClick={() => setActiveTopTab('resumo_meio_pagamento')}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+                activeTopTab === 'resumo_meio_pagamento'
+                  ? 'bg-indigo-600 text-white'
+                  : 'border border-indigo-300 text-indigo-700 dark:border-indigo-700 dark:text-indigo-300'
+              }`}
+            >
+              Resumo por meio de pagamento
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTopTab === 'pendencias_cobrancas'}
+              onClick={() => setActiveTopTab('pendencias_cobrancas')}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+                activeTopTab === 'pendencias_cobrancas'
+                  ? 'bg-amber-600 text-white'
+                  : 'border border-amber-300 text-amber-800 dark:border-amber-700 dark:text-amber-300'
+              }`}
+            >
+              Pendências e cobranças
+            </button>
+          </div>
+        </section>
+
+        {activeTopTab === 'atividades' ? (
+        <section className="rounded-2xl border border-slate-200/90 bg-white/95 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/90">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Modo de visualização</span>
             <button
@@ -1416,92 +2077,352 @@ export function FluxoCaixaOperacionalPage() {
             </button>
           </div>
         </section>
+        ) : null}
 
-        <section className="grid gap-3 lg:grid-cols-2">
-          <div className="rounded-2xl border border-amber-200 bg-amber-50/40 p-3 dark:border-amber-800/50 dark:bg-amber-950/20">
-            <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200">Pendências</h3>
-            <div className="mt-2 grid gap-2 sm:grid-cols-3">
-              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/80">
-                <p className="text-slate-500 dark:text-slate-400">Geral</p>
-                <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{painelOperacional.pendenciasGeral}</p>
+        {activeTopTab === 'pendencias_cobrancas' ? (
+          <>
+            <section className="rounded-2xl border border-slate-200/90 bg-white/95 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/90">
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Para que serve esta aba</h2>
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                Aqui você separa o que é correção interna do sistema (pendência) do que é contato para receber pagamento (cobrança).
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-1 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
+                  Resolver pendência = corrigir dado/cadastro/lançamento
+                </span>
+                <span className="rounded-full border border-indigo-300 bg-indigo-50 px-2 py-1 text-indigo-900 dark:border-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-200">
+                  Cobrar agora = entrar em contato para pagamento
+                </span>
               </div>
-              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/80">
-                <p className="text-slate-500 dark:text-slate-400">Cadastro</p>
-                <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{painelOperacional.cadastroPendencias.length}</p>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/80">
-                <p className="text-slate-500 dark:text-slate-400">Pagamento</p>
-                <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{painelOperacional.pagamentoPendencias.length}</p>
-              </div>
-            </div>
-          </div>
-          <div className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-3 dark:border-indigo-800/50 dark:bg-indigo-950/20">
-            <h3 className="text-sm font-semibold text-indigo-900 dark:text-indigo-200">Cobrança de vencimento</h3>
-            <div className="mt-2 grid gap-2 sm:grid-cols-3">
-              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/80">
-                <p className="text-slate-500 dark:text-slate-400">Vence amanhã</p>
-                <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{painelOperacional.cobrancaVenceAmanha.length}</p>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/80">
-                <p className="text-slate-500 dark:text-slate-400">Vence hoje</p>
-                <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{painelOperacional.cobrancaHoje.length}</p>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/80">
-                <p className="text-slate-500 dark:text-slate-400">Vencidos</p>
-                <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{painelOperacional.cobrancaVencidos.length}</p>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/80">
-                <p className="text-slate-500 dark:text-slate-400">Planos (tri/semes)</p>
-                <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{painelOperacional.cobrancaPlanos.length}</p>
-              </div>
-            </div>
-          </div>
-        </section>
+            </section>
 
-        <section className="grid gap-3 lg:grid-cols-2">
-          <div className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/90">
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Lista acionável — Pendências</h3>
-            <ul className="mt-2 space-y-2 text-xs">
-              {painelOperacional.pagamentoPendencias.slice(0, 8).map((a) => (
-                <li key={`pend-${a.id}`} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 px-2 py-2 dark:border-slate-700">
-                  <span className="truncate">{a.aluno_nome} · {a.modalidade}</span>
-                  <button
-                    type="button"
-                    onClick={() => abrirNovoPagamentoParaAluno(a)}
-                    className="rounded border border-rose-300 bg-rose-50 px-2 py-1 font-semibold text-rose-800 dark:border-rose-700 dark:bg-rose-950/40 dark:text-rose-200"
-                  >
-                    Lançar pagamento
-                  </button>
-                </li>
+            <section className="grid gap-3 lg:grid-cols-2">
+              <div className="rounded-2xl border border-amber-200 bg-amber-50/40 p-3 dark:border-amber-800/50 dark:bg-amber-950/20">
+                <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200">Pendências internas (corrigir no sistema)</h3>
+                <p className="mt-1 text-xs text-amber-900/90 dark:text-amber-200/90">
+                  Itens que travam a conferência e a baixa correta.
+                </p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                  <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/80">
+                    <p className="text-slate-500 dark:text-slate-400">Total pendências</p>
+                    <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{painelOperacional.pendenciasGeral}</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/80">
+                    <p className="text-slate-500 dark:text-slate-400">Cadastro incompleto</p>
+                    <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{painelOperacional.cadastroPendencias.length}</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/80">
+                    <p className="text-slate-500 dark:text-slate-400">Sem pagamento no mês</p>
+                    <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{painelOperacional.pagamentoPendencias.length}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-3 dark:border-indigo-800/50 dark:bg-indigo-950/20">
+                <h3 className="text-sm font-semibold text-indigo-900 dark:text-indigo-200">Cobranças (contato com responsável/aluno)</h3>
+                <p className="mt-1 text-xs text-indigo-900/90 dark:text-indigo-200/90">
+                  Acompanhamento de quem precisa contato hoje, amanhã ou já está vencido.
+                </p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-4">
+                  <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/80">
+                    <p className="text-slate-500 dark:text-slate-400">Vence hoje</p>
+                    <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{painelOperacional.cobrancaHoje.length}</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/80">
+                    <p className="text-slate-500 dark:text-slate-400">Vence amanhã</p>
+                    <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{painelOperacional.cobrancaVenceAmanha.length}</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/80">
+                    <p className="text-slate-500 dark:text-slate-400">Vencidos</p>
+                    <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{painelOperacional.cobrancaVencidos.length}</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/80">
+                    <p className="text-slate-500 dark:text-slate-400">Planos próximos</p>
+                    <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{painelOperacional.cobrancaPlanos.length}</p>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="space-y-3">
+              {agrupadoPendenciasCobrancas.map((grupoAtividade) => (
+                <article
+                  key={`pc-atividade-${grupoAtividade.atividade}`}
+                  className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/90"
+                >
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    Atividade: {grupoAtividade.atividade}
+                  </h3>
+
+                  <div className="mt-3 space-y-3">
+                    {grupoAtividade.modalidades.map((grupoModalidade) => (
+                      <div
+                        key={`pc-modalidade-${grupoAtividade.atividade}-${grupoModalidade.modalidade}`}
+                        className="rounded-xl border border-slate-200 p-3 dark:border-slate-700"
+                      >
+                        <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+                          Modalidade: {grupoModalidade.modalidade}
+                        </h4>
+
+                        <div className="mt-2 grid gap-3 lg:grid-cols-2">
+                          <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-2 dark:border-amber-800/40 dark:bg-amber-950/20">
+                            <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">Pendências</p>
+                            <ul className="mt-2 space-y-2 text-xs">
+                              {grupoModalidade.pendencias.map((item) => (
+                                <li key={`pend-${item.aluno.id}`} className="rounded-lg border border-slate-200 bg-white px-2 py-2 dark:border-slate-700 dark:bg-slate-900/70">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <span className="font-medium text-slate-900 dark:text-slate-100">{item.aluno.aluno_nome}</span>
+                                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900 ring-1 ring-amber-300 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-700">
+                                      Pendência
+                                    </span>
+                                  </div>
+                                  <div className="mt-1 flex flex-wrap gap-1.5">
+                                    {item.motivos.slice(0, 3).map((motivo) => (
+                                      <span
+                                        key={`${item.aluno.id}-${motivo}`}
+                                        className="rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                                      >
+                                        {motivo}
+                                      </span>
+                                    ))}
+                                  </div>
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => abrirResolverPendencia(item.aluno)}
+                                      className="rounded border border-amber-300 bg-amber-50 px-2 py-1 font-semibold text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+                                    >
+                                      Resolver pendência
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => abrirModalCobranca(item.aluno)}
+                                      className="rounded border border-indigo-300 bg-indigo-50 px-2 py-1 font-semibold text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-200"
+                                    >
+                                      Cobrar agora
+                                    </button>
+                                  </div>
+                                </li>
+                              ))}
+                              {grupoModalidade.pendencias.length === 0 ? (
+                                <li className="text-slate-500">Sem pendências nesta modalidade.</li>
+                              ) : null}
+                            </ul>
+                          </div>
+
+                          <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-2 dark:border-indigo-800/40 dark:bg-indigo-950/20">
+                            <p className="text-xs font-semibold text-indigo-900 dark:text-indigo-200">Cobranças</p>
+                            <ul className="mt-2 space-y-2 text-xs">
+                              {grupoModalidade.cobrancas.map((item) => (
+                                <li key={`cob-${item.aluno.id}`} className="rounded-lg border border-slate-200 bg-white px-2 py-2 dark:border-slate-700 dark:bg-slate-900/70">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <span className="font-medium text-slate-900 dark:text-slate-100">{item.aluno.aluno_nome}</span>
+                                    <span
+                                      className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                        item.status === 'Vencido'
+                                          ? 'bg-rose-100 text-rose-900 ring-1 ring-rose-300 dark:bg-rose-950/40 dark:text-rose-200 dark:ring-rose-700'
+                                          : item.status === 'Vence hoje'
+                                            ? 'bg-orange-100 text-orange-900 ring-1 ring-orange-300 dark:bg-orange-950/40 dark:text-orange-200 dark:ring-orange-700'
+                                            : 'bg-indigo-100 text-indigo-900 ring-1 ring-indigo-300 dark:bg-indigo-950/40 dark:text-indigo-200 dark:ring-indigo-700'
+                                      }`}
+                                    >
+                                      {item.status}
+                                    </span>
+                                  </div>
+                                  <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-300">{item.motivo}</p>
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => abrirModalCobranca(item.aluno)}
+                                      className="rounded border border-indigo-300 bg-indigo-50 px-2 py-1 font-semibold text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-200"
+                                    >
+                                      Cobrar agora
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => abrirResolverPendencia(item.aluno)}
+                                      className="rounded border border-amber-300 bg-amber-50 px-2 py-1 font-semibold text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+                                    >
+                                      Resolver pendência
+                                    </button>
+                                  </div>
+                                </li>
+                              ))}
+                              {grupoModalidade.cobrancas.length === 0 ? (
+                                <li className="text-slate-500">Sem cobranças nesta modalidade.</li>
+                              ) : null}
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </article>
               ))}
-              {painelOperacional.pagamentoPendencias.length === 0 ? <li className="text-slate-500">Sem pendências de pagamento agora.</li> : null}
-            </ul>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/90">
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Lista acionável — Cobrança</h3>
-            <ul className="mt-2 space-y-2 text-xs">
-              {[...painelOperacional.cobrancaHoje, ...painelOperacional.cobrancaVenceAmanha, ...painelOperacional.cobrancaVencidos]
-                .slice(0, 8)
-                .map((a) => (
-                  <li key={`cob-${a.id}`} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 px-2 py-2 dark:border-slate-700">
-                    <span className="truncate">{a.aluno_nome} · {a.modalidade}</span>
-                    <button
-                      type="button"
-                      onClick={() => abrirNovoPagamentoParaAluno(a)}
-                      className="rounded border border-indigo-300 bg-indigo-50 px-2 py-1 font-semibold text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-200"
-                    >
-                      Abrir cobrança
-                    </button>
-                  </li>
-                ))}
-              {painelOperacional.cobrancaHoje.length + painelOperacional.cobrancaVenceAmanha.length + painelOperacional.cobrancaVencidos.length === 0 ? (
-                <li className="text-slate-500">Sem itens de cobrança no momento.</li>
+              {agrupadoPendenciasCobrancas.length === 0 ? (
+                <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-300">
+                  Nenhuma pendência ou cobrança encontrada.
+                </div>
               ) : null}
-            </ul>
-          </div>
-        </section>
+            </section>
+          </>
+        ) : null}
 
-        {modoVisao === 'multi' ? (
+        {activeTopTab === 'resumo_meio_pagamento' ? (
+          <section className="space-y-3 rounded-2xl border border-indigo-200/70 bg-white/95 p-4 shadow-sm dark:border-indigo-800/60 dark:bg-slate-900/90">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">Resumo por meio de pagamento</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Separe por competência mensal ou período personalizado.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResumoFiltroPeriodoModo('mes');
+                    setResumoCalendarioAberto(false);
+                  }}
+                  className={`rounded-lg px-2.5 py-1.5 text-xs font-medium ${
+                    resumoFiltroPeriodoModo === 'mes'
+                      ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
+                      : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200'
+                  }`}
+                >
+                  Por mês
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setResumoFiltroPeriodoModo('periodo')}
+                  className={`rounded-lg px-2.5 py-1.5 text-xs font-medium ${
+                    resumoFiltroPeriodoModo === 'periodo'
+                      ? 'bg-indigo-600 text-white'
+                      : 'border border-indigo-300 text-indigo-700 dark:border-indigo-700 dark:text-indigo-300'
+                  }`}
+                >
+                  Por período
+                </button>
+              </div>
+            </div>
+
+            {resumoFiltroPeriodoModo === 'periodo' ? (
+              <div className="relative flex flex-wrap items-center gap-2" ref={resumoCalendarioTriggerRef}>
+                <button
+                  type="button"
+                  onClick={() => setResumoCalendarioAberto((v) => !v)}
+                  className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-900 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-100"
+                >
+                  {resumoCalendarioAberto ? 'Fechar calendário' : 'Escolher período'}
+                </button>
+                {resumoPeriodoLegivel ? (
+                  <span className="text-xs font-medium text-slate-700 dark:text-slate-200">{resumoPeriodoLegivel}</span>
+                ) : (
+                  <span className="text-xs text-slate-500 dark:text-slate-400">Selecione início e fim (pode cruzar mês).</span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResumoPeriodoInicio('');
+                    setResumoPeriodoFim('');
+                    setResumoPeriodoCliquePendente(null);
+                    setResumoCalendarioAberto(false);
+                  }}
+                  className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                >
+                  Limpar período
+                </button>
+                <PeriodoMesCalendarioPopover
+                  mes={monthYear.mes}
+                  ano={monthYear.ano}
+                  aberto={resumoCalendarioAberto}
+                  onFechar={() => setResumoCalendarioAberto(false)}
+                  onDiaClick={handleResumoDiaCalendario}
+                  getDiaClasse={getResumoDiaCalendarioClasse}
+                  popoverRef={resumoCalendarioPopoverRef}
+                />
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Competência atual: <strong>{mesReferenciaLegivel(monthYear.mes, monthYear.ano)}</strong>.
+              </p>
+            )}
+
+            {pagamentosResumoQuery.error ? (
+              <ApiErrorPanel
+                message={pagamentosResumoQuery.error instanceof Error ? pagamentosResumoQuery.error.message : 'Erro ao carregar pagamentos do resumo.'}
+                onRetry={() => pagamentosResumoQuery.refetch()}
+              />
+            ) : null}
+
+            {pagamentosResumoQuery.isLoading ? <TableSkeleton rows={5} cols={6} /> : null}
+
+            {!pagamentosResumoQuery.isLoading ? (
+              <>
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+                  {resumoPagamentosPorForma.map((item) => (
+                    <button
+                      key={item.forma}
+                      type="button"
+                      onClick={() => setFormaResumoSelecionada(item.forma)}
+                      className={`rounded-lg border p-2 text-left ${
+                        formaResumoSelecionada === item.forma
+                          ? 'border-indigo-500 bg-indigo-100/80 dark:border-indigo-500 dark:bg-indigo-950/40'
+                          : 'border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/70'
+                      }`}
+                    >
+                      <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">{item.forma}</p>
+                      <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{formatBrl(item.total)}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">{item.quantidade} pagto(s)</p>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/70">
+                  <table className="w-full min-w-[920px] text-xs">
+                    <thead className="bg-slate-100/90 text-left font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800/90 dark:text-slate-400">
+                      <tr>
+                        <th className="px-3 py-2">Forma</th>
+                        <th className="px-3 py-2">Data</th>
+                        <th className="px-3 py-2">Aluno</th>
+                        <th className="px-3 py-2">Responsável</th>
+                        <th className="px-3 py-2">Pagador</th>
+                        <th className="px-3 py-2">Aba / Modalidade</th>
+                        <th className="px-3 py-2 text-right">Valor</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {itensResumoFormaSelecionada.slice(0, 120).map((p) => {
+                        const aluno = alunoPorChave.get(normKeyFluxo(p.aba, p.modalidade, p.linha_planilha, p.aluno_nome)) ?? null;
+                        return (
+                          <tr key={`resumo-forma-${p.id}`}>
+                            <td className="px-3 py-2 text-slate-700 dark:text-slate-200">{normalizarFormaPagamentoFluxo(p.forma)}</td>
+                            <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{formatDataBr(p.data_pagamento)}</td>
+                            <td className="px-3 py-2 font-medium text-slate-900 dark:text-slate-100">{p.aluno_nome}</td>
+                            <td className="max-w-[160px] truncate px-3 py-2 text-slate-600 dark:text-slate-300" title={responsaveisUnificado(aluno, p)}>
+                              {responsaveisUnificado(aluno, p)}
+                            </td>
+                            <td className="max-w-[160px] truncate px-3 py-2 text-slate-600 dark:text-slate-300" title={pagadorUnificado(aluno, p)}>
+                              {pagadorUnificado(aluno, p)}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-300">
+                              {p.aba} / {p.modalidade}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+                              {formatBrl(p.valor)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : null}
+          </section>
+        ) : null}
+
+        {activeTopTab === 'atividades' && modoVisao === 'multi' ? (
           <section className="space-y-4 rounded-2xl border border-indigo-200/70 bg-indigo-50/40 p-4 dark:border-indigo-800/60 dark:bg-indigo-950/20">
             <div className="grid gap-3 md:grid-cols-3">
               <div className="rounded-xl border border-rose-200 bg-white p-3 dark:border-rose-800 dark:bg-slate-900/80">
@@ -1534,11 +2455,20 @@ export function FluxoCaixaOperacionalPage() {
                     {multiAbasComDados.map((aba) => {
                       const chrome = getFluxoAbaTabStyle(aba);
                       const ativo = multiAbaAtiva === aba;
+                      const modalidadesDaAba = multiAgrupadoPorAba.get(aba)
+                        ? [...multiAgrupadoPorAba.get(aba)!.keys()].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+                        : [];
                       return (
                         <button
                           key={aba}
                           type="button"
-                          onClick={() => setMultiAbaAtiva(aba)}
+                          onClick={() => {
+                            setMultiAbaAtiva(aba);
+                            setMultiModalidadeAbertaPorAba((prev) => ({
+                              ...prev,
+                              [aba]: modalidadesDaAba.length === 1 ? modalidadesDaAba[0] : prev[aba] ?? null,
+                            }));
+                          }}
                           className="rounded-lg border-2 px-3 py-2 text-xs font-semibold shadow-sm transition"
                           style={{
                             borderColor: chrome.tab,
@@ -1557,9 +2487,18 @@ export function FluxoCaixaOperacionalPage() {
                   .sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'))
                   .map(([modalidade, itens]) => {
                     const chrome = getFluxoModalidadeTabStyle(multiAbaAtiva, modalidade);
+                    const modalidadeAberta = multiModalidadeAbertaPorAba[multiAbaAtiva];
                     return (
                       <details
                         key={`${multiAbaAtiva}\u0000${modalidade}`}
+                        open={modalidadeAberta === modalidade}
+                        onToggle={(e) => {
+                          const opened = (e.currentTarget as HTMLDetailsElement).open;
+                          setMultiModalidadeAbertaPorAba((prev) => ({
+                            ...prev,
+                            [multiAbaAtiva]: opened ? modalidade : null,
+                          }));
+                        }}
                         className="group rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/80"
                         style={{ borderLeftWidth: '5px', borderLeftColor: chrome.tab }}
                       >
@@ -1660,7 +2599,7 @@ export function FluxoCaixaOperacionalPage() {
           </section>
         ) : null}
 
-        {modoVisao === 'mensal' && opcoesAbasFiltro.length > 0 ? (
+        {activeTopTab === 'atividades' && modoVisao === 'mensal' && opcoesAbasFiltro.length > 0 ? (
           <div className="rounded-2xl border border-slate-200/90 bg-white/95 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/90">
             <p className="mb-2 text-xs text-slate-600 dark:text-slate-400">
               <span className="font-medium">Atalho por aba</span> — cores no estilo das guias do Google Sheets; para igualar à planilha FLUXO BYLA, edite{' '}
@@ -1685,7 +2624,13 @@ export function FluxoCaixaOperacionalPage() {
                   <button
                     key={aba}
                     type="button"
-                    onClick={() => setAbaFiltro(aba)}
+                    onClick={() => {
+                      setActiveTopTab('atividades');
+                      setModoVisao('mensal');
+                      setAbaFiltro(aba);
+                      setAbaDetalheAberta(aba);
+                      irParaListaDoMes();
+                    }}
                     title={`Filtrar: ${aba}`}
                     className="rounded-lg border-2 px-3 py-2 text-sm font-medium shadow-sm transition hover:opacity-95"
                     style={{
@@ -1702,10 +2647,84 @@ export function FluxoCaixaOperacionalPage() {
                 );
               })}
             </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Filtros rápidos</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setFiltroRapido('sem_pagamento_mes');
+                  setSoPendencias(false);
+                  irParaListaDoMes();
+                }}
+                className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                  filtroRapido === 'sem_pagamento_mes'
+                    ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-300'
+                    : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200'
+                }`}
+              >
+                Sem pagamento no mês
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFiltroRapido('sem_cadastro_vinculado');
+                  setSoPendencias(false);
+                  irParaListaDoMes();
+                }}
+                className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                  filtroRapido === 'sem_cadastro_vinculado'
+                    ? 'bg-violet-100 text-violet-900 ring-1 ring-violet-300'
+                    : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200'
+                }`}
+              >
+                Sem cadastro vinculado
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFiltroRapido('com_pendencias');
+                  setSoPendencias(true);
+                  irParaListaDoMes();
+                }}
+                className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                  filtroRapido === 'com_pendencias' || soPendencias
+                    ? 'bg-rose-100 text-rose-900 ring-1 ring-rose-300'
+                    : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200'
+                }`}
+              >
+                Com pendências
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFiltroRapido('so_ativos');
+                  setAtivoFiltro('ativos');
+                  setSoPendencias(false);
+                  irParaListaDoMes();
+                }}
+                className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                  filtroRapido === 'so_ativos'
+                    ? 'bg-emerald-100 text-emerald-900 ring-1 ring-emerald-300'
+                    : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200'
+                }`}
+              >
+                Só ativos
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFiltroRapido('nenhum');
+                  setSoPendencias(false);
+                }}
+                className="rounded-full border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 dark:border-slate-600 dark:text-slate-300"
+              >
+                Limpar rápidos
+              </button>
+            </div>
           </div>
         ) : null}
 
-        {modoVisao === 'mensal' ? (
+        {activeTopTab === 'atividades' && modoVisao === 'mensal' ? (
         <>
         <details className="group rounded-2xl border border-slate-200/90 bg-white/95 shadow-sm open:shadow-md dark:border-slate-700 dark:bg-slate-900/90 [&_summary::-webkit-details-marker]:hidden">
           <summary className="flex cursor-pointer list-none items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50/80 dark:text-slate-100 dark:hover:bg-slate-800/80">
@@ -1775,6 +2794,46 @@ export function FluxoCaixaOperacionalPage() {
                   aria-label="Buscar"
                 />
               </label>
+              <label className="text-xs font-medium text-slate-600">
+                Escopo da busca
+                <select
+                  className="select-with-chevron mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  value={buscaEscopo}
+                  onChange={(e) => setBuscaEscopo(e.target.value as BuscaEscopo)}
+                  aria-label="Escopo da busca"
+                >
+                  <option value="todos">Todos</option>
+                  <option value="aluno">Aluno</option>
+                  <option value="responsavel">Responsável</option>
+                  <option value="pagador">Pagador</option>
+                </select>
+              </label>
+              <label className="text-xs font-medium text-slate-600">
+                Ordenar por
+                <select
+                  className="select-with-chevron mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  value={ordemCampo}
+                  onChange={(e) => setOrdemCampo(e.target.value as OrdemListaCampo)}
+                  aria-label="Ordenar lista por"
+                >
+                  <option value="aluno">Aluno</option>
+                  <option value="data_pagamento">Data pagamento</option>
+                  <option value="valor_pago">Valor pago</option>
+                  <option value="vencimento">Vencimento</option>
+                </select>
+              </label>
+              <label className="text-xs font-medium text-slate-600">
+                Direção
+                <select
+                  className="select-with-chevron mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  value={ordemDirecao}
+                  onChange={(e) => setOrdemDirecao(e.target.value as OrdemListaDirecao)}
+                  aria-label="Direção da ordenação"
+                >
+                  <option value="asc">Crescente</option>
+                  <option value="desc">Decrescente</option>
+                </select>
+              </label>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {(abaFiltro || modalidadeFiltro || ativoFiltro !== 'ativos' || busca) && (
@@ -1824,34 +2883,27 @@ export function FluxoCaixaOperacionalPage() {
             >
               ›
             </span>
-            <span className="flex-1">Como ler a lista e atalhos</span>
+            <span className="flex-1">Guia rápido</span>
             <span className="text-xs font-normal text-slate-500 dark:text-slate-400">legenda</span>
           </summary>
           <div className="space-y-2 border-t border-slate-100 px-4 pb-4 pt-3 text-xs leading-relaxed text-slate-600 dark:border-slate-700 dark:text-slate-400">
             <p className="rounded-xl border border-amber-100 bg-amber-50/80 px-3 py-2 text-amber-950">
-              <strong>◆</strong> ao lado do valor de referência indica origem diferente do cadastro (passe o mouse).{' '}
-              <strong>Duplo clique</strong> em <em>Venc. (cad.)</em> ou <em>Valor ref.</em> quando houver cadastro vinculado para editar na tabela.
+              <strong>Atalho por aba</strong> já abre a aba escolhida e leva para a <strong>Lista do mês</strong>.
             </p>
             <p>
-              Linhas com <span className="rounded bg-amber-100 px-1 font-medium text-amber-900">borda âmbar</span> são alunos{' '}
-              <strong>sem pagamento registrado no mês</strong> do painel — use <strong>+ Pagamento</strong>.
+              <strong>Borda âmbar</strong>: sem pagamento no mês. <strong>Borda violeta</strong>: pagamento sem cadastro vinculado.
             </p>
             <p>
-              Linhas com <span className="rounded bg-violet-100 px-1 font-medium text-violet-900">borda violeta</span> têm pagamento mas{' '}
-              <strong>sem cadastro</strong> correspondente — use <strong>Cadastro</strong> para criar o vínculo.
-            </p>
-            <p>
-              A coluna <strong>Pendências</strong> descreve o que falta (cadastro ou pagamento do mês). Linhas com <strong>contorno rosado</strong>{' '}
-              ainda têm itens a resolver.
-            </p>
-            <p>
-              <kbd className="rounded border border-slate-200 bg-slate-50 px-1 dark:border-slate-600 dark:bg-slate-800">Esc</kbd> fecha os
-              formulários centrais sem salvar.
+              <strong>Duplo clique</strong> em Vencimento ou Valor ref. para edição rápida.
             </p>
           </div>
         </details>
 
-        <section className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900/80">
+        <section ref={listaMesRef} className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900/80">
+          <div className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 px-4 py-2 text-xs text-slate-700 backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-200">
+            Aba: <strong>{abaFiltro || 'Todas'}</strong> | Modalidade: <strong>{modalidadeFiltro || 'Todas'}</strong> | Busca:{' '}
+            <strong>{buscaDebounced || '—'}</strong> ({buscaEscopo}) | Linhas: <strong>{linhasParaLista.length}</strong>
+          </div>
           <div className="flex flex-col gap-3 border-b border-slate-100 bg-gradient-to-r from-slate-50/90 to-white px-4 py-4 dark:border-slate-700 dark:from-slate-900 dark:to-slate-900 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-base font-semibold text-slate-900 dark:text-slate-50">Lista do mês</h2>
@@ -1902,9 +2954,23 @@ export function FluxoCaixaOperacionalPage() {
                   const todasLinhasAba = grupoAba.modalidades.flatMap((m) => m.linhas);
                   const nAlunosAba = contarAlunosUnicos(todasLinhasAba);
                   const nMods = grupoAba.modalidades.length;
+                  const modalidadeAuto = nMods === 1 ? grupoAba.modalidades[0].modalidade : null;
+                  const modalidadeAberta = modalidadesAbertasPorAba[grupoAba.aba] ?? modalidadeAuto;
                   return (
                   <details
                     key={grupoAba.aba}
+                    open={abaDetalheAberta === grupoAba.aba}
+                    onToggle={(e) => {
+                      const opened = (e.currentTarget as HTMLDetailsElement).open;
+                      if (opened) {
+                        setAbaDetalheAberta(grupoAba.aba);
+                        if (nMods === 1) {
+                          setModalidadesAbertasPorAba((prev) => ({ ...prev, [grupoAba.aba]: modalidadeAuto }));
+                        }
+                      } else if (abaDetalheAberta === grupoAba.aba) {
+                        setAbaDetalheAberta(null);
+                      }
+                    }}
                     className="group rounded-2xl border border-slate-200/90 border-l-[6px] bg-white/90 shadow-sm open:shadow-md dark:border-slate-700 dark:bg-slate-900/80 [&_summary::-webkit-details-marker]:hidden"
                     style={{ borderLeftColor: chromeAba.tab }}
                   >
@@ -1937,6 +3003,14 @@ export function FluxoCaixaOperacionalPage() {
                         return (
                         <details
                           key={`${grupoAba.aba}\0${grupoMod.modalidade}`}
+                          open={modalidadeAberta === grupoMod.modalidade}
+                          onToggle={(e) => {
+                            const opened = (e.currentTarget as HTMLDetailsElement).open;
+                            setModalidadesAbertasPorAba((prev) => ({
+                              ...prev,
+                              [grupoAba.aba]: opened ? grupoMod.modalidade : null,
+                            }));
+                          }}
                           className="group/mod rounded-xl border border-slate-100 border-l-[5px] bg-slate-50/50 dark:border-slate-700 dark:bg-slate-950/40 [&_summary::-webkit-details-marker]:hidden"
                           style={{ borderLeftColor: chromeMod.tab }}
                         >
@@ -2081,6 +3155,20 @@ export function FluxoCaixaOperacionalPage() {
                 ? `Aba ${form.aba || '—'} · modalidade ${form.modalidade || '—'}. Os dados aparecem aqui no centro para não precisar rolar a página.`
                 : 'Preencha como na planilha. Campo “Valor referência” grava o valor oficial no cadastro.'}
             </p>
+            {alunoModalDestacarPendencias && editId ? (
+              <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/35 dark:text-amber-100">
+                <span className="font-semibold">Pendências no cadastro: </span>
+                campos com asterisco (*) ainda entram como pendência no Fluxo. Preencha os dados e use{' '}
+                <strong>Ignorar</strong> ao lado do campo quando não se aplicar — as caixas só passam a valer após{' '}
+                <strong>Salvar alterações</strong>.
+              </div>
+            ) : null}
+            {editId && !alunoModalDestacarPendencias ? (
+              <p className="mb-3 text-[11px] text-slate-500 dark:text-slate-400">
+                Marque <strong>Ignorar</strong> ao lado de um dado que não deve gerar pendência para este aluno e salve o
+                cadastro.
+              </p>
+            ) : null}
             <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
               <label className="text-xs text-slate-600">
                 Aba
@@ -2124,28 +3212,88 @@ export function FluxoCaixaOperacionalPage() {
                   onChange={(e) => setForm((p) => ({ ...p, alunoNome: e.target.value }))}
                 />
               </label>
-              <label className="text-xs text-slate-600">
-                WhatsApp
+              <div className="text-xs text-slate-600">
+                <div className="mb-0.5 flex items-center justify-between gap-2">
+                  <label htmlFor="fluxo-aluno-wpp" className="text-slate-600 dark:text-slate-300">
+                    {rotuloComAsteriscoPendencia(
+                      'WhatsApp',
+                      alunoModalDestacarPendencias && rotulosPendenciaNoModalCadastro.has('wpp'),
+                    )}
+                  </label>
+                  {editId ? (
+                    <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[11px] font-normal text-slate-600 dark:text-slate-400">
+                      <input
+                        type="checkbox"
+                        checked={ignorarChavesDraft.includes('wpp')}
+                        onChange={(e) => setIgnorarChaveMarcada('wpp', e.target.checked)}
+                        className="h-3.5 w-3.5 rounded border-slate-400 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      Ignorar
+                    </label>
+                  ) : null}
+                </div>
                 <input
-                  className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+                  id="fluxo-aluno-wpp"
+                  className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900"
                   value={form.wpp}
                   onChange={(e) => setForm((p) => ({ ...p, wpp: e.target.value }))}
+                  aria-invalid={alunoModalDestacarPendencias && rotulosPendenciaNoModalCadastro.has('wpp')}
                 />
-              </label>
-              <label className="text-xs text-slate-600 sm:col-span-2">
-                Responsáveis
+              </div>
+              <div className="text-xs text-slate-600 sm:col-span-2">
+                <div className="mb-0.5 flex items-center justify-between gap-2">
+                  <label htmlFor="fluxo-aluno-resp" className="text-slate-600 dark:text-slate-300">
+                    {rotuloComAsteriscoPendencia(
+                      'Responsáveis',
+                      alunoModalDestacarPendencias && rotulosPendenciaNoModalCadastro.has('responsaveis'),
+                    )}
+                  </label>
+                  {editId ? (
+                    <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[11px] font-normal text-slate-600 dark:text-slate-400">
+                      <input
+                        type="checkbox"
+                        checked={ignorarChavesDraft.includes('responsaveis')}
+                        onChange={(e) => setIgnorarChaveMarcada('responsaveis', e.target.checked)}
+                        className="h-3.5 w-3.5 rounded border-slate-400 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      Ignorar
+                    </label>
+                  ) : null}
+                </div>
                 <input
-                  className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+                  id="fluxo-aluno-resp"
+                  className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900"
                   value={form.responsaveis}
                   onChange={(e) => setForm((p) => ({ ...p, responsaveis: e.target.value }))}
+                  aria-invalid={alunoModalDestacarPendencias && rotulosPendenciaNoModalCadastro.has('responsaveis')}
                 />
-              </label>
-              <label className="text-xs text-slate-600">
-                Plano
+              </div>
+              <div className="text-xs text-slate-600">
+                <div className="mb-0.5 flex items-center justify-between gap-2">
+                  <span className="text-slate-600 dark:text-slate-300">
+                    {rotuloComAsteriscoPendencia(
+                      'Plano',
+                      alunoModalDestacarPendencias && rotulosPendenciaNoModalCadastro.has('plano'),
+                    )}
+                  </span>
+                  {editId ? (
+                    <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[11px] font-normal text-slate-600 dark:text-slate-400">
+                      <input
+                        type="checkbox"
+                        checked={ignorarChavesDraft.includes('plano')}
+                        onChange={(e) => setIgnorarChaveMarcada('plano', e.target.checked)}
+                        className="h-3.5 w-3.5 rounded border-slate-400 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      Ignorar
+                    </label>
+                  ) : null}
+                </div>
                 <select
-                  className="select-with-chevron mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+                  id="fluxo-aluno-plano"
+                  className="select-with-chevron mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900"
                   value={form.plano}
                   onChange={(e) => setForm((p) => ({ ...p, plano: e.target.value }))}
+                  aria-invalid={alunoModalDestacarPendencias && rotulosPendenciaNoModalCadastro.has('plano')}
                 >
                   <option value="">Selecionar</option>
                   {PLANO_OPTIONS.map((opt) => (
@@ -2157,7 +3305,7 @@ export function FluxoCaixaOperacionalPage() {
                     <option value={form.plano}>{form.plano}</option>
                   ) : null}
                 </select>
-              </label>
+              </div>
               <label className="text-xs text-slate-600">
                 Matrícula
                 <input
@@ -2166,34 +3314,94 @@ export function FluxoCaixaOperacionalPage() {
                   onChange={(e) => setForm((p) => ({ ...p, matricula: e.target.value }))}
                 />
               </label>
-              <label className="text-xs text-slate-600">
-                Vencimento (dia ou texto)
+              <div className="text-xs text-slate-600">
+                <div className="mb-0.5 flex items-center justify-between gap-2">
+                  <label htmlFor="fluxo-aluno-venc" className="text-slate-600 dark:text-slate-300">
+                    {rotuloComAsteriscoPendencia(
+                      'Vencimento (dia ou texto)',
+                      alunoModalDestacarPendencias && rotulosPendenciaNoModalCadastro.has('venc'),
+                    )}
+                  </label>
+                  {editId ? (
+                    <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[11px] font-normal text-slate-600 dark:text-slate-400">
+                      <input
+                        type="checkbox"
+                        checked={ignorarChavesDraft.includes('venc')}
+                        onChange={(e) => setIgnorarChaveMarcada('venc', e.target.checked)}
+                        className="h-3.5 w-3.5 rounded border-slate-400 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      Ignorar
+                    </label>
+                  ) : null}
+                </div>
                 <input
-                  className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+                  id="fluxo-aluno-venc"
+                  className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900"
                   value={form.venc}
                   onChange={(e) => setForm((p) => ({ ...p, venc: e.target.value }))}
+                  aria-invalid={alunoModalDestacarPendencias && rotulosPendenciaNoModalCadastro.has('venc')}
                 />
-              </label>
-              <label className="text-xs text-slate-600">
-                Valor referência (mensal)
+              </div>
+              <div className="text-xs text-slate-600">
+                <div className="mb-0.5 flex items-center justify-between gap-2">
+                  <label htmlFor="fluxo-aluno-valor" className="text-slate-600 dark:text-slate-300">
+                    {rotuloComAsteriscoPendencia(
+                      'Valor referência (mensal)',
+                      alunoModalDestacarPendencias && rotulosPendenciaNoModalCadastro.has('valorReferencia'),
+                    )}
+                  </label>
+                  {editId && !isPlanoBolsa(form.plano) ? (
+                    <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[11px] font-normal text-slate-600 dark:text-slate-400">
+                      <input
+                        type="checkbox"
+                        checked={ignorarChavesDraft.includes('valor_ref')}
+                        onChange={(e) => setIgnorarChaveMarcada('valor_ref', e.target.checked)}
+                        className="h-3.5 w-3.5 rounded border-slate-400 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      Ignorar
+                    </label>
+                  ) : null}
+                </div>
                 <input
-                  className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+                  id="fluxo-aluno-valor"
+                  className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900"
                   placeholder="R$ 0,00"
                   value={form.valorReferencia}
                   onChange={(e) => setForm((p) => ({ ...p, valorReferencia: e.target.value }))}
                   onFocus={(e) => setForm((p) => ({ ...p, valorReferencia: toEditableCurrency(e.target.value) }))}
                   onBlur={(e) => setForm((p) => ({ ...p, valorReferencia: toFormattedCurrency(e.target.value) }))}
                   inputMode="decimal"
+                  aria-invalid={alunoModalDestacarPendencias && rotulosPendenciaNoModalCadastro.has('valorReferencia')}
                 />
-              </label>
-              <label className="text-xs text-slate-600 sm:col-span-2">
-                Pagador PIX
+              </div>
+              <div className="text-xs text-slate-600 sm:col-span-2">
+                <div className="mb-0.5 flex items-center justify-between gap-2">
+                  <label htmlFor="fluxo-aluno-pix" className="text-slate-600 dark:text-slate-300">
+                    {rotuloComAsteriscoPendencia(
+                      'Pagador PIX',
+                      alunoModalDestacarPendencias && rotulosPendenciaNoModalCadastro.has('pagadorPix'),
+                    )}
+                  </label>
+                  {editId ? (
+                    <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[11px] font-normal text-slate-600 dark:text-slate-400">
+                      <input
+                        type="checkbox"
+                        checked={ignorarChavesDraft.includes('pagador_pix')}
+                        onChange={(e) => setIgnorarChaveMarcada('pagador_pix', e.target.checked)}
+                        className="h-3.5 w-3.5 rounded border-slate-400 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      Ignorar
+                    </label>
+                  ) : null}
+                </div>
                 <input
-                  className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+                  id="fluxo-aluno-pix"
+                  className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900"
                   value={form.pagadorPix}
                   onChange={(e) => setForm((p) => ({ ...p, pagadorPix: e.target.value }))}
+                  aria-invalid={alunoModalDestacarPendencias && rotulosPendenciaNoModalCadastro.has('pagadorPix')}
                 />
-              </label>
+              </div>
               <label className="text-xs text-slate-600 sm:col-span-3">
                 Observações
                 <input
@@ -2226,8 +3434,31 @@ export function FluxoCaixaOperacionalPage() {
                   }
                   const payload = toPayload(form);
                   alunoUpdateSourceRef.current = 'modal';
-                  if (editId) updateMut.mutate({ id: editId, payload });
-                  else createMut.mutate(payload);
+                  if (editId) {
+                    void (async () => {
+                      setIsSavingAlunoModal(true);
+                      try {
+                        await updateFluxoOperacionalAluno(editId, payload);
+                        await patchFluxoOperacionalAlunoPendenciasIgnoradas(editId, ignorarChavesDraft);
+                        showToast('Salvo — cadastro do aluno atualizado.', 'success');
+                        setForm(initialForm());
+                        setEditId(null);
+                        setAlunoModalOpen(false);
+                        setAlunoModalDestacarPendencias(false);
+                        setAlunoUiSnapshot(null);
+                        setIgnorarChavesDraft([]);
+                        await qc.invalidateQueries({ queryKey: ['fluxo-operacional-alunos'] });
+                        await qc.invalidateQueries({ queryKey: ['fluxo-operacional-resumo-multi'] });
+                        await qc.invalidateQueries({ queryKey: ['fluxo-operacional-auditoria'] });
+                      } catch (e) {
+                        showToast(e instanceof Error ? e.message : String(e), 'error');
+                      } finally {
+                        setIsSavingAlunoModal(false);
+                      }
+                    })();
+                    return;
+                  }
+                  createMut.mutate(payload);
                 }}
                 className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
               >
@@ -2432,6 +3663,161 @@ export function FluxoCaixaOperacionalPage() {
                 className="rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
               >
                 {pagEditId ? 'Salvar pagamento' : 'Adicionar pagamento'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {cobrancaModalAluno && cobrancaAlunoEfetivo ? (
+        <div
+          className="fixed inset-0 z-[85] flex items-center justify-center p-4 bg-slate-900/50 dark:bg-black/55"
+          role="presentation"
+          onClick={fecharModalCobranca}
+        >
+          <div
+            className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="fluxo-cobranca-modal-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              id="fluxo-cobranca-modal-title"
+              ref={cobrancaModalTitleRef}
+              tabIndex={-1}
+              className="text-base font-semibold text-slate-900 outline-none dark:text-slate-100"
+            >
+              Cobrança — {cobrancaAlunoEfetivo.aluno_nome}
+            </h2>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              {cobrancaAlunoEfetivo.aba} · {cobrancaAlunoEfetivo.modalidade}
+            </p>
+            <dl className="mt-3 grid gap-2 text-sm text-slate-700 dark:text-slate-200">
+              <div>
+                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Competência (mês atual)
+                </dt>
+                <dd>
+                  {String(painelOperacional.referencia.mes).padStart(2, '0')}/{painelOperacional.referencia.ano}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Responsáveis
+                </dt>
+                <dd>{responsaveisUnificado(cobrancaAlunoEfetivo)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  WhatsApp
+                </dt>
+                <dd>{String(cobrancaAlunoEfetivo.wpp ?? '').trim() || '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Pagador PIX
+                </dt>
+                <dd>{pagadorUnificado(cobrancaAlunoEfetivo)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Valor referência / exibido
+                </dt>
+                <dd>
+                  {isPlanoBolsa(cobrancaAlunoEfetivo.plano)
+                    ? 'Plano bolsa — sem mensalidade'
+                    : formatBrl(
+                        cobrancaAlunoEfetivo.valor_mensal_exibicao ?? cobrancaAlunoEfetivo.valor_referencia ?? null,
+                      )}
+                </dd>
+              </div>
+            </dl>
+
+            {isPlanoBolsa(cobrancaAlunoEfetivo.plano) ? (
+              <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                Este aluno está em <strong>bolsa</strong>: não há cobrança de mensalidade. Use o cadastro se precisar
+                ajustar dados de contato.
+              </p>
+            ) : null}
+
+            <section className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-700" aria-label="Histórico de contatos">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+                Últimas tentativas registradas
+              </h3>
+              {(cobrancaAlunoEfetivo.cobranca_tentativas?.length ?? 0) === 0 ? (
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Nenhuma tentativa registrada ainda.</p>
+              ) : (
+                <ul className="mt-2 max-h-36 space-y-2 overflow-y-auto text-xs">
+                  {[...(cobrancaAlunoEfetivo.cobranca_tentativas ?? [])]
+                    .slice()
+                    .reverse()
+                    .slice(0, 8)
+                    .map((t, i) => (
+                      <li
+                        key={`${t.registrado_em}-${i}`}
+                        className="rounded-lg border border-slate-200 bg-slate-50/80 px-2 py-1.5 dark:border-slate-600 dark:bg-slate-800/80"
+                      >
+                        <p className="font-medium text-slate-800 dark:text-slate-100">{t.nota}</p>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          {new Date(t.registrado_em).toLocaleString('pt-BR')}
+                        </p>
+                      </li>
+                    ))}
+                </ul>
+              )}
+              <label className="mt-2 block text-xs text-slate-600 dark:text-slate-300">
+                Registrar nova tentativa
+                <textarea
+                  className="mt-0.5 w-full min-h-[4rem] rounded border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900"
+                  value={cobrancaNotaDraft}
+                  onChange={(e) => setCobrancaNotaDraft(e.target.value)}
+                  placeholder="Ex.: enviei lembrete por WhatsApp; combinei pagamento para sexta."
+                  maxLength={500}
+                />
+              </label>
+              <button
+                type="button"
+                disabled={postCobrancaTentativaMut.isPending || !cobrancaNotaDraft.trim()}
+                onClick={() =>
+                  postCobrancaTentativaMut.mutate({
+                    alunoId: cobrancaAlunoEfetivo.id,
+                    nota: cobrancaNotaDraft.trim(),
+                  })
+                }
+                className="mt-2 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50 dark:bg-slate-200 dark:text-slate-900"
+              >
+                Registrar tentativa
+              </button>
+            </section>
+
+            <div className="mt-5 flex flex-wrap gap-2 border-t border-slate-100 pt-4 dark:border-slate-700">
+              <button
+                type="button"
+                disabled={isPlanoBolsa(cobrancaAlunoEfetivo.plano)}
+                title={
+                  isPlanoBolsa(cobrancaAlunoEfetivo.plano)
+                    ? 'Plano bolsa — não lançar mensalidade'
+                    : 'Abrir formulário de pagamento do mês'
+                }
+                onClick={() => lancarPagamentoDesdeCobranca(cobrancaAlunoEfetivo)}
+                className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Lançar pagamento
+              </button>
+              <button
+                type="button"
+                onClick={() => abrirCadastroDesdeCobranca(cobrancaAlunoEfetivo)}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+              >
+                Abrir cadastro
+              </button>
+              <button
+                type="button"
+                onClick={fecharModalCobranca}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+              >
+                Fechar
               </button>
             </div>
           </div>

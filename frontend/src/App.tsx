@@ -3,13 +3,12 @@ import { LayoutShell } from './app/LayoutShell';
 import { OverviewPage } from './pages/OverviewPage';
 import { ConciliacaoPage } from './pages/ConciliacaoPage';
 import { AtividadesPage } from './pages/AtividadesPage';
-import { AlunosPage } from './pages/AlunosPage';
 import { RelatoriosPage } from './pages/RelatoriosPage';
-import { PagamentosPlanilhaPage } from './pages/PagamentosPlanilhaPage';
 import { ValidacaoPagamentosDiariaPage } from './pages/ValidacaoPagamentosDiariaPage';
 import { CalendarioFinanceiroPage } from './pages/CalendarioFinanceiroPage';
 import { ControleCaixaPage } from './pages/ControleCaixaPage';
 import { FluxoCaixaOperacionalPage } from './pages/FluxoCaixaOperacionalPage';
+import { FluxoDivergenciasPage } from './pages/FluxoDivergenciasPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { RequireAuth } from './auth/RequireAuth';
 import { LoginPage } from './pages/LoginPage';
@@ -21,7 +20,7 @@ function HomeByRole() {
   const auth = useAuth();
   if (auth.loading) return null;
   if (!auth.userId) return <Navigate to="/login" replace />;
-  if (auth.role === 'secretaria') return <Navigate to="/alunos" replace />;
+  if (auth.role === 'secretaria') return <Navigate to="/fluxo-caixa" replace />;
   return <OverviewPage />;
 }
 
@@ -48,19 +47,14 @@ export default function App() {
               </RequireAuth>
             }
           />
+          <Route path="alunos" element={<Navigate to="/fluxo-caixa" replace />} />
+          <Route path="pagamentos-planilha" element={<Navigate to="/fluxo-caixa" replace />} />
+          <Route path="atividades" element={<Navigate to="/performance-atividades" replace />} />
           <Route
-            path="atividades"
+            path="performance-atividades"
             element={
-              <RequireAuth roles={['secretaria', 'admin']}>
+              <RequireAuth roles={['admin']}>
                 <AtividadesPage />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="alunos"
-            element={
-              <RequireAuth roles={['secretaria', 'admin']}>
-                <AlunosPage />
               </RequireAuth>
             }
           />
@@ -98,18 +92,18 @@ export default function App() {
             }
           />
           <Route
-            path="pagamentos-planilha"
+            path="validacao-pagamentos-diaria"
             element={
-              <RequireAuth roles={['secretaria', 'admin']}>
-                <PagamentosPlanilhaPage />
+              <RequireAuth roles={['admin']}>
+                <ValidacaoPagamentosDiariaPage />
               </RequireAuth>
             }
           />
           <Route
-            path="validacao-pagamentos-diaria"
+            path="fluxo-divergencias"
             element={
-              <RequireAuth roles={['secretaria', 'admin']}>
-                <ValidacaoPagamentosDiariaPage />
+              <RequireAuth roles={['admin']}>
+                <FluxoDivergenciasPage />
               </RequireAuth>
             }
           />

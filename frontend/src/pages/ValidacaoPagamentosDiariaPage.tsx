@@ -4,6 +4,7 @@ import { Topbar } from '../app/Topbar';
 import {
   createValidacaoVinculo,
   deleteValidacaoVinculo,
+  getFluxoOperacionalPagamentosMetaAno,
   getPagamentosPlanilhaTodasAbas,
   getValidacaoVinculos,
   getValidacaoPagamentosDiaria,
@@ -294,7 +295,12 @@ export function ValidacaoPagamentosDiariaPage() {
     async function loadAno() {
       const cy = ANO_PLANILHA_LISTA();
       try {
-        const r = await getPagamentosPlanilhaTodasAbas(cy);
+        let r;
+        try {
+          r = await getFluxoOperacionalPagamentosMetaAno(cy);
+        } catch {
+          r = await getPagamentosPlanilhaTodasAbas(cy);
+        }
         if (cancelled) return;
         setPagamentosAno(r.abas ?? []);
       } catch {

@@ -1,10 +1,12 @@
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { navSectionsForRole } from '../../app/navConfig';
+import type { AppRole } from '../../auth/types';
 
 type Props = {
   open: boolean;
   onClose: () => void;
-  role: 'admin' | 'secretaria' | null;
+  role: AppRole | null;
 };
 
 export function KeyboardShortcutsModal({ open, onClose, role }: Props) {
@@ -19,23 +21,7 @@ export function KeyboardShortcutsModal({ open, onClose, role }: Props) {
 
   if (!open) return null;
 
-  const linksSecretaria = [
-    { to: '/alunos', label: 'Alunos' },
-    { to: '/fluxo-caixa', label: 'Fluxo de caixa' },
-    { to: '/pagamentos-planilha', label: 'Pagamentos planilha' },
-    { to: '/validacao-pagamentos-diaria', label: 'Validação de pagamentos' },
-    { to: '/atividades', label: 'Atividades' },
-  ];
-  const linksAdmin = [
-    { to: '/', label: 'Visão geral' },
-    { to: '/conciliacao', label: 'Conciliação' },
-    { to: '/transacoes', label: 'Transações' },
-    { to: '/relatorios-ia', label: 'Relatórios IA' },
-    { to: '/controle-caixa', label: 'Controle de caixa' },
-    { to: '/calendario-financeiro', label: 'Calendário financeiro' },
-    ...linksSecretaria,
-  ];
-  const links = role === 'admin' ? linksAdmin : linksSecretaria;
+  const sections = navSectionsForRole(role);
 
   return (
     <div
@@ -58,16 +44,25 @@ export function KeyboardShortcutsModal({ open, onClose, role }: Props) {
           <kbd className="rounded border bg-slate-100 px-1.5 py-0.5 text-xs dark:border-slate-600 dark:bg-slate-800">Shift + /</kbd>) para abrir esta janela.{' '}
           <kbd className="rounded border bg-slate-100 px-1.5 py-0.5 text-xs dark:border-slate-600 dark:bg-slate-800">Esc</kbd> fecha.
         </p>
-        <ul className="mt-4 space-y-2 text-sm">
-          {links.map((l) => (
-            <li key={l.to}>
-              <Link
-                to={l.to}
-                className="font-medium text-indigo-700 hover:underline focus-visible:outline focus-visible:ring-2 focus-visible:ring-indigo-400 rounded dark:text-indigo-400"
-                onClick={onClose}
-              >
-                {l.label}
-              </Link>
+        <ul className="mt-4 space-y-3 text-sm">
+          {sections.map((section) => (
+            <li key={section.id}>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                {section.label}
+              </p>
+              <ul className="mt-1 space-y-1">
+                {section.items.map((item) => (
+                  <li key={item.path}>
+                    <Link
+                      to={item.path}
+                      className="font-medium text-indigo-700 hover:underline focus-visible:outline focus-visible:ring-2 focus-visible:ring-indigo-400 rounded dark:text-indigo-400"
+                      onClick={onClose}
+                    >
+                      {item.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
             </li>
           ))}
         </ul>

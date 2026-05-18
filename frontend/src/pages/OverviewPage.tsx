@@ -1,1047 +1,510 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { Topbar } from '../app/Topbar';
 import { KpiCard } from '../components/ui/KpiCard';
 import { MonthlyTrendChart } from '../components/charts/MonthlyTrendChart';
-import { ResumoMensalTable } from '../components/ui/ResumoMensalTable';
-import { MonthYearPicker } from '../components/ui/MonthYearPicker';
+import { BarChartAtividade } from '../components/charts/BarChartAtividade';
+import { ApiErrorPanel } from '../components/ui/ApiErrorPanel';
 import { useResumoMensal } from '../hooks/useResumoMensal';
 import { useMonthYear } from '../context/MonthYearContext';
-import { useFluxoCompleto } from '../hooks/useFluxoCompleto';
-import { useFontes } from '../hooks/useFontes';
-import { getTransacoesPorMes, type TransacaoItem } from '../services/backendApi';
-import type { ResumoMensalRow } from '../types/resumo';
+import {
+  getControleCaixa,
+  getFluxoOperacionalAlunos,
+  getFluxoOperacionalPagamentos,
+  getTransacoesPorMes,
+} from '../services/backendApi';
+import {
+  buildFechamentoAlerts,
+  computeFluxoOperacionalResumo,
+  controleToTrendPoint,
+  formatBrl,
+  formatDeltaBrl,
+  formatPct,
+  formatPctChange,
+  labelMesAno,
+  lastNMonths,
+  mesExtenso,
+  previousMonth,
+  resolveModalityLabel,
+  resumoToTrendPoint,
+} from '../logic/overviewDashboard';
+import { buildReceitaPorAbaModalidade } from '../fluxo/fluxoAbaHierarchy';
+import { SourceLegend } from '../components/overview/SourceLegend';
+import { OverviewSection } from '../components/overview/OverviewSection';
+import { AlertBanner } from '../components/overview/AlertBanner';
+import { OverviewChartShell, OVERVIEW_CHART_MIN_H } from '../components/overview/OverviewChartShell';
+import { ModalityRevenueDrilldownChart } from '../components/overview/ModalityRevenueDrilldownChart';
+import { ModalityRevenueLegend } from '../components/overview/ModalityRevenueLegend';
+import { BankReconciliationCard } from '../components/overview/BankReconciliationCard';
 
-const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL ?? '').trim();
-
-const MESES_CURTO = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-const MESES_EXTENSO = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-
-function formatMesAno(mes: number, ano: number): string {
-  return `${MESES_CURTO[mes - 1]}/${ano.toString().slice(-2)}`;
+function trendFromDelta(current: number | null, prev: number | null): 'up' | 'down' | 'neutral' {
+  if (current == null || prev == null) return 'neutral';
+  if (current > prev) return 'up';
+  if (current < prev) return 'down';
+  return 'neutral';
 }
 
-/** Nome da aba CONTROLE DE CAIXA para o mês selecionado (aba = mês seguinte; ex.: Março → aba ABRIL 26). */
-function nomeAbaPlanilha(mes: number, ano: number): string {
-  let mesAba = mes + 1;
-  let anoAba = ano;
-  if (mesAba > 12) {
-    mesAba = 1;
-    anoAba = ano + 1;
-  }
-  return `${MESES_EXTENSO[mesAba - 1].toUpperCase()} ${anoAba.toString().slice(-2)}`;
-}
+type QuickActionProps = {
+  to: string;
+  title: string;
+  description: string;
+  borderClass: string;
+  bgClass: string;
+  titleClass: string;
+};
 
-function variation(current: number | undefined, prev: number | undefined): number | undefined {
-  if (current == null || prev == null || prev === 0) return undefined;
-  return (current - prev) / prev;
-}
-
-function findRow(resumo: ResumoMensalRow[], mes: number, ano: number): ResumoMensalRow | null {
-  return resumo.find((r) => r.mes === mes && r.ano === ano) ?? null;
-}
-
-function previousMonth(mes: number, ano: number): { mes: number; ano: number } {
-  if (mes <= 1) return { mes: 12, ano: ano - 1 };
-  return { mes: mes - 1, ano };
-}
-
-/** Linhas da planilha que são totais gerais (ex.: Entrada total, Saída total, Lucro total). */
-function isLinhaTotalGeral(label: string): boolean {
-  const u = label.toUpperCase();
+function QuickActionCardColored({ to, title, description, borderClass, bgClass, titleClass }: QuickActionProps) {
   return (
-    u.includes('ENTRADA TOTAL') ||
-    u.includes('SAÍDA TOTAL') ||
-    u.includes('SAIDA TOTAL') ||
-    u.includes('LUCRO TOTAL') ||
-    u.includes('RESULTADO') ||
-    u === 'LUCRO' ||
-    u === 'TOTAL'
+    <Link
+      to={to}
+      className={`rounded-xl border p-4 shadow-sm transition hover:shadow-md focus-visible:outline focus-visible:ring-2 focus-visible:ring-indigo-400 ${borderClass} ${bgClass}`}
+    >
+      <h2 className={`text-sm font-semibold ${titleClass}`}>{title}</h2>
+      <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">{description}</p>
+    </Link>
   );
-}
-
-/** Classifica linha como ENTRADA (receita), SAÍDA (despesa), TOTAL (totais) ou OUTRO. */
-function tipoCategoria(label: string): 'entrada' | 'saida' | 'total' | 'outro' {
-  const u = label.toUpperCase();
-  if (u.includes('ENTRADA TOTAL') && !u.includes('SAÍDA') && !u.includes('SAIDA')) return 'total';
-  if (u.includes('SAÍDA TOTAL') || u.includes('SAIDA TOTAL')) return 'total';
-  if (u.includes('LUCRO TOTAL') || u === 'LUCRO' || (u.includes('RESULTADO') && u.length < 25)) return 'total';
-  if (u.includes('ENTRADA') && !u.includes('TOTAL') || u.includes('RECEITA') || u.includes('MENSALIDADE') || u.includes('PILATES') || u.includes('DANÇA') || u.includes('DANCA') || u.includes('TEATRO') || u.includes('YOGA') || u.includes('MENSALIDADE')) return 'entrada';
-  if (u.includes('SAÍDA') && !u.includes('TOTAL') || u.includes('SAIDA') && !u.includes('TOTAL') || u.includes('DESPESA') || u.includes('CUSTO') || u.includes('PAGAMENTO') || u.includes('SALÁRIO') || u.includes('SALARIO') || u.includes('IMPOSTO') || u.includes('FORNECEDOR')) return 'saida';
-  return 'outro';
-}
-
-/** Classifica um bloco (primeira linha = cabeçalho da coluna na planilha) como ENTRADA ou SAÍDA e retorna título. */
-function classificarBlocoPorCabecalho(primeiraLinhaLabel: string): { titulo: string; tipo: 'entrada' | 'saida' } {
-  const u = primeiraLinhaLabel.toUpperCase().trim().replace(/\s+/g, ' ');
-  if (u.includes('ENTRADAS PARCEIROS') || u.includes('ENTRADA PARCEIROS')) return { titulo: 'Entradas Parceiros', tipo: 'entrada' };
-  if (u.includes('ENTRADAS ALUGUEL') || u.includes('ALUGUEL') && u.includes('COWORKING') || (u.includes('ALUGUEL') && u.includes('ENTRADAS'))) return { titulo: 'Entradas Aluguel / Coworking', tipo: 'entrada' };
-  if (u.includes('TOTAL SAÍDAS') || u.includes('TOTAL SAIDAS')) return { titulo: 'Total Saídas (Parceiros)', tipo: 'saida' };
-  if (u.includes('GASTOS FIXOS')) return { titulo: 'Gastos Fixos', tipo: 'saida' };
-  if (u.includes('SAÍDAS ALUGUEL') || u.includes('SAIDAS ALUGUEL')) return { titulo: 'Saídas Aluguel', tipo: 'saida' };
-  if (u.includes('SAÍDA') || u.includes('SAIDA')) return { titulo: primeiraLinhaLabel.trim() || 'Saídas', tipo: 'saida' };
-  if (u.includes('ENTRADA') && !u.includes('TOTAL')) return { titulo: primeiraLinhaLabel.trim() || 'Entradas', tipo: 'entrada' };
-  return { titulo: primeiraLinhaLabel.trim() || 'Outros', tipo: 'saida' };
-}
-
-/** Verifica se o label é um cabeçalho de seção (Entradas Parceiros, Total Saídas, etc.). */
-function isCabecalhoSecao(label: string): boolean {
-  const u = label.toUpperCase().trim();
-  return (
-    u.includes('ENTRADAS PARCEIROS') || u.includes('ENTRADA PARCEIROS') ||
-    u.includes('ENTRADAS ALUGUEL') || (u.includes('ALUGUEL') && u.includes('COWORKING')) ||
-    u.includes('TOTAL SAÍDAS') || u.includes('TOTAL SAIDAS') ||
-    u.includes('GASTOS FIXOS') ||
-    u.includes('SAÍDAS ALUGUEL') || u.includes('SAIDAS ALUGUEL')
-  );
-}
-
-/** A partir de porColuna: cada coluna pode ter VÁRIOS blocos (ex.: H-I com Entradas Aluguel e depois Saídas Aluguel). */
-function blocosPorColuna(porColuna: { label: string; valor: string; valorNum?: number }[][]): {
-  entradas: { titulo: string; linhas: { label: string; valor: string; valorNum?: number }[] }[];
-  saidas: { titulo: string; linhas: { label: string; valor: string; valorNum?: number }[] }[];
-} {
-  const entradas: { titulo: string; linhas: { label: string; valor: string; valorNum?: number }[] }[] = [];
-  const saidas: { titulo: string; linhas: { label: string; valor: string; valorNum?: number }[] }[] = [];
-  for (const col of porColuna) {
-    if (col.length === 0) continue;
-    let blocoAtual: { titulo: string; tipo: 'entrada' | 'saida'; linhas: { label: string; valor: string; valorNum?: number }[] } | null = null;
-    const flush = () => {
-      if (blocoAtual && blocoAtual.linhas.length > 0) {
-        if (blocoAtual.tipo === 'entrada') entradas.push({ titulo: blocoAtual.titulo, linhas: blocoAtual.linhas });
-        else saidas.push({ titulo: blocoAtual.titulo, linhas: blocoAtual.linhas });
-      }
-      blocoAtual = null;
-    };
-    for (const linha of col) {
-      const label = (linha.label ?? '').trim();
-      if (!label) continue;
-      if (isLinhaTotalGeral(label)) {
-        flush();
-        continue;
-      }
-      if (isCabecalhoSecao(label)) {
-        flush();
-        const { titulo, tipo } = classificarBlocoPorCabecalho(label);
-        blocoAtual = { titulo, tipo, linhas: [] };
-        continue;
-      }
-      if (blocoAtual) blocoAtual.linhas.push(linha);
-    }
-    flush();
-  }
-  return { entradas, saidas };
 }
 
 export function OverviewPage() {
   const { monthYear } = useMonthYear();
-  const { resumoMensal, isLoading, error } = useResumoMensal();
-  const {
-    entradaTotal: planilhaEntrada,
-    saidaTotal: planilhaSaida,
-    lucroTotal: planilhaLucro,
-    linhas: planilhaLinhas,
-    porColuna: planilhaPorColuna,
-    isLoading: planilhaLoading,
-    error: planilhaError,
-    fallbackMessage: planilhaFallback,
-  } = useFluxoCompleto(monthYear.mes, monthYear.ano);
-  const { fontes, isLoading: fontesLoading } = useFontes();
+  const { mes, ano } = monthYear;
+  const prev = previousMonth(mes, ano);
+  const historyMonths = useMemo(() => lastNMonths(mes, ano, 6), [mes, ano]);
 
-  const [filtroModalidade, setFiltroModalidade] = useState('');
-  const [showDetalheEntradas, setShowDetalheEntradas] = useState(false);
-  const [showDetalheSaidas, setShowDetalheSaidas] = useState(false);
-  const [detalheEntradas, setDetalheEntradas] = useState<TransacaoItem[] | null>(null);
-  const [detalheSaidas, setDetalheSaidas] = useState<TransacaoItem[] | null>(null);
-  const [loadingDetalheEntradas, setLoadingDetalheEntradas] = useState(false);
-  const [loadingDetalheSaidas, setLoadingDetalheSaidas] = useState(false);
-  const [filtroPessoaEntradas, setFiltroPessoaEntradas] = useState('');
-  const [filtroPessoaSaidas, setFiltroPessoaSaidas] = useState('');
+  const { resumoMensal, isLoading: resumoLoading, error: resumoError } = useResumoMensal();
 
-  useEffect(() => {
-    if (!showDetalheEntradas) return;
-    let cancelled = false;
-    setLoadingDetalheEntradas(true);
-    getTransacoesPorMes(monthYear.mes, monthYear.ano, 'entrada')
-      .then((r) => {
-        if (!cancelled) setDetalheEntradas(r.itens);
-      })
-      .catch(() => {
-        if (!cancelled) setDetalheEntradas([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingDetalheEntradas(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [showDetalheEntradas, monthYear.mes, monthYear.ano]);
+  const controleQuery = useQuery({
+    queryKey: ['overview-controle-caixa', mes, ano],
+    queryFn: () => getControleCaixa(mes, ano),
+  });
 
-  useEffect(() => {
-    if (!showDetalheSaidas) return;
-    let cancelled = false;
-    setLoadingDetalheSaidas(true);
-    getTransacoesPorMes(monthYear.mes, monthYear.ano, 'saida')
-      .then((r) => {
-        if (!cancelled) setDetalheSaidas(r.itens);
-      })
-      .catch(() => {
-        if (!cancelled) setDetalheSaidas([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingDetalheSaidas(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [showDetalheSaidas, monthYear.mes, monthYear.ano]);
+  const controlePrevQuery = useQuery({
+    queryKey: ['overview-controle-caixa', prev.mes, prev.ano],
+    queryFn: () => getControleCaixa(prev.mes, prev.ano),
+  });
 
-  const detalheEntradasFiltradas = useMemo(() => {
-    const q = filtroPessoaEntradas.trim().toLowerCase();
-    if (!q || !detalheEntradas) return detalheEntradas ?? [];
-    return detalheEntradas.filter(
-      (r) =>
-        (r.pessoa || '').toLowerCase().includes(q) ||
-        (r.descricao || '').toLowerCase().includes(q)
-    );
-  }, [detalheEntradas, filtroPessoaEntradas]);
+  const controleHistoryQueries = useQueries({
+    queries: historyMonths.map(({ mes: m, ano: a }) => ({
+      queryKey: ['overview-controle-caixa', m, a],
+      queryFn: () => getControleCaixa(m, a),
+    })),
+  });
 
-  const detalheSaidasFiltradas = useMemo(() => {
-    const q = filtroPessoaSaidas.trim().toLowerCase();
-    if (!q || !detalheSaidas) return detalheSaidas ?? [];
-    return detalheSaidas.filter(
-      (r) =>
-        (r.pessoa || '').toLowerCase().includes(q) ||
-        (r.descricao || '').toLowerCase().includes(q)
-    );
-  }, [detalheSaidas, filtroPessoaSaidas]);
+  const fluxoAlunosQuery = useQuery({
+    queryKey: ['overview-fluxo-alunos'],
+    queryFn: () => getFluxoOperacionalAlunos({ ativo: true, limit: 2500 }),
+  });
 
-  const mesEmFoco = useMemo(
-    () => findRow(resumoMensal, monthYear.mes, monthYear.ano),
-    [resumoMensal, monthYear.mes, monthYear.ano]
-  );
-  const prev = previousMonth(monthYear.mes, monthYear.ano);
-  const mesAnterior = useMemo(
-    () => findRow(resumoMensal, prev.mes, prev.ano),
-    [resumoMensal, prev.mes, prev.ano]
-  );
+  const fluxoPagQuery = useQuery({
+    queryKey: ['overview-fluxo-pagamentos', mes, ano],
+    queryFn: () => getFluxoOperacionalPagamentos({ mes, ano, limit: 1000 }),
+  });
 
-  const temDadosSupabase = !!mesEmFoco && resumoMensal.length > 0;
-  const varEntradas = variation(mesEmFoco?.total_entradas, mesAnterior?.total_entradas);
-  const varSaidas = variation(mesEmFoco?.total_saidas, mesAnterior?.total_saidas);
-  const varSaldo = variation(mesEmFoco?.saldo_mes, mesAnterior?.saldo_mes);
+  const transacoesEntradaQuery = useQuery({
+    queryKey: ['overview-transacoes-entrada', mes, ano],
+    queryFn: () => getTransacoesPorMes(mes, ano, 'entrada'),
+  });
 
-  const trendData = useMemo(
+  const transacoesSaidaQuery = useQuery({
+    queryKey: ['overview-transacoes-saida', mes, ano],
+    queryFn: () => getTransacoesPorMes(mes, ano, 'saida'),
+  });
+
+  const controle = controleQuery.data;
+  const controlePrev = controlePrevQuery.data;
+
+  const entrada = controle?.totais.entradaTotal ?? null;
+  const saida = controle?.totais.saidaTotal ?? null;
+  const lucro = controle?.totais.lucroTotal ?? null;
+
+  const entradaPrev = controlePrev?.totais.entradaTotal ?? null;
+  const saidaPrev = controlePrev?.totais.saidaTotal ?? null;
+  const lucroPrev = controlePrev?.totais.lucroTotal ?? null;
+
+  const fluxoResumo = useMemo(() => {
+    const alunos = fluxoAlunosQuery.data?.itens ?? [];
+    const pagamentos = fluxoPagQuery.data?.itens ?? [];
+    return computeFluxoOperacionalResumo(alunos, pagamentos, mes, ano);
+  }, [fluxoAlunosQuery.data, fluxoPagQuery.data, mes, ano]);
+
+  const receitaDrilldown = useMemo(
     () =>
-      resumoMensal.map((row) => ({
-        label: formatMesAno(row.mes, row.ano),
-        totalEntradas: row.total_entradas,
-        totalSaidas: row.total_saidas,
-        saldoMes: row.saldo_mes,
-      })),
-    [resumoMensal]
+      buildReceitaPorAbaModalidade(
+        fluxoPagQuery.data?.itens ?? [],
+        mes,
+        ano,
+        resolveModalityLabel,
+      ),
+    [fluxoPagQuery.data?.itens, mes, ano],
+  );
+  const topAbaInsight = useMemo(() => {
+    const leader = [...receitaDrilldown.abas].sort((a, b) => b.value - a.value)[0];
+    if (!leader || leader.pctMes <= 0) return null;
+    return `${leader.aba} concentra ${formatPct(leader.pctMes)} das mensalidades recebidas no mês.`;
+  }, [receitaDrilldown.abas]);
+
+  const somaExtratoEntradas = useMemo(() => {
+    const itens = transacoesEntradaQuery.data?.itens ?? [];
+    return itens.reduce((acc, r) => acc + Number(r.valor || 0), 0);
+  }, [transacoesEntradaQuery.data]);
+
+  const somaExtratoSaidas = useMemo(() => {
+    const itens = transacoesSaidaQuery.data?.itens ?? [];
+    return itens.reduce((acc, r) => acc + Number(r.valor || 0), 0);
+  }, [transacoesSaidaQuery.data]);
+
+  const diffExtratoEntradas =
+    entrada != null && transacoesEntradaQuery.isSuccess ? entrada - somaExtratoEntradas : null;
+  const diffExtratoSaidas =
+    saida != null && transacoesSaidaQuery.isSuccess ? saida - somaExtratoSaidas : null;
+
+  const fechamentoAlerts = useMemo(
+    () =>
+      buildFechamentoAlerts({
+        lucro,
+        lucroPrev,
+        entrada,
+        entradaPrev,
+        saida,
+        saidaPrev,
+      }),
+    [lucro, lucroPrev, entrada, entradaPrev, saida, saidaPrev],
   );
 
-  const linhasPorModalidade = useMemo(() => {
-    const lista = (planilhaLinhas ?? []).filter(
-      (l) => l.label && !isLinhaTotalGeral(l.label) && (l.valorNum != null || (l.valor && String(l.valor).trim()))
-    );
-    const filtro = filtroModalidade.trim().toLowerCase();
-    if (!filtro) return lista;
-    return lista.filter((l) => l.label.toLowerCase().includes(filtro));
-  }, [planilhaLinhas, filtroModalidade]);
+  const controleHistoryComplete = controleHistoryQueries.every((q) => q.isSuccess && q.data != null);
 
-  const linhasEntradas = useMemo(
-    () => (planilhaLinhas ?? []).filter((l) => l.label && tipoCategoria(l.label) === 'entrada' && (l.valorNum != null || (l.valor && String(l.valor).trim()))),
-    [planilhaLinhas]
-  );
-  const linhasSaidas = useMemo(
-    () => (planilhaLinhas ?? []).filter((l) => l.label && tipoCategoria(l.label) === 'saida' && (l.valorNum != null || (l.valor && String(l.valor).trim()))),
-    [planilhaLinhas]
-  );
-  const linhasTotais = useMemo(
-    () => (planilhaLinhas ?? []).filter((l) => l.label && tipoCategoria(l.label) === 'total' && (l.valorNum != null || (l.valor && String(l.valor).trim()))),
-    [planilhaLinhas]
-  );
-
-  const planilhaPorSecao = useMemo(() => {
-    if (planilhaPorColuna && planilhaPorColuna.length > 0) {
-      return blocosPorColuna(planilhaPorColuna);
+  const { trendData, trendUsesExtrato } = useMemo(() => {
+    if (controleHistoryComplete) {
+      return {
+        trendData: historyMonths.map((ma, i) =>
+          controleToTrendPoint(ma.mes, ma.ano, controleHistoryQueries[i].data),
+        ),
+        trendUsesExtrato: false,
+      };
     }
-    return { entradas: [], saidas: [] };
-  }, [planilhaPorColuna]);
+    const byKey = new Map(resumoMensal.map((r) => [`${r.ano}-${r.mes}`, r]));
+    const fromResumo = historyMonths
+      .map((ma) => byKey.get(`${ma.ano}-${ma.mes}`))
+      .filter((r): r is NonNullable<typeof r> => r != null)
+      .map(resumoToTrendPoint);
+    return { trendData: fromResumo, trendUsesExtrato: true };
+  }, [controleHistoryComplete, historyMonths, controleHistoryQueries, resumoMensal]);
 
-  const mesRealExtenso = `${MESES_EXTENSO[monthYear.mes - 1]}/${monthYear.ano}`;
-  const abaPlanilha = nomeAbaPlanilha(monthYear.mes, monthYear.ano);
+  const trendLoading =
+    controleHistoryQueries.some((q) => q.isLoading) || (trendUsesExtrato && resumoLoading);
 
-  const somaListaEntradas = useMemo(
-    () => (detalheEntradas ?? []).reduce((acc, r) => acc + Number(r.valor), 0),
-    [detalheEntradas]
+  const lucroBarData = useMemo(
+    () => trendData.map((row) => ({ name: row.label, value: row.saldoMes })),
+    [trendData],
   );
-  const somaListaSaidas = useMemo(
-    () => (detalheSaidas ?? []).reduce((acc, r) => acc + Number(r.valor), 0),
-    [detalheSaidas]
-  );
-  const totalResumoEntradas = mesEmFoco?.total_entradas ?? 0;
-  const totalResumoSaidas = mesEmFoco?.total_saidas ?? 0;
-  const epsilon = 0.02;
-  const entradasConferem = Math.abs(totalResumoEntradas - somaListaEntradas) <= epsilon;
-  const saidasConferem = Math.abs(totalResumoSaidas - somaListaSaidas) <= epsilon;
-  const podeConferirEntradas = detalheEntradas !== null;
-  const podeConferirSaidas = detalheSaidas !== null;
 
-  const subtitulo = temDadosSupabase
-    ? `Mês: ${formatMesAno(monthYear.mes, monthYear.ano)}`
-    : resumoMensal.length > 0
-      ? `Nenhum dado Supabase para ${formatMesAno(monthYear.mes, monthYear.ano)}`
-      : 'Sem dados ainda';
+  const selectedMonthLabel = labelMesAno(mes, ano);
+
+  const kpiLoading = controleQuery.isLoading || controlePrevQuery.isLoading;
+  const fluxoLoading = fluxoAlunosQuery.isLoading || fluxoPagQuery.isLoading;
+
+  const periodoLabel = mesExtenso(mes, ano);
+  const prevLabel = mesExtenso(prev.mes, prev.ano);
+  const relatorioHref = `/relatorios-ia?tipo=mensal_operacional&mes=${mes}&ano=${ano}`;
+
+  const saudavel =
+    lucro != null && lucroPrev != null ? lucro > 0 && lucro >= lucroPrev : lucro != null && lucro > 0;
+
+  const hasOperacaoItens =
+    fluxoResumo.semPagamentoNoMes > 0 ||
+    fluxoResumo.pendenciasCadastro > 0 ||
+    fluxoResumo.vencimentoHoje > 0;
 
   return (
-    <div className="p-6 space-y-8 min-h-0">
-      <Topbar title="Visão geral financeira" subtitle={subtitulo} />
+    <div className="p-6 space-y-10 min-h-0 max-w-7xl mx-auto">
+      <Topbar
+        title="Visão geral"
+        subtitle={periodoLabel}
+        childrenRight={
+          <Link
+            to={relatorioHref}
+            className="rounded-lg border border-rose-300 bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 dark:border-rose-700 dark:bg-rose-700 dark:hover:bg-rose-600"
+          >
+            Relatório IA do mês
+          </Link>
+        }
+      />
 
-      <section className="flex justify-end">
-        <Link
-          to={`/relatorios-ia?tipo=mensal_operacional&mes=${monthYear.mes}&ano=${monthYear.ano}`}
-          className="rounded-lg border border-rose-300 bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700"
-        >
-          Relatório do mês
-        </Link>
-      </section>
+      <SourceLegend />
 
-      <section aria-label="Ações rápidas do mês" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Link
-          to="/conciliacao"
-          className="rounded-xl border border-amber-200 bg-amber-50/90 p-4 shadow-sm transition hover:border-amber-300 hover:bg-amber-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-amber-400 dark:border-amber-800/50 dark:bg-amber-950/35 dark:hover:border-amber-700 dark:hover:bg-amber-950/50"
-        >
-          <h2 className="text-sm font-semibold text-amber-950 dark:text-amber-100">Conciliação</h2>
-          <p className="mt-1 text-xs text-amber-900/90 dark:text-amber-200/90">Vencimentos na planilha × pagamentos e conferência no banco.</p>
-        </Link>
-        <Link
-          to="/validacao-pagamentos-diaria"
-          className="rounded-xl border border-emerald-200 bg-emerald-50/90 p-4 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-emerald-400 dark:border-emerald-800/50 dark:bg-emerald-950/35 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/50"
-        >
-          <h2 className="text-sm font-semibold text-emerald-950 dark:text-emerald-100">Validação de pagamentos</h2>
-          <p className="mt-1 text-xs text-emerald-900/90 dark:text-emerald-200/90">Conferir lançamentos do dia e vínculos planilha × extrato.</p>
-        </Link>
-        <Link
-          to="/fluxo-caixa"
-          className="rounded-xl border border-indigo-200 bg-indigo-50/90 p-4 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-indigo-400 dark:border-indigo-800/50 dark:bg-indigo-950/35 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/50"
-        >
-          <h2 className="text-sm font-semibold text-indigo-950 dark:text-indigo-100">Fluxo operacional</h2>
-          <p className="mt-1 text-xs text-indigo-900/90 dark:text-indigo-200/90">Cadastro de alunos, valores de referência e pagamentos no sistema.</p>
-        </Link>
-        <Link
-          to="/transacoes"
-          className="rounded-xl border border-rose-200 bg-rose-50/90 p-4 shadow-sm transition hover:border-rose-300 hover:bg-rose-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-rose-400 dark:border-rose-800/50 dark:bg-rose-950/35 dark:hover:border-rose-700 dark:hover:bg-rose-950/50"
-        >
-          <h2 className="text-sm font-semibold text-rose-950 dark:text-rose-100">Transações</h2>
-          <p className="mt-1 text-xs text-rose-900/90 dark:text-rose-200/90">Entradas e saídas unificadas com filtros, resumo diário e métodos.</p>
-        </Link>
-      </section>
-
-      {error && (
-        <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-800">
-          Não foi possível carregar os dados do Supabase. Verifique o .env e tente novamente.
-        </div>
+      {resumoError && trendUsesExtrato && (
+        <ApiErrorPanel
+          message="Não foi possível carregar o histórico pelo extrato."
+          technical={resumoError.message}
+        />
       )}
 
-      {/* Status das fontes */}
-      {BACKEND_URL && (
-        <section className="bg-white dark:bg-slate-900 rounded-xl shadow-sm p-4 border border-transparent dark:border-slate-700">
-          <h2 className="text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Status das fontes de dados</h2>
-          {fontesLoading ? (
-            <p className="text-sm text-gray-500 dark:text-slate-400">Verificando Supabase e planilhas…</p>
-          ) : fontes ? (
-            <div className="grid gap-3 sm:grid-cols-3 text-sm">
-              <div className={`rounded-lg border p-3 ${fontes.supabase.ok ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'}`}>
-                <div className="font-medium text-gray-800 dark:text-slate-200">Supabase</div>
-                <div className="text-gray-600 dark:text-slate-400">{fontes.supabase.papel}</div>
-                <div className="mt-1 font-medium">{fontes.supabase.ok ? '✓ Conectado' : '✗ Indisponível'}</div>
-              </div>
-              <div className={`rounded-lg border p-3 ${fontes.planilha1.ok ? 'border-green-200 bg-green-50' : fontes.planilha1.configurado ? 'border-amber-200 bg-amber-50' : 'border-gray-200 dark:border-slate-700 bg-gray-50'}`}>
-                <div className="font-medium text-gray-800 dark:text-slate-200">{fontes.planilha1.nome}</div>
-                <div className="text-gray-600 dark:text-slate-400">{fontes.planilha1.papel}</div>
-                <div className="mt-1 font-medium">{fontes.planilha1.ok ? '✓ Dados OK' : fontes.planilha1.configurado ? `✗ ${fontes.planilha1.erro || 'Erro'}` : '— Não configurado'}</div>
-              </div>
-              <div className={`rounded-lg border p-3 ${fontes.planilha2.ok ? 'border-green-200 bg-green-50' : fontes.planilha2.configurado ? 'border-amber-200 bg-amber-50' : 'border-gray-200 dark:border-slate-700 bg-gray-50'}`}>
-                <div className="font-medium text-gray-800 dark:text-slate-200">{fontes.planilha2.nome}</div>
-                <div className="text-gray-600 dark:text-slate-400">{fontes.planilha2.papel}</div>
-                <div className="mt-1 font-medium">{fontes.planilha2.ok ? '✓ Dados OK' : fontes.planilha2.configurado ? `✗ ${fontes.planilha2.erro || 'Erro'}` : '— Não configurado'}</div>
-              </div>
-            </div>
-          ) : null}
-        </section>
+      {controleQuery.error && (
+        <ApiErrorPanel
+          message="Não foi possível carregar o fechamento deste mês. Abra o Controle de caixa para conferir os números."
+          technical={
+            controleQuery.error instanceof Error ? controleQuery.error.message : String(controleQuery.error)
+          }
+        />
       )}
 
-      {/* ========== SEÇÃO 1: SÓ PLANILHA (CONTROLE DE CAIXA) ========== */}
-      <section className="bg-white dark:bg-slate-900 rounded-xl shadow-md border border-slate-200 dark:border-slate-700 overflow-hidden">
-        <div className="bg-indigo-50 border-b border-indigo-100 px-4 py-3 flex flex-wrap items-center justify-between gap-3 dark:bg-indigo-950/50 dark:border-indigo-900/50">
+      {/* Hero — fechamento */}
+      <section className="rounded-xl border border-indigo-200 bg-gradient-to-br from-indigo-50/80 to-white p-5 shadow-sm dark:border-indigo-900/50 dark:from-indigo-950/30 dark:to-slate-900">
+        <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          O negócio está saudável em {periodoLabel}?
+        </p>
+        <div className="mt-3 flex flex-wrap items-end gap-6">
           <div>
-            <h2 className="text-lg font-semibold text-indigo-900 dark:text-indigo-100">Controle financeiro – só pela planilha</h2>
-            <p className="text-sm text-indigo-700 dark:text-indigo-200 mt-0.5">
-              Planilha <strong>CONTROLE DE CAIXA</strong>. Na planilha, a <strong>aba do mês seguinte</strong> contém o fechamento do mês selecionado.
+            <p className="text-xs text-slate-500 dark:text-slate-400">Lucro do fechamento</p>
+            <p className="text-3xl font-bold text-indigo-600 dark:text-indigo-400">
+              {kpiLoading ? '…' : formatBrl(lucro)}
             </p>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="text-sm font-medium text-indigo-800 dark:text-indigo-200">Mês:</span>
-            <MonthYearPicker />
-          </div>
-        </div>
-        <div className="p-4">
-          <div className="mb-4 p-4 bg-indigo-100/80 border border-indigo-200 rounded-xl dark:bg-indigo-950/40 dark:border-indigo-800/50">
-            <p className="text-sm font-semibold text-indigo-900 dark:text-indigo-100">
-              Período exibido: <span className="underline">{mesRealExtenso}</span>
-            </p>
-            <p className="text-sm text-indigo-800 dark:text-indigo-200 mt-1">
-              Na planilha CONTROLE DE CAIXA estes dados estão na aba <strong>“{abaPlanilha}”</strong>. Ou seja: ao selecionar <strong>{mesRealExtenso}</strong>, você vê o fechamento desse mês (aba = mês seguinte).
-            </p>
-          </div>
-          {planilhaFallback && (
-            <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
-              {planilhaFallback}
-            </div>
-          )}
-          {planilhaError && !planilhaFallback && (
-            <p className="text-amber-600 text-sm mb-3">{planilhaError}</p>
-          )}
-          <div className="grid gap-4 md:grid-cols-3">
-            <KpiCard
-              label="Entrada total (planilha)"
-              value={planilhaEntrada != null ? planilhaEntrada.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }) : '–'}
-              accentColor="primary"
-              isLoading={planilhaLoading}
-            />
-            <KpiCard
-              label="Saída total (planilha)"
-              value={planilhaSaida != null ? planilhaSaida.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }) : '–'}
-              accentColor="danger"
-              isLoading={planilhaLoading}
-            />
-            <KpiCard
-              label="Lucro total (planilha)"
-              value={planilhaLucro != null ? planilhaLucro.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }) : '–'}
-              accentColor="success"
-              isLoading={planilhaLoading}
-            />
-          </div>
-          <p className="mt-2 text-xs text-indigo-600 dark:text-indigo-300">
-            O <strong>Lucro total</strong> exibido é o valor da célula <strong>LUCRO TOTAL</strong> da planilha (fechamento). Se houver mais de um lucro na aba, usamos o último.
-          </p>
-
-          {/* ========== ENTRADAS (azul) e SAÍDAS (amarelo) – por categoria/modalidade ========== */}
-          {((planilhaPorSecao.entradas.length > 0 || planilhaPorSecao.saidas.length > 0) || (linhasEntradas.length > 0 || linhasSaidas.length > 0)) && (planilhaLinhas?.length ?? 0) > 0 && (
-            <div className="mt-8 space-y-8">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 border-b border-gray-200 dark:border-slate-700 pb-2">Entradas e saídas por categoria (como na planilha)</h3>
-
-              {(planilhaPorSecao.entradas.length > 0 || linhasEntradas.length > 0) && (
-                <div className="rounded-xl border-2 border-blue-200 bg-blue-50/50 overflow-hidden shadow-sm">
-                  <div className="bg-blue-600 px-4 py-3">
-                    <h4 className="text-base font-semibold text-white flex items-center gap-2">
-                      <span className="w-3 h-3 rounded-full bg-white/90" /> Entradas
-                    </h4>
-                    <p className="text-blue-100 text-sm mt-0.5">Receitas por categoria e modalidade (Parceiros, Aluguel/Coworking)</p>
-                  </div>
-                  <div className="p-4 space-y-6">
-                    {planilhaPorSecao.entradas.length > 0 ? (
-                      planilhaPorSecao.entradas.map((sec, idx) => {
-                        const totalSec = sec.linhas.reduce((acc, l) => acc + (l.valorNum ?? 0), 0);
-                        return (
-                          <div key={idx} className="bg-white dark:bg-slate-900 rounded-lg border border-blue-200 dark:border-blue-800/50 overflow-hidden">
-                            <div className="bg-blue-100 px-3 py-2 border-b border-blue-200">
-                              <span className="text-sm font-semibold text-blue-900">{sec.titulo}</span>
-                            </div>
-                            <table className="w-full text-sm">
-                              <thead className="bg-blue-50">
-                                <tr>
-                                  <th className="text-left py-2.5 px-3 font-medium text-blue-900">Modalidade / Descrição</th>
-                                  <th className="text-right py-2.5 px-3 font-medium text-blue-900 w-32">Valor</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {sec.linhas.map((l, i) => (
-                                  <tr key={i} className="border-t border-blue-100 hover:bg-blue-50/50">
-                                    <td className="py-2 px-3 text-gray-800 dark:text-slate-200">{l.label}</td>
-                                    <td className="py-2 px-3 text-right font-medium text-blue-800 tabular-nums">
-                                      {l.valorNum != null ? l.valorNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : l.valor ?? '–'}
-                                    </td>
-                                  </tr>
-                                ))}
-                                <tr className="border-t border-blue-200 bg-blue-50/80">
-                                  <td className="py-2.5 px-3 text-blue-900 font-semibold">Total {sec.titulo}</td>
-                                  <td className="py-2.5 px-3 text-right font-semibold text-blue-900 tabular-nums">
-                                    {totalSec.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <div className="bg-white dark:bg-slate-900 rounded-lg border border-blue-200 dark:border-blue-800/50 overflow-hidden">
-                        <div className="bg-blue-100 px-3 py-2 border-b border-blue-200">
-                          <span className="text-sm font-semibold text-blue-900">Entradas (categorias)</span>
-                        </div>
-                        <table className="w-full text-sm">
-                          <thead className="bg-blue-50">
-                            <tr>
-                              <th className="text-left py-2.5 px-3 font-medium text-blue-900">Modalidade / Descrição</th>
-                              <th className="text-right py-2.5 px-3 font-medium text-blue-900 w-32">Valor</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(() => {
-                              const totalFallback = linhasEntradas.reduce((acc, l) => acc + (l.valorNum ?? 0), 0);
-                              return (
-                                <>
-                                  {linhasEntradas.map((l, i) => (
-                                    <tr key={i} className="border-t border-blue-100 hover:bg-blue-50/50">
-                                      <td className="py-2 px-3 text-gray-800 dark:text-slate-200">{l.label}</td>
-                                      <td className="py-2 px-3 text-right font-medium text-blue-800 tabular-nums">
-                                        {l.valorNum != null ? l.valorNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : l.valor ?? '–'}
-                                      </td>
-                                    </tr>
-                                  ))}
-                                  <tr className="border-t border-blue-200 bg-blue-50/80">
-                                    <td className="py-2.5 px-3 text-blue-900 font-semibold">Total entradas</td>
-                                    <td className="py-2.5 px-3 text-right font-semibold text-blue-900 tabular-nums">
-                                      {totalFallback.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                    </td>
-                                  </tr>
-                                </>
-                              );
-                            })()}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {(planilhaPorSecao.saidas.length > 0 || linhasSaidas.length > 0) && (
-                <div className="rounded-xl border-2 border-amber-300 bg-amber-50/50 overflow-hidden shadow-sm">
-                  <div className="bg-amber-600 px-4 py-3">
-                    <h4 className="text-base font-semibold text-white flex items-center gap-2">
-                      <span className="w-3 h-3 rounded-full bg-white/90" /> Saídas
-                    </h4>
-                    <p className="text-amber-100 text-sm mt-0.5">Despesas por categoria (Parceiros, Gastos Fixos, Aluguel)</p>
-                  </div>
-                  <div className="p-4 space-y-6">
-                    {planilhaPorSecao.saidas.length > 0 ? (
-                      planilhaPorSecao.saidas.map((sec, idx) => {
-                        const totalSec = sec.linhas.reduce((acc, l) => acc + (l.valorNum ?? 0), 0);
-                        return (
-                          <div key={idx} className="bg-white dark:bg-slate-900 rounded-lg border border-amber-200 dark:border-amber-800/50 overflow-hidden">
-                            <div className="bg-amber-100 px-3 py-2 border-b border-amber-200">
-                              <span className="text-sm font-semibold text-amber-900">{sec.titulo}</span>
-                            </div>
-                            <table className="w-full text-sm">
-                              <thead className="bg-amber-50">
-                                <tr>
-                                  <th className="text-left py-2.5 px-3 font-medium text-amber-900">Categoria / Descrição</th>
-                                  <th className="text-right py-2.5 px-3 font-medium text-amber-900 w-32">Valor</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {sec.linhas.map((l, i) => (
-                                  <tr key={i} className="border-t border-amber-100 hover:bg-amber-50/50">
-                                    <td className="py-2 px-3 text-gray-800 dark:text-slate-200">{l.label}</td>
-                                    <td className="py-2 px-3 text-right font-medium text-amber-800 tabular-nums">
-                                      {l.valorNum != null ? l.valorNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : l.valor ?? '–'}
-                                    </td>
-                                  </tr>
-                                ))}
-                                <tr className="border-t border-amber-200 bg-amber-50/80">
-                                  <td className="py-2.5 px-3 text-amber-900 font-semibold">Total {sec.titulo}</td>
-                                  <td className="py-2.5 px-3 text-right font-semibold text-amber-900 tabular-nums">
-                                    {totalSec.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <div className="bg-white dark:bg-slate-900 rounded-lg border border-amber-200 dark:border-amber-800/50 overflow-hidden">
-                        <div className="bg-amber-100 px-3 py-2 border-b border-amber-200">
-                          <span className="text-sm font-semibold text-amber-900">Saídas (categorias)</span>
-                        </div>
-                        <table className="w-full text-sm">
-                          <thead className="bg-amber-50">
-                            <tr>
-                              <th className="text-left py-2.5 px-3 font-medium text-amber-900">Categoria / Descrição</th>
-                              <th className="text-right py-2.5 px-3 font-medium text-amber-900 w-32">Valor</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(() => {
-                              const totalFallback = linhasSaidas.reduce((acc, l) => acc + (l.valorNum ?? 0), 0);
-                              return (
-                                <>
-                                  {linhasSaidas.map((l, i) => (
-                                    <tr key={i} className="border-t border-amber-100 hover:bg-amber-50/50">
-                                      <td className="py-2 px-3 text-gray-800 dark:text-slate-200">{l.label}</td>
-                                      <td className="py-2 px-3 text-right font-medium text-amber-800 tabular-nums">
-                                        {l.valorNum != null ? l.valorNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : l.valor ?? '–'}
-                                      </td>
-                                    </tr>
-                                  ))}
-                                  <tr className="border-t border-amber-200 bg-amber-50/80">
-                                    <td className="py-2.5 px-3 text-amber-900 font-semibold">Total saídas</td>
-                                    <td className="py-2.5 px-3 text-right font-semibold text-amber-900 tabular-nums">
-                                      {totalFallback.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                    </td>
-                                  </tr>
-                                </>
-                              );
-                            })()}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Totais gerais: Entrada total (verde), Saída total (vermelho), Lucro total (neutro) – nunca misturar saída com entrada */}
-              {linhasTotais.length > 0 && (
-                <div className="rounded-xl border-2 border-slate-200 dark:border-slate-600 overflow-hidden">
-                  <div className="bg-slate-700 px-4 py-3 dark:bg-slate-800">
-                    <h4 className="text-base font-semibold text-white">Resumo – totais da planilha</h4>
-                    <p className="text-slate-300 text-xs mt-0.5">Entrada total = receitas. Saída total = despesas. Lucro = diferença.</p>
-                  </div>
-                  <div className="p-0">
-                    <table className="w-full text-sm">
-                      <tbody>
-                        {linhasTotais.map((l, i) => {
-                          const u = (l.label ?? '').toUpperCase();
-                          const isEntradaTotal = u.includes('ENTRADA TOTAL') && !u.includes('SAÍDA') && !u.includes('SAIDA');
-                          const isSaidaTotal = u.includes('SAÍDA TOTAL') || u.includes('SAIDA TOTAL');
-                          const isLucro = u.includes('LUCRO') || u.includes('RESULTADO');
-                          const rowBg = isEntradaTotal
-                            ? 'bg-emerald-50 dark:bg-emerald-950/40'
-                            : isSaidaTotal
-                              ? 'bg-rose-50 dark:bg-rose-950/35'
-                              : isLucro
-                                ? 'bg-amber-50 dark:bg-amber-950/30'
-                                : 'bg-slate-50 dark:bg-slate-800/50';
-                          const labelColor = isEntradaTotal
-                            ? 'text-emerald-900 dark:text-emerald-200 font-semibold'
-                            : isSaidaTotal
-                              ? 'text-rose-900 dark:text-rose-200 font-semibold'
-                              : 'text-slate-800 dark:text-slate-200 font-medium';
-                          const valorColor = isEntradaTotal
-                            ? 'text-emerald-800 dark:text-emerald-300'
-                            : isSaidaTotal
-                              ? 'text-rose-800 dark:text-rose-300'
-                              : 'text-slate-900 dark:text-slate-100';
-                          return (
-                            <tr key={i} className={`border-t border-slate-200 dark:border-slate-700 ${rowBg}`}>
-                              <td className={`py-3 px-4 ${labelColor}`}>
-                                {isEntradaTotal ? 'Entrada total' : isSaidaTotal ? 'Saída total' : l.label}
-                              </td>
-                              <td className={`py-3 px-4 text-right font-semibold tabular-nums ${valorColor}`}>
-                                {l.valorNum != null ? l.valorNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : l.valor ?? '–'}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {(planilhaLinhas?.length ?? 0) > 0 && (
-            <details className="mt-6 rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/60">
-              <summary className="px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800">
-                Ver lista completa da aba (ordem bruta)
-              </summary>
-              <div className="border-t border-slate-200 dark:border-slate-700 max-h-64 overflow-y-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-100 dark:bg-slate-800 sticky top-0">
-                    <tr>
-                      <th className="text-left py-2 px-3 font-medium text-slate-700 dark:text-slate-300 w-10">#</th>
-                      <th className="text-left py-2 px-3 font-medium text-slate-700 dark:text-slate-300">Descrição</th>
-                      <th className="text-right py-2 px-3 font-medium text-slate-700 dark:text-slate-300">Valor</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {planilhaLinhas!.map((l, i) => (
-                      <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
-                        <td className="py-2 px-3 text-slate-500 dark:text-slate-400">{i + 1}</td>
-                        <td className="py-2 px-3 text-gray-800 dark:text-slate-200">{l.label}</td>
-                        <td className="py-2 px-3 text-right font-medium text-gray-900 dark:text-slate-100">
-                          {l.valorNum != null ? l.valorNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : l.valor ?? '–'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </details>
-          )}
-        </div>
-      </section>
-
-      {/* ========== SEÇÃO 2: SÓ SUPABASE ========== */}
-      <section className="bg-white dark:bg-slate-900 rounded-xl shadow-md border border-slate-200 dark:border-slate-700 overflow-hidden">
-        <div className="bg-emerald-50 border-b border-emerald-100 px-4 py-3 flex flex-wrap items-center justify-between gap-3 dark:bg-emerald-950/40 dark:border-emerald-900/50">
-          <div>
-            <h2 className="text-lg font-semibold text-emerald-900 dark:text-emerald-100">Controle financeiro – só pelo Supabase</h2>
-            <p className="text-sm text-emerald-700 dark:text-emerald-200 mt-0.5">
-              Resumo oficial a partir da tabela de transações (v_resumo_mensal_oficial).
-            </p>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="text-sm font-medium text-emerald-800 dark:text-emerald-200">Mês:</span>
-            <MonthYearPicker />
-          </div>
-        </div>
-        <div className="p-4">
-          <div className="mb-4 p-3 bg-emerald-100/80 border border-emerald-200 rounded-xl dark:bg-emerald-950/40 dark:border-emerald-800/50">
-            <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">
-              Período exibido: <span className="underline">{mesRealExtenso}</span>
-            </p>
-            <p className="text-xs text-emerald-800 dark:text-emerald-200 mt-0.5">Dados do Supabase referem-se diretamente ao mês selecionado.</p>
-          </div>
-          <div className="grid gap-4 md:grid-cols-3">
-            <KpiCard
-              label={`Total de entradas (${formatMesAno(monthYear.mes, monthYear.ano)})`}
-              value={
-                temDadosSupabase
-                  ? mesEmFoco!.total_entradas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
-                  : '—'
-              }
-              helperText={varEntradas != null ? `${(varEntradas * 100).toFixed(1)}% vs mês anterior` : undefined}
-              trend={varEntradas == null ? 'neutral' : varEntradas >= 0 ? 'up' : 'down'}
-              accentColor="primary"
-              isLoading={isLoading}
-            />
-            <KpiCard
-              label={`Total de saídas (${formatMesAno(monthYear.mes, monthYear.ano)})`}
-              value={
-                temDadosSupabase
-                  ? mesEmFoco!.total_saidas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
-                  : '—'
-              }
-              helperText={varSaidas != null ? `${(varSaidas * 100).toFixed(1)}% vs mês anterior` : undefined}
-              trend={varSaidas == null ? 'neutral' : varSaidas >= 0 ? 'up' : 'down'}
-              accentColor="danger"
-              isLoading={isLoading}
-            />
-            <KpiCard
-              label="Saldo do mês"
-              value={
-                temDadosSupabase
-                  ? mesEmFoco!.saldo_mes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
-                  : '—'
-              }
-              helperText={varSaldo != null ? `${(varSaldo * 100).toFixed(1)}% vs mês anterior` : undefined}
-              trend={varSaldo == null ? 'neutral' : varSaldo >= 0 ? 'up' : 'down'}
-              accentColor={mesEmFoco != null && mesEmFoco.saldo_mes >= 0 ? 'success' : 'danger'}
-              isLoading={isLoading}
-            />
-          </div>
-          <div className="mt-6">
-            <h3 className="text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Evolução mensal – entradas x saídas</h3>
-            <MonthlyTrendChart data={trendData} isLoading={isLoading} />
-          </div>
-          <div className="mt-6">
-            <h3 className="text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Resumo mensal (Supabase)</h3>
-            <ResumoMensalTable rows={resumoMensal} isLoading={isLoading} />
-          </div>
-
-          <div className="mt-6 space-y-4">
-            <h3 className="text-sm font-medium text-gray-700 dark:text-slate-300">Detalhes por mês selecionado</h3>
-            <p className="text-xs text-gray-500 dark:text-slate-400">
-              Lista de todas as entradas e todas as saídas do mês <strong>{mesRealExtenso}</strong> (Supabase).
-            </p>
-
-            {temDadosSupabase && (
-              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl dark:bg-slate-900/50 dark:border-slate-700">
-                <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-3">Conferência: resumo x soma das listas</h4>
-                <p className="text-xs text-slate-600 dark:text-slate-400 mb-3">
-                  Comparação entre o total do mês (resumo Supabase) e a soma dos itens das listas abaixo. Abra as listas para carregar e conferir.
-                </p>
-                <div className="grid gap-3 sm:grid-cols-2 text-sm">
-                  <div className="rounded-lg border border-emerald-200 bg-white dark:bg-slate-900 dark:border-emerald-800/50 p-3">
-                    <div className="font-medium text-emerald-900 mb-1">Entradas</div>
-                    <div className="text-slate-700 dark:text-slate-300">
-                      Resumo (Supabase): <strong>{totalResumoEntradas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
-                    </div>
-                    <div className="text-slate-700 dark:text-slate-300">
-                      Soma da lista: {podeConferirEntradas ? (
-                        <strong>{somaListaEntradas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
-                      ) : (
-                        <span className="text-slate-400 dark:text-slate-500">— (abra a lista)</span>
-                      )}
-                    </div>
-                    {podeConferirEntradas && (
-                      <div className={`mt-1 font-medium ${entradasConferem ? 'text-emerald-700' : 'text-amber-700'}`}>
-                        {entradasConferem ? '✓ Valores conferem' : `✗ Diferença: ${(totalResumoEntradas - somaListaEntradas).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`}
-                      </div>
-                    )}
-                  </div>
-                  <div className="rounded-lg border border-rose-200 bg-white dark:bg-slate-900 dark:border-rose-800/50 p-3">
-                    <div className="font-medium text-rose-900 mb-1">Saídas</div>
-                    <div className="text-slate-700 dark:text-slate-300">
-                      Resumo (Supabase): <strong>{totalResumoSaidas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
-                    </div>
-                    <div className="text-slate-700 dark:text-slate-300">
-                      Soma da lista: {podeConferirSaidas ? (
-                        <strong>{somaListaSaidas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
-                      ) : (
-                        <span className="text-slate-400 dark:text-slate-500">— (abra a lista)</span>
-                      )}
-                    </div>
-                    {podeConferirSaidas && (
-                      <div className={`mt-1 font-medium ${saidasConferem ? 'text-emerald-700' : 'text-amber-700'}`}>
-                        {saidasConferem ? '✓ Valores conferem' : `✗ Diferença: ${(totalResumoSaidas - somaListaSaidas).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
+            {!kpiLoading && lucroPrev != null && lucro != null && (
+              <p className="mt-1 text-sm font-medium text-slate-700 dark:text-slate-300">
+                {formatDeltaBrl(lucro, lucroPrev)} ({formatPctChange(lucro, lucroPrev) ?? '—'}) vs {prevLabel}
+              </p>
             )}
-
-            <div className="border border-emerald-200 rounded-xl overflow-hidden">
-              <button
-                type="button"
-                onClick={() => setShowDetalheEntradas((v) => !v)}
-                className="w-full flex items-center justify-between px-4 py-3 bg-emerald-50 hover:bg-emerald-100 text-left text-sm font-medium text-emerald-900"
-              >
-                <span>Ver todas as entradas ({formatMesAno(monthYear.mes, monthYear.ano)})</span>
-                <span className="text-emerald-600">{showDetalheEntradas ? '▼ Ocultar' : '▶ Ver lista'}</span>
-              </button>
-              {showDetalheEntradas && (
-                <div className="border-t border-emerald-200 bg-white dark:bg-slate-900 dark:border-emerald-800/50">
-                  {loadingDetalheEntradas ? (
-                    <p className="p-4 text-sm text-gray-500 dark:text-slate-400">Carregando…</p>
-                  ) : detalheEntradas && detalheEntradas.length > 0 ? (
-                    <div className="max-h-72 overflow-y-auto">
-                      <div className="p-2 border-b border-emerald-100 bg-white dark:bg-slate-900 dark:border-emerald-900/40 sticky top-0 z-10">
-                        <input
-                          type="search"
-                          placeholder="Filtrar por pessoa ou descrição…"
-                          value={filtroPessoaEntradas}
-                          onChange={(e) => setFiltroPessoaEntradas(e.target.value)}
-                          className="w-full max-w-sm rounded border border-emerald-200 px-2 py-1.5 text-xs"
-                        />
-                      </div>
-                      <table className="w-full text-sm">
-                        <thead className="bg-emerald-50 sticky top-0">
-                          <tr>
-                            <th className="text-left py-2 px-3 font-medium text-emerald-900">Data</th>
-                            <th className="text-left py-2 px-3 font-medium text-emerald-900">Pessoa</th>
-                            <th className="text-right py-2 px-3 font-medium text-emerald-900">Valor</th>
-                            <th className="text-left py-2 px-3 font-medium text-emerald-900">Descrição</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {detalheEntradasFiltradas.map((r) => (
-                            <tr key={r.id} className="border-t border-gray-100 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/60">
-                              <td className="py-2 px-3 text-gray-800 dark:text-slate-200">{r.data}</td>
-                              <td className="py-2 px-3 text-gray-800 dark:text-slate-200">{r.pessoa}</td>
-                              <td className="py-2 px-3 text-right font-medium text-emerald-800">
-                                {r.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                              </td>
-                              <td className="py-2 px-3 text-gray-600 dark:text-slate-400 max-w-[200px] truncate" title={r.descricao ?? ''}>{r.descricao ?? '–'}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <p className="p-4 text-sm text-gray-500 dark:text-slate-400">Nenhuma entrada neste mês.</p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="border border-rose-200 rounded-xl overflow-hidden">
-              <button
-                type="button"
-                onClick={() => setShowDetalheSaidas((v) => !v)}
-                className="w-full flex items-center justify-between px-4 py-3 bg-rose-50 hover:bg-rose-100 text-left text-sm font-medium text-rose-900"
-              >
-                <span>Ver todas as saídas ({formatMesAno(monthYear.mes, monthYear.ano)})</span>
-                <span className="text-rose-600">{showDetalheSaidas ? '▼ Ocultar' : '▶ Ver lista'}</span>
-              </button>
-              {showDetalheSaidas && (
-                <div className="border-t border-rose-200 bg-white dark:bg-slate-900 dark:border-rose-800/50">
-                  {loadingDetalheSaidas ? (
-                    <p className="p-4 text-sm text-gray-500 dark:text-slate-400">Carregando…</p>
-                  ) : detalheSaidas && detalheSaidas.length > 0 ? (
-                    <div className="max-h-72 overflow-y-auto">
-                      <div className="p-2 border-b border-rose-100 bg-white dark:bg-slate-900 dark:border-rose-900/40 sticky top-0 z-10">
-                        <input
-                          type="search"
-                          placeholder="Filtrar por pessoa ou descrição…"
-                          value={filtroPessoaSaidas}
-                          onChange={(e) => setFiltroPessoaSaidas(e.target.value)}
-                          className="w-full max-w-sm rounded border border-rose-200 px-2 py-1.5 text-xs"
-                        />
-                      </div>
-                      <table className="w-full text-sm">
-                        <thead className="bg-rose-50 sticky top-0">
-                          <tr>
-                            <th className="text-left py-2 px-3 font-medium text-rose-900">Data</th>
-                            <th className="text-left py-2 px-3 font-medium text-rose-900">Pessoa</th>
-                            <th className="text-right py-2 px-3 font-medium text-rose-900">Valor</th>
-                            <th className="text-left py-2 px-3 font-medium text-rose-900">Descrição</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {detalheSaidasFiltradas.map((r) => (
-                            <tr key={r.id} className="border-t border-gray-100 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/60">
-                              <td className="py-2 px-3 text-gray-800 dark:text-slate-200">{r.data}</td>
-                              <td className="py-2 px-3 text-gray-800 dark:text-slate-200">{r.pessoa}</td>
-                              <td className="py-2 px-3 text-right font-medium text-rose-800">
-                                {r.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                              </td>
-                              <td className="py-2 px-3 text-gray-600 dark:text-slate-400 max-w-[200px] truncate" title={r.descricao ?? ''}>{r.descricao ?? '–'}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <p className="p-4 text-sm text-gray-500 dark:text-slate-400">Nenhuma saída neste mês.</p>
-                  )}
-                </div>
-              )}
-            </div>
           </div>
+          <p className="text-sm text-slate-700 dark:text-slate-300 max-w-lg">
+            {kpiLoading
+              ? 'Carregando fechamento…'
+              : lucro == null
+                ? 'Fechamento ainda não disponível para este mês.'
+                : saudavel
+                  ? `Sim — lucro positivo e igual ou maior que em ${prevLabel}.`
+                  : lucro > 0
+                    ? `Parcial — lucro positivo, mas menor que em ${prevLabel}.`
+                    : 'Não — lucro negativo no fechamento. Revise entradas e despesas.'}
+          </p>
         </div>
+        <p className="mt-3 text-[11px] font-medium text-indigo-800/80 dark:text-indigo-300/80">
+          Fonte: Controle de caixa (fechamento do mês)
+        </p>
       </section>
 
-      {/* ========== SEÇÃO 3: COMPARAÇÃO + FILTRO POR MODALIDADE/CATEGORIA ========== */}
-      <section className="bg-white dark:bg-slate-900 rounded-xl shadow-md border border-slate-200 dark:border-slate-700 overflow-hidden">
-        <div className="bg-amber-50 border-b border-amber-100 px-4 py-3 flex flex-wrap items-center justify-between gap-3 dark:bg-amber-950/40 dark:border-amber-900/50">
-          <div>
-            <h2 className="text-lg font-semibold text-amber-900 dark:text-amber-100">Comparação: planilha x Supabase</h2>
-            <p className="text-sm text-amber-800 dark:text-amber-200 mt-0.5">
-              Confronte os totais do mês e filtre por modalidade/categoria (dados da planilha CONTROLE DE CAIXA).
-            </p>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="text-sm font-medium text-amber-800 dark:text-amber-200">Mês:</span>
-            <MonthYearPicker />
-          </div>
+      {/* Fechamento do mês */}
+      <OverviewSection
+        title="Fechamento do mês"
+        whatIs="Valores que você consolidou no Controle de caixa — a base para lucro e comparação com o mês anterior."
+        source="fechamento"
+      >
+        <div className="grid gap-4 sm:grid-cols-3">
+          <KpiCard
+            label="Entradas (fechamento)"
+            value={kpiLoading ? '…' : formatBrl(entrada)}
+            helperText={
+              !kpiLoading && entradaPrev != null
+                ? `vs ${prevLabel}: ${formatPctChange(entrada, entradaPrev) ?? '—'}`
+                : undefined
+            }
+            trend={trendFromDelta(entrada, entradaPrev)}
+            accentColor="primary"
+            isLoading={kpiLoading}
+          />
+          <KpiCard
+            label="Saídas (fechamento)"
+            value={kpiLoading ? '…' : formatBrl(saida)}
+            helperText={
+              !kpiLoading && saidaPrev != null
+                ? `vs ${prevLabel}: ${formatPctChange(saida, saidaPrev) ?? '—'}`
+                : undefined
+            }
+            trend={trendFromDelta(saida, saidaPrev) === 'up' ? 'down' : trendFromDelta(saida, saidaPrev)}
+            accentColor="danger"
+            isLoading={kpiLoading}
+          />
+          <KpiCard
+            label="Lucro (fechamento)"
+            value={kpiLoading ? '…' : formatBrl(lucro)}
+            helperText={
+              !kpiLoading && lucroPrev != null
+                ? `vs ${prevLabel}: ${formatDeltaBrl(lucro, lucroPrev) ?? '—'}`
+                : undefined
+            }
+            trend={trendFromDelta(lucro, lucroPrev)}
+            accentColor="success"
+            isLoading={kpiLoading}
+          />
         </div>
-        <div className="p-4 space-y-6">
-          <div className="p-3 bg-amber-100/80 border border-amber-200 rounded-xl dark:bg-amber-950/40 dark:border-amber-800/50">
-            <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
-              Período da comparação: <span className="underline">{mesRealExtenso}</span>
-            </p>
-            <p className="text-xs text-amber-800 dark:text-amber-200 mt-0.5">
-              Planilha: fechamento de {mesRealExtenso} (aba “{abaPlanilha}”). Supabase: dados de {mesRealExtenso}.
-            </p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[400px] text-sm border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
-              <thead className="bg-gray-100 dark:bg-slate-800">
-                <tr>
-                  <th className="text-left py-3 px-4 font-semibold text-gray-700 dark:text-slate-300">Indicador</th>
-                  <th className="text-right py-3 px-4 font-semibold text-indigo-700">Planilha (CONTROLE DE CAIXA)</th>
-                  <th className="text-right py-3 px-4 font-semibold text-emerald-700">Supabase</th>
-                  <th className="text-right py-3 px-4 font-semibold text-gray-700 dark:text-slate-300">Diferença</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="border-t border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800/60">
-                  <td className="py-3 px-4 font-medium text-gray-800 dark:text-slate-200">Entradas</td>
-                  <td className="py-3 px-4 text-right text-indigo-700">
-                    {planilhaEntrada != null ? planilhaEntrada.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '–'}
-                  </td>
-                  <td className="py-3 px-4 text-right text-emerald-700">
-                    {temDadosSupabase ? mesEmFoco!.total_entradas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '–'}
-                  </td>
-                  <td className="py-3 px-4 text-right text-gray-600 dark:text-slate-400">
-                    {planilhaEntrada != null && temDadosSupabase
-                      ? (planilhaEntrada - mesEmFoco!.total_entradas).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-                      : '–'}
-                  </td>
-                </tr>
-                <tr className="border-t border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800/60">
-                  <td className="py-3 px-4 font-medium text-gray-800 dark:text-slate-200">Saídas</td>
-                  <td className="py-3 px-4 text-right text-indigo-700">
-                    {planilhaSaida != null ? planilhaSaida.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '–'}
-                  </td>
-                  <td className="py-3 px-4 text-right text-emerald-700">
-                    {temDadosSupabase ? mesEmFoco!.total_saidas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '–'}
-                  </td>
-                  <td className="py-3 px-4 text-right text-gray-600 dark:text-slate-400">
-                    {planilhaSaida != null && temDadosSupabase
-                      ? (planilhaSaida - mesEmFoco!.total_saidas).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-                      : '–'}
-                  </td>
-                </tr>
-                <tr className="border-t border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800/60">
-                  <td className="py-3 px-4 font-medium text-gray-800 dark:text-slate-200">Saldo / Lucro</td>
-                  <td className="py-3 px-4 text-right text-indigo-700">
-                    {planilhaLucro != null ? planilhaLucro.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '–'}
-                  </td>
-                  <td className="py-3 px-4 text-right text-emerald-700">
-                    {temDadosSupabase ? mesEmFoco!.saldo_mes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '–'}
-                  </td>
-                  <td className="py-3 px-4 text-right text-gray-600 dark:text-slate-400">
-                    {planilhaLucro != null && temDadosSupabase
-                      ? (planilhaLucro - mesEmFoco!.saldo_mes).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-                      : '–'}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
 
-          <div>
-            <h3 className="text-sm font-semibold text-gray-800 dark:text-slate-200 mb-2">Entrada por modalidade e categoria (planilha)</h3>
-            <p className="text-xs text-gray-500 dark:text-slate-400 mb-3">
-              Filtre para ver quanto entrou por modalidade/categoria conforme a planilha CONTROLE DE CAIXA.
-            </p>
-            <input
-              type="text"
-              placeholder="Filtrar por nome da modalidade ou categoria..."
-              value={filtroModalidade}
-              onChange={(e) => setFiltroModalidade(e.target.value)}
-              className="w-full max-w-md rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
-            />
-            <div className="mt-3 border rounded-lg overflow-hidden max-h-64 overflow-y-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-amber-50 sticky top-0">
-                  <tr>
-                    <th className="text-left py-2 px-3 font-medium text-amber-900">Modalidade / Categoria</th>
-                    <th className="text-right py-2 px-3 font-medium text-amber-900">Valor</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {linhasPorModalidade.length === 0 ? (
-                    <tr>
-                      <td colSpan={2} className="py-6 px-3 text-center text-gray-500 dark:text-slate-400">
-                        {filtroModalidade.trim() ? 'Nenhum item encontrado para o filtro.' : 'Nenhuma linha de modalidade/categoria na planilha para este mês.'}
-                      </td>
-                    </tr>
-                  ) : (
-                    linhasPorModalidade.map((l, i) => (
-                      <tr key={i} className="border-t border-gray-100 dark:border-slate-800 hover:bg-amber-50/50">
-                        <td className="py-2 px-3 text-gray-800 dark:text-slate-200">{l.label}</td>
-                        <td className="py-2 px-3 text-right font-medium text-gray-900 dark:text-slate-100">
-                          {l.valorNum != null ? l.valorNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : l.valor ?? '–'}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+        {fechamentoAlerts.length > 0 && (
+          <div className="space-y-2">
+            {fechamentoAlerts.map((a) => (
+              <AlertBanner key={a.title} alert={a} />
+            ))}
           </div>
+        )}
+
+        <Link
+          to="/controle-caixa"
+          className="inline-block text-sm font-medium text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
+        >
+          Editar fechamento →
+        </Link>
+      </OverviewSection>
+
+      <OverviewSection
+        title="Conferência com o extrato"
+        whatIs="Cruza entradas e saídas do extrato bancário com o fechamento do mesmo mês."
+        source="extrato"
+      >
+        <BankReconciliationCard
+          entradas={{
+            extrato: transacoesEntradaQuery.isSuccess ? somaExtratoEntradas : null,
+            fechamento: entrada,
+            diff: diffExtratoEntradas,
+          }}
+          saidas={{
+            extrato: transacoesSaidaQuery.isSuccess ? somaExtratoSaidas : null,
+            fechamento: saida,
+            diff: diffExtratoSaidas,
+          }}
+        />
+      </OverviewSection>
+
+      <OverviewSection
+        title="Tendência do fechamento"
+        whatIs="Últimos 6 meses: fluxo de entradas e saídas e evolução do lucro mês a mês."
+        source={trendUsesExtrato ? 'extrato' : 'fechamento'}
+      >
+        {trendUsesExtrato ? (
+          <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-100">
+            Fechamento indisponível em parte do período — gráficos com base no extrato bancário (resumo).
+          </p>
+        ) : null}
+        <div className="grid gap-6 lg:grid-cols-2 lg:items-stretch">
+          <OverviewChartShell
+            title="Entradas × saídas — últimos 6 meses"
+            isLoading={trendLoading}
+            chartHeight={OVERVIEW_CHART_MIN_H}
+          >
+            <MonthlyTrendChart
+              data={trendData}
+              showLucroLine={false}
+              showSeriesChips
+              height={OVERVIEW_CHART_MIN_H}
+            />
+          </OverviewChartShell>
+          <OverviewChartShell
+            title="Lucro mês a mês (objetivo: crescer todo mês)"
+            subtitle="Sem meta fixa de receita"
+            isLoading={trendLoading}
+            chartHeight={OVERVIEW_CHART_MIN_H}
+          >
+            <BarChartAtividade
+              data={lucroBarData}
+              valueLabel="Lucro"
+              barColor="#16a34a"
+              highlightLabel={selectedMonthLabel}
+              height={OVERVIEW_CHART_MIN_H}
+            />
+          </OverviewChartShell>
+        </div>
+      </OverviewSection>
+
+      {/* Operação Fluxo */}
+      <OverviewSection
+        title="Operação — Fluxo de caixa"
+        whatIs="Cobranças e cadastro dos alunos no mês — independente do fechamento financeiro."
+        source="fluxo"
+      >
+        {fluxoLoading ? (
+          <p className="text-sm text-slate-500">Carregando operação…</p>
+        ) : !hasOperacaoItens ? (
+          <p className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
+            Nenhuma pendência operacional automática para este mês.
+          </p>
+        ) : (
+          <ul className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:divide-slate-800">
+            {fluxoResumo.semPagamentoNoMes > 0 && (
+              <li className="px-4 py-3 text-sm">
+                <span className="font-medium text-slate-900 dark:text-slate-100">
+                  {fluxoResumo.semPagamentoNoMes} aluno(s) ativo(s) sem pagamento na competência {labelMesAno(mes, ano)}
+                </span>
+              </li>
+            )}
+            {fluxoResumo.pendenciasCadastro > 0 && (
+              <li className="px-4 py-3 text-sm">
+                <span className="font-medium text-slate-900 dark:text-slate-100">
+                  {fluxoResumo.pendenciasCadastro} cadastro(s) com campo(s) em falta
+                </span>
+              </li>
+            )}
+            {fluxoResumo.vencimentoHoje > 0 && (
+              <li className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">
+                {fluxoResumo.vencimentoHoje} vencimento(s) hoje — priorize cobrança
+              </li>
+            )}
+          </ul>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Link
+            to="/fluxo-caixa"
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+          >
+            Abrir Fluxo de caixa
+          </Link>
+          <Link
+            to="/validacao-pagamentos-diaria"
+            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+          >
+            Validação de pagamentos
+          </Link>
+        </div>
+      </OverviewSection>
+
+      <OverviewSection
+        title="Mensalidades recebidas por modalidade"
+        whatIs={`Pagamentos no Fluxo com competência ${labelMesAno(mes, ano)} — não são as entradas do fechamento.`}
+        source="fluxo"
+      >
+        {topAbaInsight ? (
+          <p className="mb-3 rounded-lg border border-emerald-100 bg-emerald-50/80 px-4 py-2.5 text-sm text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-100">
+            {topAbaInsight}
+          </p>
+        ) : null}
+        <ModalityRevenueDrilldownChart key={`${mes}-${ano}`} data={receitaDrilldown} isLoading={fluxoLoading} />
+        <ModalityRevenueLegend mesAnoLabel={labelMesAno(mes, ano)} />
+      </OverviewSection>
+
+      {/* Ações rápidas */}
+      <section aria-label="Ações rápidas" className="space-y-3">
+        <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">Ações rápidas</h2>
+        <p className="text-sm text-slate-600 dark:text-slate-400">Atalhos para as telas que você mais usa no dia a dia.</p>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <QuickActionCardColored
+            to="/fluxo-caixa"
+            title="Fluxo de caixa"
+            description="Alunos, pagamentos e cobranças."
+            borderClass="border-indigo-200 dark:border-indigo-800/60"
+            bgClass="bg-indigo-50/90 dark:bg-indigo-950/35"
+            titleClass="text-indigo-950 dark:text-indigo-100"
+          />
+          <QuickActionCardColored
+            to="/validacao-pagamentos-diaria"
+            title="Validação de pagamentos"
+            description="Conferir dia × extrato."
+            borderClass="border-emerald-200 dark:border-emerald-800/60"
+            bgClass="bg-emerald-50/90 dark:bg-emerald-950/35"
+            titleClass="text-emerald-950 dark:text-emerald-100"
+          />
+          <QuickActionCardColored
+            to="/conciliacao"
+            title="Conciliação"
+            description="Vencimentos e adimplência."
+            borderClass="border-amber-200 dark:border-amber-800/60"
+            bgClass="bg-amber-50/90 dark:bg-amber-950/35"
+            titleClass="text-amber-950 dark:text-amber-100"
+          />
+          <QuickActionCardColored
+            to="/transacoes"
+            title="Transações"
+            description="Entradas e saídas do banco."
+            borderClass="border-rose-200 dark:border-rose-800/60"
+            bgClass="bg-rose-50/90 dark:bg-rose-950/35"
+            titleClass="text-rose-950 dark:text-rose-100"
+          />
         </div>
       </section>
     </div>

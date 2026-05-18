@@ -1,20 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
-import type { AppRole } from '../auth/types';
-
-const navItems: Array<{ path: string; label: string; roles: AppRole[] }> = [
-  { path: '/', label: 'Visão geral', roles: ['secretaria', 'admin'] },
-  { path: '/transacoes', label: 'Transações', roles: ['admin'] },
-  { path: '/controle-caixa', label: 'Controle de caixa', roles: ['admin'] },
-  { path: '/fluxo-caixa', label: 'Fluxo de caixa', roles: ['secretaria', 'admin'] },
-  { path: '/alunos', label: 'Alunos', roles: ['secretaria', 'admin'] },
-  { path: '/atividades', label: 'Atividades', roles: ['secretaria', 'admin'] },
-  { path: '/pagamentos-planilha', label: 'Pagamentos planilha', roles: ['secretaria', 'admin'] },
-  { path: '/validacao-pagamentos-diaria', label: 'Validação de pagamentos', roles: ['secretaria', 'admin'] },
-  { path: '/conciliacao', label: 'Conciliação', roles: ['admin'] },
-  { path: '/relatorios-ia', label: 'Relatórios IA', roles: ['admin'] },
-  { path: '/calendario-financeiro', label: 'Calendário financeiro', roles: ['admin'] },
-];
+import { isNavPathActive, navSectionsForRole } from './navConfig';
 
 type SidebarProps = {
   mobileOpen?: boolean;
@@ -25,7 +11,7 @@ export function Sidebar({ mobileOpen = false, onNavigate }: SidebarProps) {
   const location = useLocation();
   const auth = useAuth();
   const role = auth.role;
-  const visibleItems = navItems.filter((item) => (role ? item.roles.includes(role) : false));
+  const sections = navSectionsForRole(role);
 
   return (
     <aside
@@ -48,30 +34,42 @@ export function Sidebar({ mobileOpen = false, onNavigate }: SidebarProps) {
           </span>
         </Link>
       </div>
-      <nav className="flex-1 p-3 space-y-0.5">
-        {visibleItems.map((item) => {
-          const isActive = location.pathname === item.path;
-
-          return (
-            <Link
-              key={item.path}
-              to={item.path}
-              onClick={() => onNavigate?.()}
-              className={`block px-3 py-2 rounded-lg text-sm font-medium transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-white/80 ${
-                isActive
-                  ? 'bg-byla-red/20 text-white border-l-2 border-byla-red'
-                  : 'text-gray-300 hover:bg-byla-navy-light hover:text-white'
-              }`}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
+      <nav className="flex-1 overflow-y-auto p-3 space-y-4" aria-label="Menu principal">
+        {sections.map((section) => (
+          <div key={section.id}>
+            <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+              {section.label}
+            </p>
+            <ul className="space-y-0.5">
+              {section.items.map((item) => {
+                const isActive = isNavPathActive(location.pathname, item.path);
+                return (
+                  <li key={item.path}>
+                    <Link
+                      to={item.path}
+                      onClick={() => onNavigate?.()}
+                      className={`block rounded-lg px-3 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-white/80 ${
+                        isActive
+                          ? 'border-l-2 border-byla-red bg-byla-red/20 text-white'
+                          : item.primary
+                            ? 'text-white hover:bg-byla-navy-light hover:text-white'
+                            : 'text-gray-300 hover:bg-byla-navy-light hover:text-white'
+                      }`}
+                      aria-current={isActive ? 'page' : undefined}
+                    >
+                      {item.label}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
       </nav>
       <div className="p-3 border-t border-byla-navy-border space-y-2">
         <div className="text-xs text-gray-300">
           {auth.email ? <span>{auth.email}</span> : null}
-          {role ? <div className="uppercase tracking-wide text-[10px] mt-0.5">{role}</div> : null}
+          {role ? <div className="mt-0.5 uppercase tracking-wide text-[10px]">{role}</div> : null}
         </div>
         <button
           type="button"

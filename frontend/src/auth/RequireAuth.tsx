@@ -8,7 +8,7 @@ type RequireAuthProps = {
 };
 
 function roleHome(role: AppRole): string {
-  return role === 'admin' ? '/' : '/alunos';
+  return role === 'admin' ? '/' : '/fluxo-caixa';
 }
 
 export function RequireAuth({ children, roles }: RequireAuthProps) {
