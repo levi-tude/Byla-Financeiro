@@ -58,3 +58,10 @@ npm run build
 ```
 
 Saída em `dist/`. Para preview: `npm run preview`.
+
+## Deploy na Vercel (produção)
+
+O painel **não** é o site na raiz do repositório (landing “Salas para locação”).  
+A Vercel deve buildar a pasta **`frontend/`** — veja `vercel.json` na raiz do repo e `docs/DEPLOY_VERCEL_PAINEL.md`.
+
+Variáveis obrigatórias na Vercel: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_BACKEND_URL`, `VITE_SITE_URL`.

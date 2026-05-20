@@ -39,6 +39,13 @@ try {
 process.chdir(root);
 console.log(`[verify-git-push-safety] OK → ${root}\n`);
 
+console.log('[verify-git-push-safety] Config Vercel (painel vs landing)…');
+try {
+  sh('node scripts/verify-vercel-config.mjs');
+} catch {
+  fail('scripts/verify-vercel-config.mjs falhou — corrija vercel.json antes do push.');
+}
+
 // 1) Arquivos rastreados que não devem estar no Git
 let tracked;
 try {

@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "verify:push": "node scripts/verify-git-push-safety.mjs",
-    "verify:push:quick": "node scripts/verify-git-push-safety.mjs --no-build"
+    "verify:push:quick": "node scripts/verify-git-push-safety.mjs --no-build",
+    "verify:vercel": "node scripts/verify-vercel-config.mjs"
   },
   "dependencies": {
     "react": "^18.2.0",
