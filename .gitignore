@@ -33,6 +33,9 @@ metabase/
 *.sln
 *.sw?
 
+# Build cache (não versionar)
+**/tsconfig.tsbuildinfo
+
 # Env e credenciais (nunca versionar)
 .env
 .env.*

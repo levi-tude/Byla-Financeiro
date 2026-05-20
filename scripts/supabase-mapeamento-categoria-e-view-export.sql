@@ -37,6 +37,8 @@ CREATE INDEX IF NOT EXISTS idx_mapeamento_pessoa_ativo ON public.mapeamento_pess
 COMMENT ON TABLE public.mapeamento_pessoa_categoria IS
 'Regras manuais: nome normalizado (byla_norm_pessoa) → categoria/subcategoria para export e planilha. Coworking e nomes especiais.';
 
+-- Segurança: ver scripts/supabase-security-hardening.sql (RLS + revoga anon)
+
 -- Seeds iniciais (ajuste nomes se no extrato vier diferente)
 INSERT INTO public.mapeamento_pessoa_categoria (pessoa_normalizada, categoria, subcategoria, observacao, aplica_tipo)
 VALUES
@@ -127,6 +129,7 @@ LEFT JOIN LATERAL (
 COMMENT ON VIEW public.v_transacoes_export IS
 'Export oficial: transações + categoria_sugerida + modalidade e nome do aluno quando há match com cadastro (mensalidade).';
 
--- API REST: expor view (PostgREST). Garantir permissões conforme sua política RLS.
+-- n8n/backend usam service_role (bypass RLS). Não conceder a anon.
 GRANT SELECT ON public.mapeamento_pessoa_categoria TO service_role;
 GRANT SELECT ON public.v_transacoes_export TO service_role;
+REVOKE ALL ON public.mapeamento_pessoa_categoria FROM anon;

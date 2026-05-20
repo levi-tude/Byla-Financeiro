@@ -114,6 +114,19 @@ for all
 using (public.has_role('admin'))
 with check (public.has_role('admin'));
 
+-- Mapeamento export planilha (se a tabela existir)
+alter table if exists public.mapeamento_pessoa_categoria enable row level security;
+revoke all on public.mapeamento_pessoa_categoria from anon;
+drop policy if exists mapeamento_select_operacional on public.mapeamento_pessoa_categoria;
+create policy mapeamento_select_operacional
+on public.mapeamento_pessoa_categoria for select
+using (public.has_role('admin') or public.has_role('secretaria'));
+drop policy if exists mapeamento_write_admin on public.mapeamento_pessoa_categoria;
+create policy mapeamento_write_admin
+on public.mapeamento_pessoa_categoria for all
+using (public.has_role('admin'))
+with check (public.has_role('admin'));
+
 -- Exemplo inicial (troque o UUID e role conforme seus usuários):
 -- insert into public.profiles (id, role) values ('00000000-0000-0000-0000-000000000000', 'admin')
 -- on conflict (id) do update set role = excluded.role, updated_at = now();

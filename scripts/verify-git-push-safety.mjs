@@ -46,6 +46,13 @@ try {
   fail('scripts/verify-vercel-config.mjs falhou — corrija vercel.json antes do push.');
 }
 
+console.log('[verify-git-push-safety] Segurança (segredos, headers, auth)…');
+try {
+  sh('node scripts/verify-security-config.mjs');
+} catch {
+  fail('scripts/verify-security-config.mjs falhou — corrija antes do push.');
+}
+
 // 1) Arquivos rastreados que não devem estar no Git
 let tracked;
 try {
