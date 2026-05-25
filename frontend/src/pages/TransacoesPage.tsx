@@ -109,7 +109,7 @@ export function TransacoesPage() {
       q: busca.trim() || undefined,
       dia,
       dia_fim,
-      limit: 100,
+      limit: 300,
       offset: 0,
     };
   }, [metodo, busca, periodoModo, periodoInicio, periodoFim]);
@@ -487,7 +487,7 @@ export function TransacoesPage() {
             <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Últimas transações</h3>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{competenciaRef}</p>
           </div>
-          <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">Limite: 100 linhas · {competenciaNumerica}</span>
+          <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">Limite: 300 linhas · {competenciaNumerica}</span>
         </div>
         {query.error && (
           <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
