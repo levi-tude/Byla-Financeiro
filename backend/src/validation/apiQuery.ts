@@ -35,7 +35,7 @@ export const transacoesQuerySchema = mesAnoQuerySchema.extend({
     (v) => (v === '' || v == null ? undefined : v),
     z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.').optional(),
   ),
-  limit: z.coerce.number().int().min(1).max(100).optional().default(100),
+  limit: z.coerce.number().int().min(1).max(500).optional().default(100),
   offset: z.coerce.number().int().min(0).optional().default(0),
 })
   .refine((q) => !q.dia_fim || !!q.dia, {
