@@ -663,6 +663,13 @@ export interface TransacoesPorMesResponse {
     saidas: number;
     saldo: number;
     qtd: number;
+    linhas?: {
+      pessoa: string;
+      valor: number;
+      tipo: 'entrada' | 'saida';
+      descricao: string | null;
+      metodo: TransacaoItem['metodo'];
+    }[];
   }[];
   resumo_por_metodo?: {
     metodo: TransacaoItem['metodo'];
@@ -1165,6 +1172,34 @@ export async function getFluxoOperacionalPagamentosMetaAno(ano: number): Promise
   return request<PagamentosTodasAbasResponse>(`/api/fluxo-operacional/pagamentos-meta-ano?${params.toString()}`);
 }
 
+export interface ValidacaoFluxoIndiceDia {
+  data: string;
+  quantidade: number;
+  total: number;
+  mesCompetencia: number;
+  anoCompetencia: number;
+}
+
+export interface ValidacaoFluxoIndiceAnoResponse {
+  ano: number;
+  fonte: 'fluxo_operacional' | 'planilha_google';
+  erro?: string;
+  abas: string[];
+  modalidadesPorAba: Record<string, string[]>;
+  datas: ValidacaoFluxoIndiceDia[];
+}
+
+/** Lista de datas + filtros — mesma fonte Supabase que a validação do dia. */
+export async function getValidacaoFluxoIndiceAno(
+  ano: number,
+  aba: string = 'TODAS',
+  modalidade?: string,
+): Promise<ValidacaoFluxoIndiceAnoResponse> {
+  const params = new URLSearchParams({ ano: String(ano), aba });
+  if (modalidade && modalidade !== 'TODAS') params.set('modalidade', modalidade);
+  return request<ValidacaoFluxoIndiceAnoResponse>(`/api/fluxo-operacional/validacao-indice-ano?${params.toString()}`);
+}
+
 // --- Validação de pagamentos (planilha x banco) ---
 
 export interface ValidacaoDiariaPlanilhaItem {
@@ -1195,8 +1230,9 @@ export interface ValidacaoPagamentosDiariaResponse {
     data: string;
     ano: number;
     aba: string;
-    abas_consideradas: string[];
+    abas_consideradas?: string[];
     modalidade: string | null;
+    fonte_pagamentos?: 'fluxo_operacional' | 'planilha_google';
   };
   planilha: {
     total: number;
@@ -1251,6 +1287,7 @@ export interface CalendarioFinanceiroResponse {
   totais_mes: { banco: number; planilha: number };
   status_contagem?: { pendente: number; ok: number; atencao: number; divergente: number };
   planilha_aviso?: string;
+  meta?: { fonte_pagamentos?: 'fluxo_operacional' | 'planilha_google' };
 }
 
 export async function getCalendarioFinanceiro(mes: number, ano: number): Promise<CalendarioFinanceiroResponse> {

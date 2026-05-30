@@ -41,10 +41,17 @@ export function Sidebar({ mobileOpen = false, onNavigate }: SidebarProps) {
               {section.label}
             </p>
             <ul className="space-y-0.5">
-              {section.items.map((item) => {
+              {section.items.map((item, itemIndex) => {
                 const isActive = isNavPathActive(location.pathname, item.path);
+                const prevGroup = section.items[itemIndex - 1]?.group;
+                const showGroup = item.group && item.group !== prevGroup;
                 return (
                   <li key={item.path}>
+                    {showGroup ? (
+                      <p className="mb-1 mt-2 px-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400 first:mt-0">
+                        {item.group}
+                      </p>
+                    ) : null}
                     <Link
                       to={item.path}
                       onClick={() => onNavigate?.()}

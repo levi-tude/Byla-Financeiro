@@ -48,3 +48,23 @@ Pronto. Isso protege a **troca de senha** e bloqueia senhas fracas conhecidas.
 | Link de “esqueci senha” | **Você confere URLs no painel** |
 
 Antes de cada atualização no GitHub: `npm run verify:push`
+
+---
+
+## Validação de pagamentos — fonte de dados (fluxo × banco)
+
+A conferência diária **não usa planilha Google** no dia a dia. Os pagamentos vêm do **Fluxo operacional** no Supabase (`fluxo_pagamentos_operacionais`); o extrato vem de `transacoes` (entradas oficiais).
+
+| Variável (backend `.env` / Render) | Padrão recomendado | Significado |
+|-----------------------------------|-------------------|-------------|
+| `BYLA_SOURCE_FLUXO_PRIMARY` | `true` | Pagamentos da validação e calendário vêm do fluxo no Supabase. |
+| `BYLA_PLANILHA_READ` | `false` | Desliga leitura da planilha Google no servidor. |
+| `BYLA_VALIDACAO_PLANILHA_FALLBACK` | `false` | Só use `true` em migração pontual; não é operação normal. |
+
+**APIs principais**
+
+- `GET /api/fluxo-operacional/validacao-indice-ano?ano=&aba=&modalidade=` — lista de datas (chips) e filtros.
+- `GET /api/validacao-pagamentos-diaria?data=&aba=&modalidade=` — detalhe do dia (fluxo × banco).
+- `GET /api/calendario-financeiro?mes=&ano=` — visão mensal (mesma fonte de pagamentos do fluxo).
+
+Depois de alterar `.env`, **reinicie o backend**.

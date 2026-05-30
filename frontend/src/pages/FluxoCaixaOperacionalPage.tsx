@@ -30,6 +30,7 @@ import { normalizarAbaMulti, ordenarAbasPresentes } from '../fluxo/fluxoAbaHiera
 import { getFluxoAbaTabStyle, getFluxoModalidadeTabStyle } from '../fluxo/fluxoPlanilhaCores';
 import { Link } from 'react-router-dom';
 import { PeriodoMesCalendarioPopover } from '../components/transacoes/PeriodoMesCalendarioPopover';
+import { FilterBar } from '../components/finance/FilterBar';
 
 function formatBrl(n: number | null | undefined): string {
   if (n == null || Number.isNaN(Number(n))) return '—';
@@ -487,8 +488,40 @@ type BuscaEscopo = 'todos' | 'aluno' | 'responsavel' | 'pagador';
 type FiltroRapido = 'nenhum' | 'sem_pagamento_mes' | 'sem_cadastro_vinculado' | 'com_pendencias' | 'so_ativos';
 type OrdemListaCampo = 'aluno' | 'data_pagamento' | 'valor_pago' | 'vencimento';
 type OrdemListaDirecao = 'asc' | 'desc';
+type PresetFluxo = 'cobranca' | 'pendencias' | 'fechamento';
 
 const FLUXO_FILTROS_STORAGE_KEY = 'byla:fluxo-operacional:filtros-v2';
+
+function PresetsFluxoBar({
+  presetAtivo,
+  onPreset,
+}: {
+  presetAtivo: PresetFluxo | null;
+  onPreset: (preset: PresetFluxo) => void;
+}) {
+  const btn = (id: PresetFluxo, label: string) => (
+    <button
+      key={id}
+      type="button"
+      onClick={() => onPreset(id)}
+      className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+        presetAtivo === id
+          ? 'bg-indigo-600 text-white'
+          : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
+      }`}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Presets</span>
+      {btn('cobranca', 'Cobrança')}
+      {btn('pendencias', 'Pendências')}
+      {btn('fechamento', 'Fechamento do mês')}
+    </div>
+  );
+}
 
 export function FluxoCaixaOperacionalPage() {
   const { monthYear } = useMonthYear();
@@ -517,8 +550,9 @@ export function FluxoCaixaOperacionalPage() {
   const [filtroRapido, setFiltroRapido] = useState<FiltroRapido>('nenhum');
   const [ordemCampo, setOrdemCampo] = useState<OrdemListaCampo>('aluno');
   const [ordemDirecao, setOrdemDirecao] = useState<OrdemListaDirecao>('asc');
+  const [mensalColunasExtras, setMensalColunasExtras] = useState(false);
   const [soPendencias, setSoPendencias] = useState(false);
-  const [modoVisao, setModoVisao] = useState<'mensal' | 'multi'>('mensal');
+  const [modoVisao, setModoVisao] = useState<'mensal' | 'multi'>('multi');
   const [multiAbaAtiva, setMultiAbaAtiva] = useState<string>('BYLA DANÇA');
   const [multiModalidadeAbertaPorAba, setMultiModalidadeAbertaPorAba] = useState<Record<string, string | null>>({});
   const [formaResumoSelecionada, setFormaResumoSelecionada] = useState<string>('Todas');
@@ -1256,10 +1290,12 @@ export function FluxoCaixaOperacionalPage() {
 
   useEffect(() => {
     if (activeTopTab !== 'atividades' || modoVisao !== 'mensal') return;
-    if (!abaDetalheAberta && gruposFluxo.length > 0) {
-      setAbaDetalheAberta(gruposFluxo[0].aba);
-    }
-  }, [activeTopTab, modoVisao, abaDetalheAberta, gruposFluxo]);
+    if (gruposFluxo.length === 0) return;
+    setAbaDetalheAberta((atual) => {
+      if (atual && gruposFluxo.some((g) => g.aba === atual)) return atual;
+      return gruposFluxo[0].aba;
+    });
+  }, [activeTopTab, modoVisao, gruposFluxo]);
 
   const opcoesAbasFiltro = useMemo(() => {
     const s = new Set<string>();
@@ -1372,6 +1408,95 @@ export function FluxoCaixaOperacionalPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [inlineAluno]);
 
+  const aplicarPreset = useCallback((preset: PresetFluxo) => {
+    setAbaFiltro('');
+    setModalidadeFiltro('');
+    setBusca('');
+    setBuscaEscopo('todos');
+    setOrdemCampo('aluno');
+    setOrdemDirecao('asc');
+    setAtivoFiltro('ativos');
+    if (preset === 'cobranca') {
+      setFiltroRapido('sem_pagamento_mes');
+      setSoPendencias(false);
+      return;
+    }
+    if (preset === 'pendencias') {
+      setFiltroRapido('com_pendencias');
+      setSoPendencias(true);
+      return;
+    }
+    setFiltroRapido('nenhum');
+    setSoPendencias(false);
+  }, []);
+
+  const presetAtivo = useMemo((): PresetFluxo | null => {
+    if (
+      filtroRapido === 'sem_pagamento_mes' &&
+      !soPendencias &&
+      ativoFiltro === 'ativos' &&
+      !abaFiltro &&
+      !modalidadeFiltro &&
+      !busca
+    ) {
+      return 'cobranca';
+    }
+    if ((filtroRapido === 'com_pendencias' || soPendencias) && ativoFiltro === 'ativos' && !abaFiltro && !modalidadeFiltro) {
+      return 'pendencias';
+    }
+    if (
+      filtroRapido === 'nenhum' &&
+      !soPendencias &&
+      ativoFiltro === 'ativos' &&
+      !abaFiltro &&
+      !modalidadeFiltro &&
+      !busca &&
+      ordemCampo === 'aluno' &&
+      ordemDirecao === 'asc'
+    ) {
+      return 'fechamento';
+    }
+    return null;
+  }, [filtroRapido, soPendencias, ativoFiltro, abaFiltro, modalidadeFiltro, busca, ordemCampo, ordemDirecao]);
+
+  const filtrosAtivos = useMemo(() => {
+    const chips: Array<{ id: string; label: string; onRemove?: () => void }> = [];
+    if (presetAtivo) {
+      const labels: Record<PresetFluxo, string> = {
+        cobranca: 'Preset: Cobrança',
+        pendencias: 'Preset: Pendências',
+        fechamento: 'Preset: Fechamento do mês',
+      };
+      chips.push({ id: 'preset', label: labels[presetAtivo] });
+    }
+    if (abaFiltro) chips.push({ id: 'aba', label: `Aba: ${abaFiltro}`, onRemove: () => setAbaFiltro('') });
+    if (modalidadeFiltro) {
+      chips.push({ id: 'mod', label: `Modalidade: ${modalidadeFiltro}`, onRemove: () => setModalidadeFiltro('') });
+    }
+    if (ativoFiltro !== 'ativos') {
+      chips.push({
+        id: 'ativo',
+        label: `Cadastro: ${ativoFiltro === 'inativos' ? 'Inativos' : 'Todos'}`,
+        onRemove: () => setAtivoFiltro('ativos'),
+      });
+    }
+    if (busca.trim()) chips.push({ id: 'busca', label: `Busca: ${busca.trim()}`, onRemove: () => setBusca('') });
+    if (filtroRapido === 'sem_pagamento_mes' && presetAtivo !== 'cobranca') {
+      chips.push({ id: 'fr', label: 'Sem pagamento no mês', onRemove: () => setFiltroRapido('nenhum') });
+    }
+    if ((filtroRapido === 'com_pendencias' || soPendencias) && presetAtivo !== 'pendencias') {
+      chips.push({
+        id: 'pend',
+        label: 'Com pendências',
+        onRemove: () => {
+          setFiltroRapido('nenhum');
+          setSoPendencias(false);
+        },
+      });
+    }
+    return chips;
+  }, [presetAtivo, abaFiltro, modalidadeFiltro, ativoFiltro, busca, filtroRapido, soPendencias]);
+
   function limparFiltros() {
     setAbaFiltro('');
     setModalidadeFiltro('');
@@ -1384,12 +1509,6 @@ export function FluxoCaixaOperacionalPage() {
     setSoPendencias(false);
     setFormaResumoSelecionada('Todas');
   }
-
-  const irParaListaDoMes = useCallback(() => {
-    window.setTimeout(() => {
-      listaMesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 0);
-  }, []);
 
   const resumoPeriodoLegivel = useMemo(() => {
     if (!resumoPeriodoInicio || !resumoPeriodoFim) return null;
@@ -1670,6 +1789,19 @@ export function FluxoCaixaOperacionalPage() {
 
   const listagemCarregando = alunosQuery.isLoading || pagamentosQuery.isLoading;
 
+  const alternarOrdenacaoAluno = useCallback(() => {
+    if (ordemCampo === 'aluno') {
+      setOrdemDirecao((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setOrdemCampo('aluno');
+      setOrdemDirecao('asc');
+    }
+  }, [ordemCampo]);
+
+  const thAlunoSticky =
+    'sticky left-0 z-[2] bg-slate-100/95 shadow-[2px_0_6px_-2px_rgba(15,23,42,0.08)] dark:bg-slate-800/95';
+  const tdAlunoSticky = 'sticky left-0 z-[1] bg-white shadow-[2px_0_6px_-2px_rgba(15,23,42,0.06)] dark:bg-slate-900';
+
   function renderLinhaFluxo(linha: LinhaUnificadaFluxo): ReactElement {
     const pends = pendenciasParaExibir(linha);
     const alertaPend = pends.length > 0 ? 'ring-1 ring-inset ring-rose-200/80 dark:ring-rose-800/50' : '';
@@ -1685,33 +1817,35 @@ export function FluxoCaixaOperacionalPage() {
             : '';
       return (
         <tr key={`p-${p.id}`} className={`${rowHighlight} ${alertaPend}`}>
-          <td className="px-3 py-2.5 font-medium text-slate-900 dark:text-slate-100">{p.aluno_nome}</td>
-          <td
-            className={`px-3 py-2.5 ${aluno ? 'cursor-pointer select-none' : ''}`}
-            onDoubleClick={aluno ? () => iniciarEdicaoInline(aluno, 'venc') : undefined}
-            title={aluno ? 'Duplo clique para editar vencimento (cadastro)' : undefined}
-          >
-            {aluno && inlineAluno?.id === aluno.id && inlineAluno.field === 'venc' ? (
-              <input
-                ref={inlineInputRef}
-                className="w-full min-w-[5rem] rounded-lg border border-violet-400 bg-white px-1.5 py-0.5 text-sm dark:bg-slate-900"
-                value={inlineAluno.value}
-                onChange={(e) =>
-                  setInlineAluno((prev) => (prev && prev.id === aluno.id ? { ...prev, value: e.target.value } : prev))
-                }
-                onBlur={commitInlineAluno}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    commitInlineAluno();
+          <td className={`px-3 py-2.5 font-medium text-slate-900 dark:text-slate-100 ${tdAlunoSticky}`}>{p.aluno_nome}</td>
+          {mensalColunasExtras ? (
+            <td
+              className={`px-3 py-2.5 ${aluno ? 'cursor-pointer select-none' : ''}`}
+              onDoubleClick={aluno ? () => iniciarEdicaoInline(aluno, 'venc') : undefined}
+              title={aluno ? 'Duplo clique para editar vencimento (cadastro)' : undefined}
+            >
+              {aluno && inlineAluno?.id === aluno.id && inlineAluno.field === 'venc' ? (
+                <input
+                  ref={inlineInputRef}
+                  className="w-full min-w-[5rem] rounded-lg border border-violet-400 bg-white px-1.5 py-0.5 text-sm dark:bg-slate-900"
+                  value={inlineAluno.value}
+                  onChange={(e) =>
+                    setInlineAluno((prev) => (prev && prev.id === aluno.id ? { ...prev, value: e.target.value } : prev))
                   }
-                }}
-                aria-label="Vencimento"
-              />
-            ) : (
-              textoVencCadastro(aluno, p)
-            )}
-          </td>
+                  onBlur={commitInlineAluno}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      commitInlineAluno();
+                    }
+                  }}
+                  aria-label="Vencimento"
+                />
+              ) : (
+                textoVencCadastro(aluno, p)
+              )}
+            </td>
+          ) : null}
           <td
             className={`px-3 py-2.5 whitespace-nowrap ${aluno ? 'cursor-pointer select-none' : ''}`}
             onDoubleClick={aluno ? () => iniciarEdicaoInline(aluno, 'valor') : undefined}
@@ -1748,36 +1882,29 @@ export function FluxoCaixaOperacionalPage() {
               formatBrl(p.aluno_valor_referencia)
             )}
           </td>
-          <td className="whitespace-nowrap px-3 py-2.5 text-slate-700 dark:text-slate-300">
-            {mesReferenciaLegivel(p.mes_competencia, p.ano_competencia)}
-          </td>
+          {mensalColunasExtras ? (
+            <td className="whitespace-nowrap px-3 py-2.5 text-slate-700 dark:text-slate-300">
+              {mesReferenciaLegivel(p.mes_competencia, p.ano_competencia)}
+            </td>
+          ) : null}
           <td className="whitespace-nowrap px-3 py-2.5 tabular-nums text-slate-800 dark:text-slate-200">{formatDataBr(p.data_pagamento)}</td>
           <td className="whitespace-nowrap px-3 py-2.5 font-medium tabular-nums text-slate-900 dark:text-slate-50">{formatBrl(p.valor)}</td>
-          <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300">{p.forma?.trim() || '—'}</td>
-          <td className="max-w-[120px] truncate px-3 py-2.5 text-slate-600 dark:text-slate-400" title={responsaveisUnificado(aluno, p)}>
-            {responsaveisUnificado(aluno, p)}
-          </td>
-          <td className="max-w-[110px] truncate px-3 py-2.5 text-slate-600 dark:text-slate-400" title={pagadorUnificado(aluno, p)}>
-            {pagadorUnificado(aluno, p)}
-          </td>
-          <td className="px-3 py-2.5 text-slate-600 dark:text-slate-400">{aluno?.plano?.trim() || '—'}</td>
-          <td className="px-3 py-2.5">
-            {aluno ? (
-              <span
-                className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
-                  aluno.ativo
-                    ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-200 dark:ring-emerald-800'
-                    : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
-                }`}
-              >
-                {aluno.ativo ? 'Ativo' : 'Inativo'}
-              </span>
-            ) : (
-              <span className="inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-900 dark:bg-violet-950 dark:text-violet-200">
-                Sem cadastro
-              </span>
-            )}
-          </td>
+          {mensalColunasExtras ? (
+            <>
+              <td className="max-w-[90px] truncate px-3 py-2.5 text-slate-700 dark:text-slate-300" title={p.forma?.trim() || ''}>
+                {p.forma?.trim() || '—'}
+              </td>
+              <td className="max-w-[120px] truncate px-3 py-2.5 text-slate-600 dark:text-slate-400" title={responsaveisUnificado(aluno, p)}>
+                {responsaveisUnificado(aluno, p)}
+              </td>
+              <td className="max-w-[110px] truncate px-3 py-2.5 text-slate-600 dark:text-slate-400" title={pagadorUnificado(aluno, p)}>
+                {pagadorUnificado(aluno, p)}
+              </td>
+              <td className="max-w-[100px] truncate px-3 py-2.5 text-slate-600 dark:text-slate-400" title={aluno?.plano?.trim() || ''}>
+                {aluno?.plano?.trim() || '—'}
+              </td>
+            </>
+          ) : null}
           <td className="max-w-[220px] px-3 py-2 align-top text-xs text-slate-600 dark:text-slate-400">
             {pends.length === 0 ? (
               <span className="font-medium text-emerald-700 dark:text-emerald-400">Ok</span>
@@ -1833,6 +1960,23 @@ export function FluxoCaixaOperacionalPage() {
               </button>
             </div>
           </td>
+          <td className="px-3 py-2.5">
+            {aluno ? (
+              <span
+                className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+                  aluno.ativo
+                    ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-200 dark:ring-emerald-800'
+                    : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+                }`}
+              >
+                {aluno.ativo ? 'Ativo' : 'Inativo'}
+              </span>
+            ) : (
+              <span className="inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-900 dark:bg-violet-950 dark:text-violet-200">
+                Sem cadastro
+              </span>
+            )}
+          </td>
         </tr>
       );
     }
@@ -1844,33 +1988,35 @@ export function FluxoCaixaOperacionalPage() {
         : 'border-l-4 border-amber-400/80 bg-amber-50/25 dark:border-amber-500 dark:bg-amber-950/20';
     return (
       <tr key={`s-${item.id}`} className={`${rowHighlight} ${alertaPend}`}>
-        <td className="px-3 py-2.5 font-medium text-slate-900 dark:text-slate-100">{item.aluno_nome}</td>
-        <td
-          className="cursor-pointer select-none px-3 py-2.5"
-          onDoubleClick={() => iniciarEdicaoInline(item, 'venc')}
-          title="Duplo clique para editar vencimento"
-        >
-          {inlineAluno?.id === item.id && inlineAluno.field === 'venc' ? (
-            <input
-              ref={inlineInputRef}
-              className="w-full min-w-[5rem] rounded-lg border border-violet-400 bg-white px-1.5 py-0.5 text-sm dark:bg-slate-900"
-              value={inlineAluno.value}
-              onChange={(e) =>
-                setInlineAluno((prev) => (prev && prev.id === item.id ? { ...prev, value: e.target.value } : prev))
-              }
-              onBlur={commitInlineAluno}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  commitInlineAluno();
+        <td className={`px-3 py-2.5 font-medium text-slate-900 dark:text-slate-100 ${tdAlunoSticky}`}>{item.aluno_nome}</td>
+        {mensalColunasExtras ? (
+          <td
+            className="cursor-pointer select-none px-3 py-2.5"
+            onDoubleClick={() => iniciarEdicaoInline(item, 'venc')}
+            title="Duplo clique para editar vencimento"
+          >
+            {inlineAluno?.id === item.id && inlineAluno.field === 'venc' ? (
+              <input
+                ref={inlineInputRef}
+                className="w-full min-w-[5rem] rounded-lg border border-violet-400 bg-white px-1.5 py-0.5 text-sm dark:bg-slate-900"
+                value={inlineAluno.value}
+                onChange={(e) =>
+                  setInlineAluno((prev) => (prev && prev.id === item.id ? { ...prev, value: e.target.value } : prev))
                 }
-              }}
-              aria-label="Vencimento"
-            />
-          ) : (
-            item.venc_exibicao?.trim() || item.venc?.trim() || '—'
-          )}
-        </td>
+                onBlur={commitInlineAluno}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    commitInlineAluno();
+                  }
+                }}
+                aria-label="Vencimento"
+              />
+            ) : (
+              item.venc_exibicao?.trim() || item.venc?.trim() || '—'
+            )}
+          </td>
+        ) : null}
         <td
           className="cursor-pointer select-none whitespace-nowrap px-3 py-2.5"
           onDoubleClick={() => iniciarEdicaoInline(item, 'valor')}
@@ -1905,28 +2051,23 @@ export function FluxoCaixaOperacionalPage() {
             </>
           )}
         </td>
+        {mensalColunasExtras ? <td className="px-3 py-2.5 text-slate-400 dark:text-slate-500">—</td> : null}
         <td className="px-3 py-2.5 text-slate-400 dark:text-slate-500">—</td>
         <td className="px-3 py-2.5 text-slate-400 dark:text-slate-500">—</td>
-        <td className="px-3 py-2.5 text-slate-400 dark:text-slate-500">—</td>
-        <td className="px-3 py-2.5 text-slate-400 dark:text-slate-500">—</td>
-        <td className="max-w-[120px] truncate px-3 py-2.5 text-slate-600 dark:text-slate-400" title={item.responsaveis_exibicao ?? item.responsaveis ?? ''}>
-          {item.responsaveis_exibicao?.trim() || item.responsaveis?.trim() || '—'}
-        </td>
-        <td className="max-w-[110px] truncate px-3 py-2.5 text-slate-600 dark:text-slate-400" title={item.pagador_pix_exibicao ?? item.pagador_pix ?? ''}>
-          {item.pagador_pix_exibicao?.trim() || item.pagador_pix?.trim() || '—'}
-        </td>
-        <td className="px-3 py-2.5 text-slate-600 dark:text-slate-400">{item.plano ?? '—'}</td>
-        <td className="px-3 py-2.5">
-          <span
-            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
-              item.ativo
-                ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-200 dark:ring-emerald-800'
-                : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
-            }`}
-          >
-            {item.ativo ? 'Ativo' : 'Inativo'}
-          </span>
-        </td>
+        {mensalColunasExtras ? (
+          <>
+            <td className="px-3 py-2.5 text-slate-400 dark:text-slate-500">—</td>
+            <td className="max-w-[120px] truncate px-3 py-2.5 text-slate-600 dark:text-slate-400" title={item.responsaveis_exibicao ?? item.responsaveis ?? ''}>
+              {item.responsaveis_exibicao?.trim() || item.responsaveis?.trim() || '—'}
+            </td>
+            <td className="max-w-[110px] truncate px-3 py-2.5 text-slate-600 dark:text-slate-400" title={item.pagador_pix_exibicao ?? item.pagador_pix ?? ''}>
+              {item.pagador_pix_exibicao?.trim() || item.pagador_pix?.trim() || '—'}
+            </td>
+            <td className="max-w-[100px] truncate px-3 py-2.5 text-slate-600 dark:text-slate-400" title={item.plano ?? ''}>
+              {item.plano ?? '—'}
+            </td>
+          </>
+        ) : null}
         <td className="max-w-[220px] px-3 py-2 align-top text-xs text-slate-600 dark:text-slate-400">
           <ul className="list-inside list-disc space-y-0.5">
             {pends.map((t) => (
@@ -1966,9 +2107,22 @@ export function FluxoCaixaOperacionalPage() {
             </button>
           </div>
         </td>
+        <td className="px-3 py-2.5">
+          <span
+            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+              item.ativo
+                ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-200 dark:ring-emerald-800'
+                : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+            }`}
+          >
+            {item.ativo ? 'Ativo' : 'Inativo'}
+          </span>
+        </td>
       </tr>
     );
   }
+
+  const competenciaChaveAtual = `${monthYear.ano}-${String(monthYear.mes).padStart(2, '0')}`;
 
   return (
     <div className="min-h-full bg-gradient-to-br from-slate-50 via-white to-violet-50/40 pb-10 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
@@ -2055,17 +2209,6 @@ export function FluxoCaixaOperacionalPage() {
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Modo de visualização</span>
             <button
               type="button"
-              onClick={() => setModoVisao('mensal')}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
-                modoVisao === 'mensal'
-                  ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
-                  : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200'
-              }`}
-            >
-              Mensal detalhado
-            </button>
-            <button
-              type="button"
               onClick={() => setModoVisao('multi')}
               className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
                 modoVisao === 'multi'
@@ -2074,6 +2217,17 @@ export function FluxoCaixaOperacionalPage() {
               }`}
             >
               Multi-mês (2026)
+            </button>
+            <button
+              type="button"
+              onClick={() => setModoVisao('mensal')}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+                modoVisao === 'mensal'
+                  ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
+                  : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200'
+              }`}
+            >
+              Mensal detalhado
             </button>
           </div>
         </section>
@@ -2449,6 +2603,162 @@ export function FluxoCaixaOperacionalPage() {
 
             {resumoMultiMesQuery.data ? (
               <div className="space-y-4">
+                <details className="group rounded-2xl border border-slate-200/90 bg-white/95 shadow-sm dark:border-slate-700 dark:bg-slate-900/90 [&_summary::-webkit-details-marker]:hidden">
+                  <summary className="flex cursor-pointer list-none items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50/80 dark:text-slate-100 dark:hover:bg-slate-800/80">
+                    <span
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-sm text-slate-500 transition-transform duration-200 group-open:rotate-90 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                      aria-hidden
+                    >
+                      ›
+                    </span>
+                    <span className="flex-1">Filtros rápidos e ordenação (multi-mês)</span>
+                    <span className="text-xs font-normal text-slate-500 dark:text-slate-400">abrir / fechar</span>
+                  </summary>
+                  <div className="space-y-3 border-t border-slate-100 px-4 pb-4 pt-3 dark:border-slate-700">
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                      <label className="text-xs font-medium text-slate-600">
+                        Aba
+                        <select
+                          className="select-with-chevron mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                          value={abaFiltro}
+                          onChange={(e) => setAbaFiltro(e.target.value)}
+                          aria-label="Filtrar por aba no multi-mês"
+                        >
+                          <option value="">Todas as abas</option>
+                          {opcoesAbasFiltro.map((a) => (
+                            <option key={a} value={a}>
+                              {a}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="text-xs font-medium text-slate-600">
+                        Modalidade
+                        <select
+                          className="select-with-chevron mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                          value={modalidadeFiltro}
+                          onChange={(e) => setModalidadeFiltro(e.target.value)}
+                          aria-label="Filtrar por modalidade no multi-mês"
+                        >
+                          <option value="">Todas modalidades</option>
+                          {opcoesModalidadesFiltro.map((m) => (
+                            <option key={m} value={m}>
+                              {m}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="text-xs font-medium text-slate-600">
+                        Cadastro
+                        <select
+                          className="select-with-chevron mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                          value={ativoFiltro}
+                          onChange={(e) => setAtivoFiltro(e.target.value as 'todos' | 'ativos' | 'inativos')}
+                          aria-label="Ativos ou inativos no multi-mês"
+                        >
+                          <option value="ativos">Ativos</option>
+                          <option value="inativos">Inativos</option>
+                          <option value="todos">Todos</option>
+                        </select>
+                      </label>
+                      <label className="text-xs font-medium text-slate-600">
+                        Busca
+                        <input
+                          className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                          placeholder="Aluno, responsável, pagador…"
+                          value={busca}
+                          onChange={(e) => setBusca(e.target.value)}
+                          aria-label="Buscar no multi-mês"
+                        />
+                      </label>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Filtros rápidos</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFiltroRapido('sem_pagamento_mes');
+                          setSoPendencias(false);
+                        }}
+                        className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                          filtroRapido === 'sem_pagamento_mes'
+                            ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-300'
+                            : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200'
+                        }`}
+                      >
+                        Sem pagamento no mês
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFiltroRapido('com_pendencias');
+                          setSoPendencias(true);
+                        }}
+                        className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                          filtroRapido === 'com_pendencias' || soPendencias
+                            ? 'bg-rose-100 text-rose-900 ring-1 ring-rose-300'
+                            : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200'
+                        }`}
+                      >
+                        Com pendências
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFiltroRapido('so_ativos');
+                          setAtivoFiltro('ativos');
+                          setSoPendencias(false);
+                        }}
+                        className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                          filtroRapido === 'so_ativos'
+                            ? 'bg-emerald-100 text-emerald-900 ring-1 ring-emerald-300'
+                            : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200'
+                        }`}
+                      >
+                        Só ativos
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFiltroRapido('nenhum');
+                          setSoPendencias(false);
+                        }}
+                        className="rounded-full border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 dark:border-slate-600 dark:text-slate-300"
+                      >
+                        Limpar rápidos
+                      </button>
+                    </div>
+                    <div className="mt-2 grid gap-2 border-t border-slate-100 pt-3 sm:grid-cols-2 dark:border-slate-700">
+                      <label className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                        Ordenar por
+                        <select
+                          className="select-with-chevron mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                          value={ordemCampo}
+                          onChange={(e) => setOrdemCampo(e.target.value as OrdemListaCampo)}
+                          aria-label="Ordenar lista multi-mês por"
+                        >
+                          <option value="aluno">Aluno</option>
+                          <option value="data_pagamento">Data pagamento</option>
+                          <option value="valor_pago">Valor pago</option>
+                          <option value="vencimento">Vencimento</option>
+                        </select>
+                      </label>
+                      <label className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                        Direção
+                        <select
+                          className="select-with-chevron mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                          value={ordemDirecao}
+                          onChange={(e) => setOrdemDirecao(e.target.value as OrdemListaDirecao)}
+                          aria-label="Direção da ordenação multi-mês"
+                        >
+                          <option value="asc">Crescente (A→Z)</option>
+                          <option value="desc">Decrescente (Z→A)</option>
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+                </details>
+
                 <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/80">
                   <h3 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">Atividades (separadas por aba)</h3>
                   <div className="flex flex-wrap items-center gap-2">
@@ -2488,6 +2798,45 @@ export function FluxoCaixaOperacionalPage() {
                   .map(([modalidade, itens]) => {
                     const chrome = getFluxoModalidadeTabStyle(multiAbaAtiva, modalidade);
                     const modalidadeAberta = multiModalidadeAbertaPorAba[multiAbaAtiva];
+                    const itensExibicao = itens
+                      .filter((item) => {
+                        if (abaFiltro && normalizarAbaMulti(item.aba) !== normalizarAbaMulti(abaFiltro)) return false;
+                        if (modalidadeFiltro && item.modalidade !== modalidadeFiltro) return false;
+                        const alunoCadastro = alunoPorId.get(item.id);
+                        const ativo = alunoCadastro?.ativo ?? true;
+                        if (ativoFiltro === 'ativos' && !ativo) return false;
+                        if (ativoFiltro === 'inativos' && ativo) return false;
+
+                        const mesAtual = item.historico.find((h) => h.key === competenciaChaveAtual);
+                        if (filtroRapido === 'sem_pagamento_mes' && mesAtual?.status === 'pago') return false;
+                        if (filtroRapido === 'com_pendencias' && mesAtual?.status !== 'pendente' && mesAtual?.status !== 'parcial') return false;
+                        if (filtroRapido === 'so_ativos' && !ativo) return false;
+
+                        if (!buscaDebounced) return true;
+                        const q = buscaDebounced.toLowerCase();
+                        const aluno = item.alunoNome.toLowerCase();
+                        const responsavel = (item.responsaveis ?? '').toLowerCase();
+                        const pagador = (item.pagadorPix ?? '').toLowerCase();
+                        if (buscaEscopo === 'aluno') return aluno.includes(q);
+                        if (buscaEscopo === 'responsavel') return responsavel.includes(q);
+                        if (buscaEscopo === 'pagador') return pagador.includes(q);
+                        return aluno.includes(q) || responsavel.includes(q) || pagador.includes(q);
+                      })
+                      .sort((a, b) => {
+                        const direction = ordemDirecao === 'asc' ? 1 : -1;
+                        if (ordemCampo === 'aluno') {
+                          return a.alunoNome.localeCompare(b.alunoNome, 'pt-BR') * direction;
+                        }
+                        const ma = a.historico.find((h) => h.key === competenciaChaveAtual);
+                        const mb = b.historico.find((h) => h.key === competenciaChaveAtual);
+                        if (ordemCampo === 'valor_pago') {
+                          return ((ma?.valorPago ?? 0) - (mb?.valorPago ?? 0)) * direction;
+                        }
+                        if (ordemCampo === 'data_pagamento') {
+                          return ((ma?.dataPagamento ?? '').localeCompare(mb?.dataPagamento ?? '')) * direction;
+                        }
+                        return (a.vencimento ?? '').localeCompare(b.vencimento ?? '') * direction;
+                      });
                     return (
                       <details
                         key={`${multiAbaAtiva}\u0000${modalidade}`}
@@ -2503,13 +2852,31 @@ export function FluxoCaixaOperacionalPage() {
                         style={{ borderLeftWidth: '5px', borderLeftColor: chrome.tab }}
                       >
                         <summary className="cursor-pointer list-none px-3 py-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
-                          Modalidade: <span style={{ color: chrome.tab }}>{modalidade}</span> · {itens.length} aluno(s)
+                          Modalidade: <span style={{ color: chrome.tab }}>{modalidade}</span> · {itensExibicao.length} aluno(s)
                         </summary>
                         <div className="overflow-x-auto border-t border-slate-100 p-3 dark:border-slate-700">
                           <table className="w-full min-w-[2200px] text-xs">
                             <thead className="bg-slate-100 text-left font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-400">
                               <tr>
-                                <th className="px-2 py-2">Aluno</th>
+                                <th className={`px-2 py-2 ${thAlunoSticky}`}>
+                                  <button
+                                    type="button"
+                                    onClick={alternarOrdenacaoAluno}
+                                    className="inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-slate-200/80 dark:hover:bg-slate-700"
+                                    aria-label={
+                                      ordemCampo === 'aluno'
+                                        ? `Ordenar alunos ${ordemDirecao === 'asc' ? 'decrescente' : 'crescente'}`
+                                        : 'Ordenar por aluno A→Z'
+                                    }
+                                  >
+                                    Aluno
+                                    {ordemCampo === 'aluno' ? (
+                                      <span className="text-[10px] text-violet-700 dark:text-violet-300" aria-hidden>
+                                        {ordemDirecao === 'asc' ? '▲' : '▼'}
+                                      </span>
+                                    ) : null}
+                                  </button>
+                                </th>
                                 <th className="px-2 py-2">Vencimento</th>
                                 <th className="px-2 py-2">Valor ref.</th>
                                 <th className="px-2 py-2">Responsável</th>
@@ -2526,7 +2893,7 @@ export function FluxoCaixaOperacionalPage() {
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                              {itens.map((item) => (
+                              {itensExibicao.map((item) => (
                                 <tr key={`linha-${item.id}`}>
                                   <td className="px-2 py-2 font-medium text-slate-900 dark:text-slate-100">{item.alunoNome}</td>
                                   <td className="px-2 py-2 text-slate-600 dark:text-slate-300">{item.vencimento || '—'}</td>
@@ -2599,328 +2966,88 @@ export function FluxoCaixaOperacionalPage() {
           </section>
         ) : null}
 
-        {activeTopTab === 'atividades' && modoVisao === 'mensal' && opcoesAbasFiltro.length > 0 ? (
-          <div className="rounded-2xl border border-slate-200/90 bg-white/95 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/90">
-            <p className="mb-2 text-xs text-slate-600 dark:text-slate-400">
-              <span className="font-medium">Atalho por aba</span> — cores no estilo das guias do Google Sheets; para igualar à planilha FLUXO BYLA, edite{' '}
-              <code className="rounded bg-slate-100 px-1 text-[10px] dark:bg-slate-800">frontend/src/fluxo/fluxoPlanilhaCores.ts</code>.
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setAbaFiltro('')}
-                className={`rounded-lg border-2 px-3 py-2 text-sm font-medium transition dark:border-slate-600 ${
-                  abaFiltro === ''
-                    ? 'border-slate-700 bg-slate-800 text-white dark:border-slate-400 dark:bg-slate-100 dark:text-slate-900'
-                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
-                }`}
-              >
-                Todas as abas
-              </button>
-              {opcoesAbasFiltro.map((aba) => {
-                const chrome = getFluxoAbaTabStyle(aba);
-                const ativo = abaFiltro === aba;
-                return (
-                  <button
-                    key={aba}
-                    type="button"
-                    onClick={() => {
-                      setActiveTopTab('atividades');
-                      setModoVisao('mensal');
-                      setAbaFiltro(aba);
-                      setAbaDetalheAberta(aba);
-                      irParaListaDoMes();
-                    }}
-                    title={`Filtrar: ${aba}`}
-                    className="rounded-lg border-2 px-3 py-2 text-sm font-medium shadow-sm transition hover:opacity-95"
-                    style={{
-                      borderColor: chrome.tab,
-                      backgroundColor: ativo ? chrome.soft : undefined,
-                      color: ativo ? '#0f172a' : chrome.tab,
-                    }}
-                  >
-                    <span className="inline-flex items-center gap-2">
-                      <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: chrome.tab }} aria-hidden />
-                      {aba}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Filtros rápidos</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setFiltroRapido('sem_pagamento_mes');
-                  setSoPendencias(false);
-                  irParaListaDoMes();
-                }}
-                className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                  filtroRapido === 'sem_pagamento_mes'
-                    ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-300'
-                    : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200'
-                }`}
-              >
-                Sem pagamento no mês
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setFiltroRapido('sem_cadastro_vinculado');
-                  setSoPendencias(false);
-                  irParaListaDoMes();
-                }}
-                className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                  filtroRapido === 'sem_cadastro_vinculado'
-                    ? 'bg-violet-100 text-violet-900 ring-1 ring-violet-300'
-                    : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200'
-                }`}
-              >
-                Sem cadastro vinculado
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setFiltroRapido('com_pendencias');
-                  setSoPendencias(true);
-                  irParaListaDoMes();
-                }}
-                className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                  filtroRapido === 'com_pendencias' || soPendencias
-                    ? 'bg-rose-100 text-rose-900 ring-1 ring-rose-300'
-                    : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200'
-                }`}
-              >
-                Com pendências
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setFiltroRapido('so_ativos');
-                  setAtivoFiltro('ativos');
-                  setSoPendencias(false);
-                  irParaListaDoMes();
-                }}
-                className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                  filtroRapido === 'so_ativos'
-                    ? 'bg-emerald-100 text-emerald-900 ring-1 ring-emerald-300'
-                    : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200'
-                }`}
-              >
-                Só ativos
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setFiltroRapido('nenhum');
-                  setSoPendencias(false);
-                }}
-                className="rounded-full border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 dark:border-slate-600 dark:text-slate-300"
-              >
-                Limpar rápidos
-              </button>
-            </div>
-          </div>
-        ) : null}
-
         {activeTopTab === 'atividades' && modoVisao === 'mensal' ? (
         <>
-        <details className="group rounded-2xl border border-slate-200/90 bg-white/95 shadow-sm open:shadow-md dark:border-slate-700 dark:bg-slate-900/90 [&_summary::-webkit-details-marker]:hidden">
-          <summary className="flex cursor-pointer list-none items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50/80 dark:text-slate-100 dark:hover:bg-slate-800/80">
-            <span
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-sm text-slate-500 transition-transform duration-200 group-open:rotate-90 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300"
-              aria-hidden
-            >
-              ›
-            </span>
-            <span className="flex-1">Filtros e busca</span>
-            <span className="text-xs font-normal text-slate-500 dark:text-slate-400">abrir / fechar</span>
-          </summary>
-          <div className="space-y-3 border-t border-slate-100 px-4 pb-4 pt-3 dark:border-slate-700">
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              <label className="text-xs font-medium text-slate-600">
-                Aba
-                <select
-                  className="select-with-chevron mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                  value={abaFiltro}
-                  onChange={(e) => setAbaFiltro(e.target.value)}
-                  aria-label="Filtrar por aba"
-                >
-                  <option value="">Todas as abas</option>
-                  {opcoesAbasFiltro.map((a) => (
-                    <option key={a} value={a}>
-                      {a}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-xs font-medium text-slate-600">
-                Modalidade
-                <select
-                  className="select-with-chevron mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                  value={modalidadeFiltro}
-                  onChange={(e) => setModalidadeFiltro(e.target.value)}
-                  aria-label="Filtrar por modalidade"
-                >
-                  <option value="">Todas modalidades</option>
-                  {opcoesModalidadesFiltro.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-xs font-medium text-slate-600">
-                Cadastro
-                <select
-                  className="select-with-chevron mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                  value={ativoFiltro}
-                  onChange={(e) => setAtivoFiltro(e.target.value as 'todos' | 'ativos' | 'inativos')}
-                  aria-label="Ativos ou inativos"
-                >
-                  <option value="ativos">Ativos</option>
-                  <option value="inativos">Inativos</option>
-                  <option value="todos">Todos</option>
-                </select>
-              </label>
-              <label className="text-xs font-medium text-slate-600">
-                Busca
-                <input
-                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"
-                  placeholder="Aluno, aba, modalidade…"
-                  value={busca}
-                  onChange={(e) => setBusca(e.target.value)}
-                  aria-label="Buscar"
-                />
-              </label>
-              <label className="text-xs font-medium text-slate-600">
-                Escopo da busca
-                <select
-                  className="select-with-chevron mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                  value={buscaEscopo}
-                  onChange={(e) => setBuscaEscopo(e.target.value as BuscaEscopo)}
-                  aria-label="Escopo da busca"
-                >
-                  <option value="todos">Todos</option>
-                  <option value="aluno">Aluno</option>
-                  <option value="responsavel">Responsável</option>
-                  <option value="pagador">Pagador</option>
-                </select>
-              </label>
-              <label className="text-xs font-medium text-slate-600">
-                Ordenar por
-                <select
-                  className="select-with-chevron mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                  value={ordemCampo}
-                  onChange={(e) => setOrdemCampo(e.target.value as OrdemListaCampo)}
-                  aria-label="Ordenar lista por"
-                >
-                  <option value="aluno">Aluno</option>
-                  <option value="data_pagamento">Data pagamento</option>
-                  <option value="valor_pago">Valor pago</option>
-                  <option value="vencimento">Vencimento</option>
-                </select>
-              </label>
-              <label className="text-xs font-medium text-slate-600">
-                Direção
-                <select
-                  className="select-with-chevron mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                  value={ordemDirecao}
-                  onChange={(e) => setOrdemDirecao(e.target.value as OrdemListaDirecao)}
-                  aria-label="Direção da ordenação"
-                >
-                  <option value="asc">Crescente</option>
-                  <option value="desc">Decrescente</option>
-                </select>
-              </label>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {(abaFiltro || modalidadeFiltro || ativoFiltro !== 'ativos' || busca) && (
-                <>
-                  {abaFiltro ? (
-                    <span className="inline-flex items-center rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-900 ring-1 ring-violet-200">
-                      Aba: {abaFiltro}
-                    </span>
-                  ) : null}
-                  {modalidadeFiltro ? (
-                    <span className="inline-flex items-center rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-900 ring-1 ring-violet-200">
-                      Modalidade: {modalidadeFiltro}
-                    </span>
-                  ) : null}
-                  {ativoFiltro !== 'ativos' ? (
-                    <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs text-slate-700">
-                      Status: {ativoFiltro === 'inativos' ? 'Inativos' : 'Todos'}
-                    </span>
-                  ) : null}
-                  {busca ? (
-                    <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs text-slate-700">
-                      Busca: {busca}
-                    </span>
-                  ) : null}
-                  <button type="button" onClick={limparFiltros} className="text-xs font-semibold text-violet-700 hover:underline">
-                    Limpar filtros
-                  </button>
-                </>
-              )}
-            </div>
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-              <input type="checkbox" checked={soPendencias} onChange={(e) => setSoPendencias(e.target.checked)} className="rounded border-slate-300" />
-              Mostrar apenas linhas com pendência (cadastro incompleto, sem pagamento no mês ou sem vínculo de cadastro)
+        <FilterBar
+          title="Filtros da lista"
+          subtitle={`${mesReferenciaLegivel(monthYear.mes, monthYear.ano)} · 1 clique no preset aplica os filtros`}
+          chips={filtrosAtivos}
+          onClear={limparFiltros}
+        >
+          <PresetsFluxoBar presetAtivo={presetAtivo} onPreset={aplicarPreset} />
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <label className="text-xs font-medium text-slate-600 dark:text-slate-400">
+              Busca
+              <input
+                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                placeholder="Aluno, responsável, pagador…"
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                aria-label="Buscar na lista"
+              />
             </label>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Os mesmos filtros aplicam à <strong>lista unificada</strong> abaixo (cadastro + pagamentos do mês do painel). As opções de aba e modalidade
-              listam <strong>todos</strong> os valores cadastrados, mesmo com filtro ativo — assim você pode trocar de aba sem limpar antes.
-            </p>
+            <label className="text-xs font-medium text-slate-600 dark:text-slate-400">
+              Ordenar por
+              <select
+                className="select-with-chevron mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                value={ordemCampo}
+                onChange={(e) => setOrdemCampo(e.target.value as OrdemListaCampo)}
+                aria-label="Ordenar lista por"
+              >
+                <option value="aluno">Aluno</option>
+                <option value="data_pagamento">Data pagamento</option>
+                <option value="valor_pago">Valor pago</option>
+                <option value="vencimento">Vencimento</option>
+              </select>
+            </label>
+            <label className="text-xs font-medium text-slate-600 dark:text-slate-400">
+              Direção
+              <select
+                className="select-with-chevron mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                value={ordemDirecao}
+                onChange={(e) => setOrdemDirecao(e.target.value as OrdemListaDirecao)}
+                aria-label="Direção da ordenação"
+              >
+                <option value="asc">Crescente (A→Z)</option>
+                <option value="desc">Decrescente (Z→A)</option>
+              </select>
+            </label>
+            <label className="flex cursor-pointer items-end gap-2 pb-2 text-xs font-medium text-slate-700 dark:text-slate-300">
+              <input
+                type="checkbox"
+                checked={mensalColunasExtras}
+                onChange={(e) => setMensalColunasExtras(e.target.checked)}
+                className="rounded border-slate-300"
+              />
+              Mais colunas
+            </label>
           </div>
-        </details>
-
-        <details className="group rounded-2xl border border-slate-200/90 bg-white/95 shadow-sm open:shadow-md dark:border-slate-700 dark:bg-slate-900/90 [&_summary::-webkit-details-marker]:hidden">
-          <summary className="flex cursor-pointer list-none items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50/80 dark:text-slate-100 dark:hover:bg-slate-800/80">
-            <span
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-sm text-slate-500 transition-transform duration-200 group-open:rotate-90 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300"
-              aria-hidden
-            >
-              ›
-            </span>
-            <span className="flex-1">Guia rápido</span>
-            <span className="text-xs font-normal text-slate-500 dark:text-slate-400">legenda</span>
-          </summary>
-          <div className="space-y-2 border-t border-slate-100 px-4 pb-4 pt-3 text-xs leading-relaxed text-slate-600 dark:border-slate-700 dark:text-slate-400">
-            <p className="rounded-xl border border-amber-100 bg-amber-50/80 px-3 py-2 text-amber-950">
-              <strong>Atalho por aba</strong> já abre a aba escolhida e leva para a <strong>Lista do mês</strong>.
-            </p>
-            <p>
-              <strong>Borda âmbar</strong>: sem pagamento no mês. <strong>Borda violeta</strong>: pagamento sem cadastro vinculado.
-            </p>
-            <p>
-              <strong>Duplo clique</strong> em Vencimento ou Valor ref. para edição rápida.
-            </p>
-          </div>
-        </details>
+        </FilterBar>
 
         <section ref={listaMesRef} className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900/80">
           <div className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 px-4 py-2 text-xs text-slate-700 backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-200">
-            Aba: <strong>{abaFiltro || 'Todas'}</strong> | Modalidade: <strong>{modalidadeFiltro || 'Todas'}</strong> | Busca:{' '}
-            <strong>{buscaDebounced || '—'}</strong> ({buscaEscopo}) | Linhas: <strong>{linhasParaLista.length}</strong>
+            Aba: <strong>{abaFiltro || 'Todas'}</strong> · Modalidade: <strong>{modalidadeFiltro || 'Todas'}</strong> · Linhas:{' '}
+            <strong>{linhasParaLista.length}</strong>
+            {buscaDebounced ? (
+              <>
+                {' '}
+                · Busca: <strong>{buscaDebounced}</strong>
+              </>
+            ) : null}
           </div>
-          <div className="flex flex-col gap-3 border-b border-slate-100 bg-gradient-to-r from-slate-50/90 to-white px-4 py-4 dark:border-slate-700 dark:from-slate-900 dark:to-slate-900 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-base font-semibold text-slate-900 dark:text-slate-50">Lista do mês</h2>
-              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                Alunos na consulta: <strong>{totalVisivel}</strong> · Ativos: <strong>{totalAtivos}</strong> · Pagamentos no mês:{' '}
-                <strong>{totalPagamentosMes}</strong> · Linhas exibidas: <strong>{linhasParaLista.length}</strong>
-                {soPendencias ? (
-                  <>
-                    {' '}
-                    · <span className="text-rose-700 dark:text-rose-400">filtro: só pendências</span>
-                  </>
-                ) : null}
-              </p>
-            </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              <strong>Editar pagamento</strong> abre o formulário no centro. A lista abaixo está agrupada por <strong>aba</strong> e{' '}
-              <strong>modalidade</strong> (cada grupo pode ser recolhido).
+          <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-700">
+            <h2 className="text-base font-semibold text-slate-900 dark:text-slate-50">Lista do mês</h2>
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              {mesReferenciaLegivel(monthYear.mes, monthYear.ano)} · Alunos: <strong>{totalVisivel}</strong> · Ativos:{' '}
+              <strong>{totalAtivos}</strong> · Pagamentos: <strong>{totalPagamentosMes}</strong> · Linhas:{' '}
+              <strong>{linhasParaLista.length}</strong>
+            </p>
+            <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+              Modo compacto padrão: Aluno, valor e pagamento visíveis em 1366px. Use os presets acima ou{' '}
+              <a href="#fluxo-filtros-avancados-mensal" className="font-semibold text-violet-700 hover:underline dark:text-violet-300">
+                filtros avançados
+              </a>
+              . Borda âmbar = sem pagamento · violeta = sem cadastro.
             </p>
           </div>
 
@@ -3036,22 +3163,44 @@ export function FluxoCaixaOperacionalPage() {
                             </span>
                           </summary>
                           <div className="overflow-x-auto px-1 pb-2">
-                            <table className="w-full min-w-[980px] text-sm">
+                            <table className={`w-full text-sm ${mensalColunasExtras ? 'min-w-[980px]' : 'min-w-0'}`}>
                               <thead className="bg-slate-100/95 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800/95 dark:text-slate-400">
                                 <tr>
-                                  <th className="px-3 py-2">Aluno</th>
-                                  <th className="px-3 py-2">Venc. (cad.)</th>
+                                  <th className={`px-3 py-2 ${thAlunoSticky}`}>
+                                    <button
+                                      type="button"
+                                      onClick={alternarOrdenacaoAluno}
+                                      className="inline-flex items-center gap-1 hover:text-indigo-700 dark:hover:text-indigo-300"
+                                      title={
+                                        ordemCampo === 'aluno'
+                                          ? `Ordenar alunos ${ordemDirecao === 'asc' ? 'decrescente' : 'crescente'}`
+                                          : 'Ordenar por aluno'
+                                      }
+                                    >
+                                      Aluno
+                                      {ordemCampo === 'aluno' ? (
+                                        <span className="text-indigo-600 dark:text-indigo-400">
+                                          {ordemDirecao === 'asc' ? '▲' : '▼'}
+                                        </span>
+                                      ) : null}
+                                    </button>
+                                  </th>
+                                  {mensalColunasExtras ? <th className="px-3 py-2">Venc. (cad.)</th> : null}
                                   <th className="px-3 py-2">Valor ref.</th>
-                                  <th className="px-3 py-2">Competência</th>
+                                  {mensalColunasExtras ? <th className="px-3 py-2">Competência</th> : null}
                                   <th className="px-3 py-2">Data pagto.</th>
                                   <th className="px-3 py-2">Valor pago</th>
-                                  <th className="px-3 py-2">Forma</th>
-                                  <th className="px-3 py-2">Resp.</th>
-                                  <th className="px-3 py-2">Pagador</th>
-                                  <th className="px-3 py-2">Plano</th>
-                                  <th className="px-3 py-2">Status</th>
+                                  {mensalColunasExtras ? (
+                                    <>
+                                      <th className="px-3 py-2">Forma</th>
+                                      <th className="px-3 py-2">Resp.</th>
+                                      <th className="px-3 py-2">Pagador</th>
+                                      <th className="px-3 py-2">Plano</th>
+                                    </>
+                                  ) : null}
                                   <th className="px-3 py-2">Pendências</th>
                                   <th className="px-3 py-2">Ações</th>
+                                  <th className="px-3 py-2">Status</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-900">
@@ -3070,11 +3219,127 @@ export function FluxoCaixaOperacionalPage() {
             )}
           </div>
         </section>
+
+        <details
+          id="fluxo-filtros-avancados-mensal"
+          className="group rounded-xl border border-slate-200/80 bg-white/90 shadow-sm dark:border-slate-700 dark:bg-slate-900/90 [&_summary::-webkit-details-marker]:hidden"
+        >
+          <summary className="flex cursor-pointer list-none items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50/80 dark:text-slate-200 dark:hover:bg-slate-800/80">
+            <span
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-slate-200 bg-slate-50 text-xs text-slate-500 transition-transform duration-200 group-open:rotate-90 dark:border-slate-600 dark:bg-slate-800"
+              aria-hidden
+            >
+              ›
+            </span>
+            <span className="flex-1">Filtros avançados e ordenação</span>
+            <span className="text-xs font-normal text-slate-500">opcional</span>
+          </summary>
+          <div className="space-y-3 border-t border-slate-100 px-4 pb-4 pt-3 dark:border-slate-700">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                Aba
+                <select
+                  className="select-with-chevron mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  value={abaFiltro}
+                  onChange={(e) => setAbaFiltro(e.target.value)}
+                  aria-label="Filtrar por aba"
+                >
+                  <option value="">Todas as abas</option>
+                  {opcoesAbasFiltro.map((a) => (
+                    <option key={a} value={a}>
+                      {a}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                Modalidade
+                <select
+                  className="select-with-chevron mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  value={modalidadeFiltro}
+                  onChange={(e) => setModalidadeFiltro(e.target.value)}
+                  aria-label="Filtrar por modalidade"
+                >
+                  <option value="">Todas modalidades</option>
+                  {opcoesModalidadesFiltro.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                Cadastro
+                <select
+                  className="select-with-chevron mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  value={ativoFiltro}
+                  onChange={(e) => setAtivoFiltro(e.target.value as 'todos' | 'ativos' | 'inativos')}
+                  aria-label="Ativos ou inativos"
+                >
+                  <option value="ativos">Ativos</option>
+                  <option value="inativos">Inativos</option>
+                  <option value="todos">Todos</option>
+                </select>
+              </label>
+              <label className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                Escopo da busca
+                <select
+                  className="select-with-chevron mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  value={buscaEscopo}
+                  onChange={(e) => setBuscaEscopo(e.target.value as BuscaEscopo)}
+                  aria-label="Escopo da busca"
+                >
+                  <option value="todos">Todos</option>
+                  <option value="aluno">Aluno</option>
+                  <option value="responsavel">Responsável</option>
+                  <option value="pagador">Pagador</option>
+                </select>
+              </label>
+              <label className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                Ordenar por
+                <select
+                  className="select-with-chevron mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  value={ordemCampo}
+                  onChange={(e) => setOrdemCampo(e.target.value as OrdemListaCampo)}
+                  aria-label="Ordenar lista por"
+                >
+                  <option value="aluno">Aluno</option>
+                  <option value="data_pagamento">Data pagamento</option>
+                  <option value="valor_pago">Valor pago</option>
+                  <option value="vencimento">Vencimento</option>
+                </select>
+              </label>
+              <label className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                Direção
+                <select
+                  className="select-with-chevron mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  value={ordemDirecao}
+                  onChange={(e) => setOrdemDirecao(e.target.value as OrdemListaDirecao)}
+                  aria-label="Direção da ordenação"
+                >
+                  <option value="asc">Crescente</option>
+                  <option value="desc">Decrescente</option>
+                </select>
+              </label>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {(abaFiltro || modalidadeFiltro || ativoFiltro !== 'ativos' || busca) && (
+                <button type="button" onClick={limparFiltros} className="text-xs font-semibold text-violet-700 hover:underline dark:text-violet-300">
+                  Limpar todos os filtros
+                </button>
+              )}
+            </div>
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+              <input type="checkbox" checked={soPendencias} onChange={(e) => setSoPendencias(e.target.checked)} className="rounded border-slate-300" />
+              Mostrar apenas linhas com pendência
+            </label>
+          </div>
+        </details>
         </>
         ) : null}
 
         <details
-          className="group rounded-2xl border border-slate-200/90 bg-white/95 shadow-sm open:shadow-md dark:border-slate-700 dark:bg-slate-900/90 [&_summary::-webkit-details-marker]:hidden"
+          className="group rounded-2xl border border-slate-200/90 bg-white/95 shadow-sm dark:border-slate-700 dark:bg-slate-900/90 [&_summary::-webkit-details-marker]:hidden"
           onToggle={(e) => setHistoricoAberto((e.target as HTMLDetailsElement).open)}
         >
           <summary className="flex cursor-pointer list-none items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50/80 dark:text-slate-100 dark:hover:bg-slate-800/80">

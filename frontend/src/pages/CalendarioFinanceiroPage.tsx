@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Topbar } from '../app/Topbar';
+import { ValidacaoCalendarioGuia } from '../components/validacao/ValidacaoCalendarioGuia';
 import {
   createValidacaoVinculo,
   deleteValidacaoVinculo,
@@ -292,12 +293,30 @@ export function CalendarioFinanceiroPage() {
   return (
     <div className="p-6">
       <Topbar
-        title="Calendário financeiro"
-        subtitle="Por dia: entradas no banco (oficiais) vs pagamentos na planilha FLUXO BYLA pela data de pagamento."
+        title="Validação — calendário mensal"
+        subtitle="Visão do mês: totais por dia (fluxo/planilha × banco). Clique no dia para validar no detalhe diário."
       />
 
-      <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
-        <strong className="text-slate-900">Legenda de status:</strong>{' '}
+      <ValidacaoCalendarioGuia variant="calendario" dataIso={modalDia?.data ?? lastDiaClicado ?? undefined} />
+
+      {payload?.meta?.fonte_pagamentos ? (
+        <p className="mt-3 text-xs text-slate-600 dark:text-slate-400">
+          Pagamentos do mês:{' '}
+          <strong className="text-slate-800 dark:text-slate-200">
+            {payload.meta.fonte_pagamentos === 'fluxo_operacional' ? 'Fluxo (Supabase)' : 'Planilha Google'}
+          </strong>
+          {' '}
+          — mesma fonte da validação dia a dia (fluxo operacional, não planilha Google).
+        </p>
+      ) : null}
+      {payload?.planilha_aviso ? (
+        <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+          {payload.planilha_aviso}
+        </div>
+      ) : null}
+
+      <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-300">
+        <strong className="text-slate-900 dark:text-slate-100">Legenda de status:</strong>{' '}
         <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5">OK</span> conferido ·{' '}
         <span className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5">Atenção</span> revisar ·{' '}
         <span className="rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5">Divergente</span> planilha × banco · passe o mouse no dia para detalhes.
@@ -543,9 +562,9 @@ export function CalendarioFinanceiroPage() {
               <div className="flex gap-2">
                 <Link
                   to={`/validacao-pagamentos-diaria?data=${encodeURIComponent(modalDia.data)}`}
-                  className="px-3 py-1.5 text-xs rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
+                  className="px-3 py-1.5 text-xs rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
                 >
-                  Validação deste dia
+                  Validar este dia →
                 </Link>
                 <button
                   type="button"

@@ -13,6 +13,13 @@ import { useToast } from '../context/ToastContext';
 import { ApiErrorPanel } from '../components/ui/ApiErrorPanel';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { Link } from 'react-router-dom';
+import {
+  formatDeltaBrl,
+  formatPctChange,
+  labelMesAno,
+  mesExtenso,
+  previousMonth,
+} from '../logic/overviewDashboard';
 
 type DraftState = {
   abaRef: string;
@@ -66,6 +73,19 @@ function normalizeText(value: string): string {
 
 function sumBloco(bloco: ControleCaixaBloco): number {
   return bloco.linhas.reduce((acc, linha) => acc + (linha.valor ?? 0), 0);
+}
+
+function trendFromDelta(current: number | null, prev: number | null): 'up' | 'down' | 'neutral' {
+  if (current == null || prev == null) return 'neutral';
+  if (current > prev) return 'up';
+  if (current < prev) return 'down';
+  return 'neutral';
+}
+
+function pctHelperClass(trend: 'up' | 'down' | 'neutral', invert = false): string {
+  if (trend === 'neutral') return 'text-slate-500 dark:text-slate-400';
+  const good = invert ? trend === 'down' : trend === 'up';
+  return good ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300';
 }
 
 function createDefaultDraft(): DraftState {
@@ -222,9 +242,22 @@ export function ControleCaixaPage() {
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [defaultEditDecision, setDefaultEditDecision] = useState<DefaultEditDecision>(null);
 
+  const mesAnterior = useMemo(
+    () => previousMonth(monthYear.mes, monthYear.ano),
+    [monthYear.mes, monthYear.ano],
+  );
+  const prevLabel = labelMesAno(mesAnterior.mes, mesAnterior.ano);
+  const relatorioMesHref = `/relatorios-ia?tipo=mensal_operacional&mes=${monthYear.mes}&ano=${monthYear.ano}`;
+
   const controleQuery = useQuery({
     queryKey: ['controle-caixa', monthYear.mes, monthYear.ano],
     queryFn: () => getControleCaixa(monthYear.mes, monthYear.ano),
+  });
+
+  const controlePrevQuery = useQuery({
+    queryKey: ['controle-caixa', mesAnterior.mes, mesAnterior.ano],
+    queryFn: () => getControleCaixa(mesAnterior.mes, mesAnterior.ano),
+    staleTime: 5 * 60 * 1000,
   });
 
   useEffect(() => {
@@ -232,6 +265,10 @@ export function ControleCaixaPage() {
       setDraft(cloneState(controleQuery.data));
     }
   }, [controleQuery.data]);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [monthYear.mes, monthYear.ano]);
 
   const saveMutation = useMutation({
     mutationFn: (state: DraftState) =>
@@ -334,6 +371,12 @@ export function ControleCaixaPage() {
     return Number.isNaN(d.getTime()) ? 'Ainda não salvo' : d.toLocaleString('pt-BR');
   }, [controleQuery.data?.updatedAt]);
 
+  const totaisMesAnterior = controlePrevQuery.data?.totais;
+  const entradaPrev = totaisMesAnterior?.entradaTotal ?? null;
+  const saidaPrev = totaisMesAnterior?.saidaTotal ?? null;
+  const lucroPrev = totaisMesAnterior?.lucroTotal ?? null;
+  const temComparacaoMesAnterior = controlePrevQuery.isSuccess && totaisMesAnterior != null;
+
   function applyDefaultDecisionConvertToCustom() {
     if (!defaultEditDecision) return;
     setDraft((prev) => {
@@ -384,21 +427,11 @@ export function ControleCaixaPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="max-w-full overflow-x-hidden p-6 space-y-5">
       <Topbar
         title="Controle de Caixa"
-        subtitle="Estrutura padrão mensal com liberdade para customização. Todos os meses ficam salvos para consulta."
-        childrenRight={
-          <div className="flex items-center gap-2">
-            <MonthYearPicker />
-            <Link
-              to={`/relatorios-ia?tipo=mensal_operacional&mes=${monthYear.mes}&ano=${monthYear.ano}`}
-              className="rounded-md border border-rose-300 bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700"
-            >
-              Relatório do mês
-            </Link>
-          </div>
-        }
+        subtitle="Fechamento do mês — comece pelo resumo no topo; expanda os blocos abaixo para lançar valores."
+        childrenRight={<MonthYearPicker />}
       />
 
       {controleQuery.isLoading && <div className="text-sm text-gray-500">Carregando dados do mês...</div>}
@@ -411,100 +444,150 @@ export function ControleCaixaPage() {
 
       {draft && (
         <>
-          <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
-              <p className="text-xs font-semibold text-emerald-700">Entradas</p>
-              <p className="mt-1 text-lg font-semibold text-emerald-900">{formatNullableCurrency(totaisCalculados.entradaTotal) || 'R$ 0,00'}</p>
-            </div>
-            <div className="rounded-xl border border-rose-200 bg-rose-50/70 p-4">
-              <p className="text-xs font-semibold text-rose-700">Saídas</p>
-              <p className="mt-1 text-lg font-semibold text-rose-900">{formatNullableCurrency(totaisCalculados.saidaTotal) || 'R$ 0,00'}</p>
-            </div>
-            <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-4">
-              <p className="text-xs font-semibold text-indigo-700">Resultado</p>
-              <p className="mt-1 text-lg font-semibold text-indigo-900">{formatNullableCurrency(totaisCalculados.lucroTotal) || 'R$ 0,00'}</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
-              <p className="text-xs font-semibold text-slate-600">Última atualização</p>
-              <p className="mt-1 text-sm font-medium text-slate-900">{lastUpdateLabel}</p>
-              <p className="mt-1 text-xs text-slate-600">{isDirty ? 'Rascunho com alterações não salvas' : 'Sincronizado com Supabase'}</p>
-            </div>
-          </section>
-
-          <section className="rounded-xl border border-slate-200 bg-white p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+          <section
+            className="sticky top-0 z-20 -mx-1 rounded-xl border border-slate-200 bg-white/95 p-3 shadow-md backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/95"
+            aria-label="Resumo do fechamento"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
-                <h2 className="text-sm font-semibold text-slate-800">Saúde da estrutura</h2>
-                <p className="text-xs text-slate-500">
-                  Blocos: {stats.totalBlocos} ({stats.defaultBlocos} padrão) · Linhas: {stats.totalLinhas} · Customizadas: {stats.customLinhas}
-                </p>
+                <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-50">Resumo do fechamento</h2>
+                <p className="text-xs text-slate-600 dark:text-slate-400">{mesExtenso(monthYear.mes, monthYear.ano)}</p>
               </div>
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                Padrão preservado: {stats.percentPreservado}%
-              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
+                    isDirty
+                      ? 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200'
+                      : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200'
+                  }`}
+                >
+                  {isDirty ? 'Rascunho não salvo' : 'Salvo'}
+                </span>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">{lastUpdateLabel}</span>
+                <Link
+                  to={relatorioMesHref}
+                  className="rounded-lg border border-rose-300 bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700"
+                >
+                  Ir para relatório do mês →
+                </Link>
+              </div>
             </div>
+
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2 dark:border-emerald-800 dark:bg-emerald-950/30">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-200">
+                  Entradas
+                </p>
+                <p className="mt-0.5 text-xl font-bold tabular-nums text-emerald-950 dark:text-emerald-50">
+                  {formatNullableCurrency(totaisCalculados.entradaTotal) || 'R$ 0,00'}
+                </p>
+                {temComparacaoMesAnterior ? (
+                  <p
+                    className={`mt-0.5 text-[11px] font-medium ${pctHelperClass(
+                      trendFromDelta(totaisCalculados.entradaTotal, entradaPrev),
+                    )}`}
+                  >
+                    vs {prevLabel}: {formatPctChange(totaisCalculados.entradaTotal, entradaPrev) ?? '—'}
+                  </p>
+                ) : controlePrevQuery.isLoading ? (
+                  <p className="mt-0.5 text-[11px] text-slate-500">Comparando com mês anterior…</p>
+                ) : null}
+              </div>
+              <div className="rounded-lg border border-rose-200 bg-rose-50/80 px-3 py-2 dark:border-rose-800 dark:bg-rose-950/30">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-rose-800 dark:text-rose-200">Saídas</p>
+                <p className="mt-0.5 text-xl font-bold tabular-nums text-rose-950 dark:text-rose-50">
+                  {formatNullableCurrency(totaisCalculados.saidaTotal) || 'R$ 0,00'}
+                </p>
+                {temComparacaoMesAnterior ? (
+                  <p
+                    className={`mt-0.5 text-[11px] font-medium ${pctHelperClass(
+                      trendFromDelta(totaisCalculados.saidaTotal, saidaPrev),
+                      true,
+                    )}`}
+                  >
+                    vs {prevLabel}: {formatPctChange(totaisCalculados.saidaTotal, saidaPrev) ?? '—'}
+                  </p>
+                ) : controlePrevQuery.isLoading ? (
+                  <p className="mt-0.5 text-[11px] text-slate-500">Comparando com mês anterior…</p>
+                ) : null}
+              </div>
+              <div className="rounded-lg border border-indigo-200 bg-indigo-50/80 px-3 py-2 dark:border-indigo-800 dark:bg-indigo-950/30">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-indigo-800 dark:text-indigo-200">
+                  Resultado
+                </p>
+                <p className="mt-0.5 text-xl font-bold tabular-nums text-indigo-950 dark:text-indigo-50">
+                  {formatNullableCurrency(totaisCalculados.lucroTotal) || 'R$ 0,00'}
+                </p>
+                {temComparacaoMesAnterior ? (
+                  <p
+                    className={`mt-0.5 text-[11px] font-medium ${pctHelperClass(
+                      trendFromDelta(totaisCalculados.lucroTotal, lucroPrev),
+                    )}`}
+                  >
+                    vs {prevLabel}: {formatDeltaBrl(totaisCalculados.lucroTotal, lucroPrev) ?? '—'}
+                  </p>
+                ) : controlePrevQuery.isLoading ? (
+                  <p className="mt-0.5 text-[11px] text-slate-500">Comparando com mês anterior…</p>
+                ) : null}
+              </div>
+            </div>
+
+            <details className="mt-2 rounded-lg border border-slate-200/80 bg-slate-50/60 dark:border-slate-700 dark:bg-slate-800/40">
+              <summary className="cursor-pointer px-2.5 py-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                Detalhar por bloco (opcional)
+              </summary>
+              <div className="grid gap-2 border-t border-slate-200/80 p-2 lg:grid-cols-2 dark:border-slate-700">
+                <ul className="space-y-0.5 text-xs text-emerald-900 dark:text-emerald-100">
+                  {totaisPorBloco.entradas.map((b) => (
+                    <li key={`ent-${b.titulo}`} className="flex justify-between gap-2">
+                      <span className="truncate">{b.titulo}</span>
+                      <span className="shrink-0 font-semibold tabular-nums">{formatNullableCurrency(b.total) || '—'}</span>
+                    </li>
+                  ))}
+                </ul>
+                <ul className="space-y-0.5 text-xs text-rose-900 dark:text-rose-100">
+                  {totaisPorBloco.saidas.map((b) => (
+                    <li key={`sai-${b.titulo}`} className="flex justify-between gap-2">
+                      <span className="truncate">{b.titulo}</span>
+                      <span className="shrink-0 font-semibold tabular-nums">{formatNullableCurrency(b.total) || '—'}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </details>
           </section>
 
-          <section className="bg-white rounded-xl border border-slate-200 p-4 space-y-4">
-            <h2 className="text-sm font-semibold text-slate-800">Cabeçalho e totais</h2>
-            <div className="grid gap-2 md:grid-cols-3">
-              {[
-                ['entradaTotal', 'Entrada total'],
-                ['saidaTotal', 'Saída total'],
-                ['lucroTotal', 'Lucro total'],
-              ].map(([key, label]) => (
-                <label key={key} className="rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-700">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">{label}</span>
-                  <input
-                    value={formatNullableCurrency(totaisCalculados[key as keyof DraftState['totais']])}
-                    readOnly
-                    className="mt-0.5 w-full border-none bg-transparent px-0 py-0 text-sm font-medium text-slate-700 focus:outline-none"
-                  />
-                </label>
-              ))}
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-1">
-              <label className="text-sm text-slate-700">
+          <details className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+            <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200">
+              Saúde da estrutura e aba de referência
+            </summary>
+            <div className="space-y-3 border-t border-slate-100 px-4 pb-4 pt-3 dark:border-slate-700">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+                <span>
+                  Blocos: {stats.totalBlocos} ({stats.defaultBlocos} padrão) · Linhas: {stats.totalLinhas} · Customizadas:{' '}
+                  {stats.customLinhas}
+                </span>
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 font-medium">Padrão: {stats.percentPreservado}%</span>
+              </div>
+              <label className="block text-sm text-slate-700 dark:text-slate-300">
                 Aba de referência
                 <input
                   value={draft.abaRef}
                   onChange={(e) => setDraft((prev) => (prev ? { ...prev, abaRef: e.target.value } : prev))}
-                  className="mt-1 w-full rounded border border-slate-300 px-2 py-1.5"
+                  className="mt-1 w-full max-w-md rounded border border-slate-300 px-2 py-1.5 dark:border-slate-600 dark:bg-slate-800"
                 />
               </label>
             </div>
-
-            <div className="grid gap-3 lg:grid-cols-2">
-              <div className="rounded-lg border-2 border-emerald-300 bg-emerald-50 p-3 shadow-sm">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Totais por bloco de entrada</h3>
-                <ul className="mt-2 space-y-1.5 text-sm text-emerald-900">
-                  {totaisPorBloco.entradas.map((b) => (
-                    <li key={`ent-${b.titulo}`} className="flex items-center justify-between gap-2">
-                      <span className="truncate font-medium">{b.titulo}</span>
-                      <span className="rounded bg-emerald-100 px-2 py-0.5 font-bold">{formatNullableCurrency(b.total) || 'R$ 0,00'}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div className="rounded-lg border-2 border-rose-300 bg-rose-50 p-3 shadow-sm">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-rose-700">Totais por bloco de saída</h3>
-                <ul className="mt-2 space-y-1.5 text-sm text-rose-900">
-                  {totaisPorBloco.saidas.map((b) => (
-                    <li key={`sai-${b.titulo}`} className="flex items-center justify-between gap-2">
-                      <span className="truncate font-medium">{b.titulo}</span>
-                      <span className="rounded bg-rose-100 px-2 py-0.5 font-bold">{formatNullableCurrency(b.total) || 'R$ 0,00'}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-            <p className="text-xs text-slate-500">Totais do cabeçalho são calculados automaticamente pela soma das linhas (não editável manualmente).</p>
-          </section>
+          </details>
 
           <section className="bg-white rounded-xl border border-slate-200 p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-800">Blocos e linhas</h2>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Lançamentos do mês</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Expanda o bloco desejado e edite o <strong>valor</strong> na linha.
+                </p>
+              </div>
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -570,13 +653,27 @@ export function ControleCaixaPage() {
             )}
 
             {draft.blocos.map((bloco, blocoIdx) => (
-              <div
+              <details
                 key={`${bloco.tipo}-${blocoIdx}`}
-                className={`rounded-lg border p-3 space-y-3 ${
+                className={`rounded-lg border ${
                   bloco.tipo === 'entrada' ? 'border-emerald-200 bg-emerald-50/30' : 'border-rose-200 bg-rose-50/30'
                 }`}
               >
-                <div className="flex items-center gap-2">
+                <summary className="cursor-pointer list-none px-3 py-2.5 [&::-webkit-details-marker]:hidden">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                      {bloco.titulo || 'Sem título'}
+                      <span className="ml-2 text-xs font-normal text-slate-500">
+                        ({bloco.tipo === 'entrada' ? 'entrada' : 'saída'} · {bloco.linhas.length} linha(s))
+                      </span>
+                    </span>
+                    <span className="text-sm font-bold tabular-nums text-slate-900 dark:text-slate-50">
+                      {formatNullableCurrency(sumBloco(bloco)) || 'R$ 0,00'}
+                    </span>
+                  </div>
+                </summary>
+                <div className="space-y-3 border-t border-slate-200/80 p-3 dark:border-slate-600">
+                <div className="flex flex-wrap items-center gap-2">
                   {bloco.isDefault ? (
                     <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">Padrão</span>
                   ) : null}
@@ -584,7 +681,7 @@ export function ControleCaixaPage() {
                     <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-900">Customizado</span>
                   ) : null}
                 </div>
-                <div className="grid gap-2 md:grid-cols-3">
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   <label className="text-sm text-slate-700">
                     Tipo
                     <select
@@ -633,12 +730,15 @@ export function ControleCaixaPage() {
 
                 <div className="space-y-2">
                   {bloco.linhas.map((linha, linhaIdx) => (
-                    <div key={`${blocoIdx}-${linhaIdx}`} className="grid gap-2 md:grid-cols-12">
-                      <div className="md:col-span-1 flex items-center justify-center">
+                    <div
+                      key={`${blocoIdx}-${linhaIdx}`}
+                      className="flex flex-col gap-2 rounded-md border border-slate-200/80 bg-white/80 p-2 sm:flex-row sm:items-center dark:border-slate-600 dark:bg-slate-900/40"
+                    >
+                      <div className="flex shrink-0 items-center gap-1 sm:w-8 sm:justify-center">
                         {linha.isDefault ? (
-                          <span className="rounded bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-900">P</span>
+                          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900">P</span>
                         ) : linha.isCustom ? (
-                          <span className="rounded bg-violet-100 px-2 py-0.5 text-[10px] font-medium text-violet-900">C</span>
+                          <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium text-violet-900">C</span>
                         ) : null}
                       </div>
                       <input
@@ -653,7 +753,7 @@ export function ControleCaixaPage() {
                             return { ...prev, blocos };
                           })
                         }
-                        className="md:col-span-4 rounded border border-slate-300 px-2 py-1.5 text-sm"
+                        className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800"
                         onBlur={(e) => {
                           const valor = e.target.value.trim();
                           if (linha.isDefault && valor && valor !== (controleQuery.data?.blocos[blocoIdx]?.linhas[linhaIdx]?.label ?? '')) {
@@ -666,7 +766,8 @@ export function ControleCaixaPage() {
                             });
                           }
                         }}
-                        placeholder="Label"
+                        placeholder="Descrição"
+                        aria-label="Descrição da linha"
                       />
                       <input
                         value={formatNullableCurrency(linha.valor)}
@@ -684,9 +785,10 @@ export function ControleCaixaPage() {
                             return { ...prev, blocos };
                           })
                         }
-                        className="md:col-span-5 rounded border border-slate-300 px-2 py-1.5 text-sm"
+                        className="w-full shrink-0 rounded border border-slate-300 px-2 py-1.5 text-sm tabular-nums sm:w-40 dark:border-slate-600 dark:bg-slate-800"
                         placeholder="R$ 0,00"
                         inputMode="decimal"
+                        aria-label={`Valor — ${linha.label}`}
                       />
                       <button
                         type="button"
@@ -699,20 +801,12 @@ export function ControleCaixaPage() {
                             strong: linha.lockedLevel === 'strong' || linha.isDefault === true,
                           })
                         }
-                        className="md:col-span-1 rounded border border-rose-300 bg-rose-50 px-2 py-1.5 text-xs text-rose-700"
+                        className="shrink-0 rounded border border-rose-300 bg-rose-50 px-2 py-1.5 text-xs text-rose-700 dark:border-rose-800 dark:bg-rose-950/40"
                       >
                         Remover
                       </button>
                     </div>
                   ))}
-                </div>
-
-                <div className={`rounded-md border px-3 py-2 text-sm font-semibold ${
-                  bloco.tipo === 'entrada'
-                    ? 'border-emerald-300 bg-emerald-100/70 text-emerald-900'
-                    : 'border-rose-300 bg-rose-100/70 text-rose-900'
-                }`}>
-                  Total do bloco: {formatNullableCurrency(sumBloco(bloco)) || 'R$ 0,00'}
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -756,7 +850,8 @@ export function ControleCaixaPage() {
                     Excluir bloco
                   </button>
                 </div>
-              </div>
+                </div>
+              </details>
             ))}
           </section>
 

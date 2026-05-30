@@ -1,10 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getSupabase } from '../services/supabaseClient.js';
-import { listSheetNames } from '../services/sheetsService.js';
-import { config } from '../config.js';
-import { lerPagamentosPorAbaEAno } from '../services/planilhaPagamentos.js';
-import { isEligibleSheet } from '../businessRules.js';
 import { filtrarTransacoesOficiais } from '../services/transacoesFiltro.js';
+import { carregarItensMesParaValidacao } from '../services/fluxoValidacaoPlanilhaItens.js';
 import {
   dataIsoQuerySchema,
   mesAnoQuerySchema,
@@ -106,52 +103,14 @@ router.get('/calendario-financeiro', async (req: Request, res: Response) => {
       porDiaBanco.set(d, arr);
     }
 
-    const idPlanilha = config.sheets.spreadsheetId;
-    let planilha_aviso: string | undefined;
+    const carregado = await carregarItensMesParaValidacao(mes, ano);
+    const planilha_aviso = carregado.erro;
     const porDiaPlanilha = new Map<string, PlanilhaItem[]>();
-
-    if (!idPlanilha) {
-      planilha_aviso = 'Planilha FLUXO BYLA não configurada.';
-    } else {
-      const { names, error: abasError } = await listSheetNames(idPlanilha);
-      if (abasError) {
-        planilha_aviso = abasError;
-      } else {
-        const abasElegiveis = names.filter((n) => isEligibleSheet(n));
-        const prefixMes = `${ano}-${String(mes).padStart(2, '0')}`;
-        for (const aba of abasElegiveis) {
-          const { alunos, error: errAba } = await lerPagamentosPorAbaEAno(aba, ano);
-          if (errAba) continue;
-          for (const a of alunos) {
-            const mod = a.modalidade ?? aba;
-            for (const p of a.pagamentos ?? []) {
-              const pd = (p.data ?? '').slice(0, 10);
-              if (!pd.startsWith(prefixMes)) continue;
-              const item: PlanilhaItem = {
-                id: `${aba}::${a.linha}::${a.aluno}::${p.data}::${p.valor}::${p.forma}`,
-                aba,
-                modalidade: mod,
-                aluno: a.aluno,
-                linha: a.linha,
-                data: p.data,
-                forma: p.forma,
-                valor: Number(p.valor || 0),
-                mesCompetencia: Number((p as { mesCompetencia?: number }).mesCompetencia ?? p.mes ?? 0),
-                anoCompetencia: Number((p as { anoCompetencia?: number }).anoCompetencia ?? p.ano ?? 0),
-                responsaveis: Array.isArray((p as { responsaveis?: string[] }).responsaveis)
-                  ? (p as { responsaveis: string[] }).responsaveis
-                  : [],
-                pagadorPix: (p as { pagadorPix?: string }).pagadorPix
-                  ? String((p as { pagadorPix?: string }).pagadorPix)
-                  : undefined,
-              };
-              const arr = porDiaPlanilha.get(pd) ?? [];
-              arr.push(item);
-              porDiaPlanilha.set(pd, arr);
-            }
-          }
-        }
-      }
+    for (const item of carregado.itens) {
+      const pd = item.data.slice(0, 10);
+      const arr = porDiaPlanilha.get(pd) ?? [];
+      arr.push(item);
+      porDiaPlanilha.set(pd, arr);
     }
 
     const vinculosMes = await listVinculosMes(mes, ano);
@@ -211,6 +170,7 @@ router.get('/calendario-financeiro', async (req: Request, res: Response) => {
       dias,
       totais_mes,
       status_contagem,
+      meta: { fonte_pagamentos: carregado.fonte },
       ...(planilha_aviso ? { planilha_aviso } : {}),
     });
   } catch (e) {

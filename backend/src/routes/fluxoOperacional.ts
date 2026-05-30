@@ -4,6 +4,7 @@ import { getSupabase } from '../services/supabaseClient.js';
 import { parseBody, parseQuery } from '../validation/apiQuery.js';
 import { computeFluxoDivergencias } from '../services/fluxoOperacionalDivergencias.js';
 import { isFluxoPrimaryForValidacao } from '../services/fluxoPrimarySource.js';
+import { carregarIndiceValidacaoFluxoAno } from '../services/fluxoValidacaoPlanilhaItens.js';
 
 const fluxoAlunosListQuerySchema = z.object({
   aba: z.string().trim().optional(),
@@ -1075,7 +1076,28 @@ export default function createFluxoOperacionalRouter(): Router {
     }
   });
 
-  /** Metadados de abas/modalidades para filtros (validação diária usa fluxo quando BYLA_SOURCE_FLUXO_PRIMARY=true). */
+  /**
+   * Índice do ano para validação diária: datas com totais + abas/modalidades.
+   * Mesma fonte (fluxo_pagamentos_operacionais) que GET /validacao-pagamentos-diaria.
+   */
+  router.get('/fluxo-operacional/validacao-indice-ano', async (req: Request, res: Response) => {
+    const q = parseQuery(
+      z.object({
+        ano: z.coerce.number().int().min(2000).max(2100),
+        aba: z.string().optional().default('TODAS'),
+        modalidade: z.string().optional(),
+      }),
+      req.query as Record<string, unknown>
+    );
+    if (!q.ok) return res.status(400).json({ error: q.message });
+
+    const abaReq = (q.data.aba ?? 'TODAS').trim() || 'TODAS';
+    const modalidadeReq = (q.data.modalidade ?? '').trim();
+    const indice = await carregarIndiceValidacaoFluxoAno(q.data.ano, abaReq, modalidadeReq);
+    return res.json(indice);
+  });
+
+  /** Legado: preferir validacao-indice-ano. Mantido para compatibilidade. */
   router.get('/fluxo-operacional/pagamentos-meta-ano', async (req: Request, res: Response) => {
     const q = parseQuery(
       z.object({ ano: z.coerce.number().int().min(2000).max(2100) }),
@@ -1088,41 +1110,71 @@ export default function createFluxoOperacionalRouter(): Router {
 
     const { data, error } = await supabase
       .from('fluxo_pagamentos_operacionais')
-      .select('aba, modalidade, aluno_nome, linha_planilha')
+      .select(
+        'aba, modalidade, aluno_nome, linha_planilha, data_pagamento, forma, valor, mes_competencia, ano_competencia, responsaveis, pagador_pix'
+      )
       .gte('data_pagamento', `${q.data.ano}-01-01`)
       .lte('data_pagamento', `${q.data.ano}-12-31`)
-      .limit(8000);
+      .order('data_pagamento', { ascending: false })
+      .limit(12000);
     if (error) return res.status(500).json({ error: error.message });
 
-    const porAba = new Map<string, Map<string, Set<string>>>();
+    type PagRow = {
+      data: string;
+      forma: string;
+      valor: number;
+      mes: number;
+      ano: number;
+      mesCompetencia: number;
+      anoCompetencia: number;
+      responsaveis: string[];
+      pagadorPix?: string;
+    };
+    type AlunoAgg = { aluno: string; modalidade: string; linha: number; pagamentos: PagRow[] };
+    const porAba = new Map<string, Map<string, AlunoAgg>>();
+
     for (const row of data ?? []) {
       const aba = String(row.aba ?? '').trim();
       const mod = String(row.modalidade ?? aba).trim();
       const aluno = String(row.aluno_nome ?? '').trim();
-      if (!aba) continue;
+      const linha = Number(row.linha_planilha ?? 0);
+      const dataPg = String(row.data_pagamento ?? '').slice(0, 10);
+      if (!aba || !aluno || !dataPg) continue;
+
+      const chaveAluno = `${linha}::${mod}::${aluno}`;
       if (!porAba.has(aba)) porAba.set(aba, new Map());
-      const mods = porAba.get(aba)!;
-      if (!mods.has(mod)) mods.set(mod, new Set());
-      if (aluno) mods.get(mod)!.add(aluno);
+      const alunosMap = porAba.get(aba)!;
+      if (!alunosMap.has(chaveAluno)) {
+        alunosMap.set(chaveAluno, { aluno, modalidade: mod, linha, pagamentos: [] });
+      }
+      const mesComp = Number(row.mes_competencia ?? 0) || Number(dataPg.slice(5, 7));
+      const anoComp = Number(row.ano_competencia ?? 0) || Number(dataPg.slice(0, 4));
+      alunosMap.get(chaveAluno)!.pagamentos.push({
+        data: dataPg,
+        forma: row.forma != null ? String(row.forma) : '',
+        valor: Number(row.valor || 0),
+        mes: mesComp,
+        ano: anoComp,
+        mesCompetencia: mesComp,
+        anoCompetencia: anoComp,
+        responsaveis: row.responsaveis ? [String(row.responsaveis)] : [],
+        pagadorPix: row.pagador_pix ? String(row.pagador_pix) : undefined,
+      });
     }
 
     const abas = Array.from(porAba.entries())
-      .map(([aba, mods]) => ({
+      .map(([aba, alunosMap]) => ({
         aba,
-        alunos: Array.from(mods.entries()).flatMap(([modalidade, nomes]) =>
-          Array.from(nomes).map((aluno) => ({
-            aluno,
-            modalidade,
-            linha: 0,
-            pagamentos: [] as unknown[],
-          }))
+        ano: q.data.ano,
+        alunos: Array.from(alunosMap.values()).sort((a, b) =>
+          a.aluno.localeCompare(b.aluno, 'pt-BR', { sensitivity: 'base' })
         ),
       }))
       .sort((a, b) => a.aba.localeCompare(b.aba, 'pt-BR'));
 
     return res.json({
       ano: q.data.ano,
-      fonte: isFluxoPrimaryForValidacao() ? 'fluxo_operacional' : 'fluxo_operacional',
+      fonte: 'fluxo_operacional',
       abas,
     });
   });
