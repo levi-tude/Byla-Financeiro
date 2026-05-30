@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { PeriodoMesCalendarioPopover } from '../components/transacoes/PeriodoMesCalendarioPopover';
+import { ResumoDiaValorHover, type ResumoDiaLinhaDetalhe } from '../components/transacoes/ResumoDiaValorHover';
 import { TransacoesDailyFlowChart } from '../components/charts/TransacoesDailyFlowChart';
 import { Topbar } from '../app/Topbar';
-import { KpiCard } from '../components/ui/KpiCard';
 import { useMonthYear } from '../context/MonthYearContext';
 import { getTransacoesPorMes, type TransacaoItem } from '../services/backendApi';
+import { FilterBar } from '../components/finance/FilterBar';
+import { KpiStrip } from '../components/finance/KpiStrip';
+import { DataTable } from '../components/finance/DataTable';
+import { StatusBadge } from '../components/finance/StatusBadge';
+import { EmptyState, ErrorPanel, LoadingRow } from '../components/finance/StateBlocks';
 
 const METODOS: Array<TransacaoItem['metodo']> = [
   'PIX',
@@ -44,6 +49,79 @@ function ordenarDatasIso(a: string, b: string): { min: string; max: string } {
   return a <= b ? { min: a, max: b } : { min: b, max: a };
 }
 
+type SavedView = {
+  id: string;
+  nome: string;
+  fixa?: boolean;
+  filtros: {
+    tipo: 'todos' | 'entrada' | 'saida';
+    metodo: string;
+    busca: string;
+    periodoModo: 'mes' | 'periodo';
+    periodoInicio: string;
+    periodoFim: string;
+  };
+};
+
+const SAVED_VIEWS_KEY = 'byla.transacoes.savedViews.v1';
+const DEFAULT_SAVED_VIEWS: SavedView[] = [
+  {
+    id: 'view-mes-completo',
+    nome: 'Mês completo',
+    fixa: true,
+    filtros: {
+      tipo: 'todos',
+      metodo: '',
+      busca: '',
+      periodoModo: 'mes',
+      periodoInicio: '',
+      periodoFim: '',
+    },
+  },
+  {
+    id: 'view-entradas-pix',
+    nome: 'Entradas PIX',
+    fixa: true,
+    filtros: {
+      tipo: 'entrada',
+      metodo: 'PIX',
+      busca: '',
+      periodoModo: 'mes',
+      periodoInicio: '',
+      periodoFim: '',
+    },
+  },
+  {
+    id: 'view-saidas',
+    nome: 'Saídas do mês',
+    fixa: true,
+    filtros: {
+      tipo: 'saida',
+      metodo: '',
+      busca: '',
+      periodoModo: 'mes',
+      periodoInicio: '',
+      periodoFim: '',
+    },
+  },
+];
+
+function garantirViewsPadrao(views: SavedView[]): SavedView[] {
+  const map = new Map(views.map((v) => [v.id, v] as const));
+  for (const base of DEFAULT_SAVED_VIEWS) {
+    const atual = map.get(base.id);
+    if (!atual) {
+      map.set(base.id, base);
+      continue;
+    }
+    map.set(base.id, { ...base, filtros: atual.filtros, fixa: true });
+  }
+  const merged = [...map.values()];
+  const fixas = merged.filter((v) => v.fixa).sort((a, b) => DEFAULT_SAVED_VIEWS.findIndex((d) => d.id === a.id) - DEFAULT_SAVED_VIEWS.findIndex((d) => d.id === b.id));
+  const custom = merged.filter((v) => !v.fixa);
+  return [...fixas, ...custom];
+}
+
 export function TransacoesPage() {
   const { monthYear } = useMonthYear();
   const [tipo, setTipo] = useState<'todos' | 'entrada' | 'saida'>('todos');
@@ -56,6 +134,8 @@ export function TransacoesPage() {
   /** Primeiro clique aguardando o segundo (mesmo mês). */
   const [periodoCliquePendente, setPeriodoCliquePendente] = useState<string | null>(null);
   const [calendarioAberto, setCalendarioAberto] = useState(false);
+  const [savedViews, setSavedViews] = useState<SavedView[]>([]);
+  const [novaViewNome, setNovaViewNome] = useState('');
   const calendarioPopoverRef = useRef<HTMLDivElement>(null);
   const calendarioTriggerRef = useRef<HTMLDivElement>(null);
 
@@ -91,6 +171,28 @@ export function TransacoesPage() {
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
   }, [calendarioAberto]);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(SAVED_VIEWS_KEY);
+      if (!raw) {
+        setSavedViews(garantirViewsPadrao(DEFAULT_SAVED_VIEWS));
+        return;
+      }
+      const parsed = JSON.parse(raw) as SavedView[];
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        setSavedViews(garantirViewsPadrao(parsed));
+      } else {
+        setSavedViews(garantirViewsPadrao(DEFAULT_SAVED_VIEWS));
+      }
+    } catch {
+      setSavedViews(garantirViewsPadrao(DEFAULT_SAVED_VIEWS));
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(savedViews));
+  }, [savedViews]);
 
   const apiExtra = useMemo(() => {
     let dia: string | undefined;
@@ -139,6 +241,28 @@ export function TransacoesPage() {
     setCalendarioAberto(false);
   }, []);
 
+  const diaFiltradoResumo = useMemo(() => {
+    if (periodoModo !== 'periodo' || !periodoInicio || !periodoFim) return null;
+    const { min, max } = ordenarDatasIso(periodoInicio, periodoFim);
+    return min === max ? min : null;
+  }, [periodoModo, periodoInicio, periodoFim]);
+
+  const aplicarFiltroDiaNaData = useCallback(
+    (iso: string) => {
+      if (diaFiltradoResumo === iso) {
+        limparPeriodoDias();
+        setPeriodoModo('mes');
+        return;
+      }
+      setPeriodoModo('periodo');
+      setPeriodoInicio(iso);
+      setPeriodoFim(iso);
+      setPeriodoCliquePendente(null);
+      setCalendarioAberto(false);
+    },
+    [diaFiltradoResumo, limparPeriodoDias]
+  );
+
   const getDiaCalendarioClasse = useCallback(
     (iso: string) => {
       const base =
@@ -180,6 +304,31 @@ export function TransacoesPage() {
   const competenciaNumerica = `${String(monthYear.mes).padStart(2, '0')}/${monthYear.ano}`;
   const competenciaRef = `Competência: ${competenciaTitulo} (${competenciaNumerica})`;
 
+  /** Fallback quando API antiga não envia `linhas` no resumo (usa só os itens já carregados). */
+  const linhasPorDiaFallback = useMemo(() => {
+    const map = new Map<string, ResumoDiaLinhaDetalhe[]>();
+    for (const t of itens) {
+      const lista = map.get(t.data) ?? [];
+      lista.push({
+        pessoa: t.pessoa,
+        valor: Math.abs(Number(t.valor || 0)),
+        tipo: t.tipo,
+        descricao: t.descricao,
+        metodo: t.metodo,
+      });
+      map.set(t.data, lista);
+    }
+    return map;
+  }, [itens]);
+
+  const linhasDoDia = useCallback(
+    (dataIso: string, linhasApi?: ResumoDiaLinhaDetalhe[]) => {
+      if (linhasApi && linhasApi.length > 0) return linhasApi;
+      return linhasPorDiaFallback.get(dataIso) ?? [];
+    },
+    [linhasPorDiaFallback]
+  );
+
   const chartData = useMemo(
     () =>
       resumoPorDia
@@ -202,6 +351,86 @@ export function TransacoesPage() {
     setPeriodoModo('mes');
     limparPeriodoDias();
   };
+
+  const salvarViewAtual = useCallback(() => {
+    const nome = novaViewNome.trim();
+    if (!nome) return;
+    const nova: SavedView = {
+      id: `${Date.now()}`,
+      nome,
+      filtros: {
+        tipo,
+        metodo,
+        busca: busca.trim(),
+        periodoModo,
+        periodoInicio,
+        periodoFim,
+      },
+    };
+    setSavedViews((prev) => [nova, ...prev.filter((v) => v.nome.toLowerCase() !== nome.toLowerCase())]);
+    setNovaViewNome('');
+  }, [novaViewNome, tipo, metodo, busca, periodoModo, periodoInicio, periodoFim]);
+
+  const aplicarView = useCallback(
+    (view: SavedView) => {
+      setTipo(view.filtros.tipo);
+      setMetodo(view.filtros.metodo);
+      setBusca(view.filtros.busca);
+      setPeriodoModo(view.filtros.periodoModo);
+      setPeriodoInicio(view.filtros.periodoInicio);
+      setPeriodoFim(view.filtros.periodoFim);
+      setPeriodoCliquePendente(null);
+      setCalendarioAberto(false);
+    },
+    []
+  );
+
+  const excluirView = useCallback((id: string) => {
+    setSavedViews((prev) => prev.filter((v) => !(v.id === id && v.fixa)));
+  }, []);
+
+  const filtrosAtivos = useMemo(() => {
+    const chips: Array<{ id: string; label: string; onRemove?: () => void }> = [];
+    if (tipo !== 'todos') chips.push({ id: 'tipo', label: `Tipo: ${tipo}`, onRemove: () => setTipo('todos') });
+    if (metodo) chips.push({ id: 'metodo', label: `Método: ${metodo}`, onRemove: () => setMetodo('') });
+    if (busca.trim()) chips.push({ id: 'busca', label: `Busca: ${busca.trim()}`, onRemove: () => setBusca('') });
+    if (periodoModo === 'periodo' && periodoLegivel) {
+      chips.push({ id: 'periodo', label: `Período: ${periodoLegivel}`, onRemove: limparPeriodoDias });
+    }
+    return chips;
+  }, [tipo, metodo, busca, periodoModo, periodoLegivel, limparPeriodoDias]);
+
+  const kpiItems = useMemo(
+    () => [
+      {
+        label: 'Entrou',
+        value: formatCurrency(resumoGeral.total_entradas),
+        helperText: competenciaRef,
+        isLoading: query.isLoading,
+        accentColor: 'success' as const,
+      },
+      {
+        label: 'Saiu',
+        value: formatCurrency(resumoGeral.total_saidas),
+        helperText: competenciaRef,
+        isLoading: query.isLoading,
+        accentColor: 'danger' as const,
+      },
+      {
+        label: 'Saldo líquido',
+        value: formatCurrency(resumoGeral.saldo_liquido),
+        helperText: competenciaRef,
+        isLoading: query.isLoading,
+      },
+      {
+        label: 'Nº transações',
+        value: String(resumoGeral.quantidade_total),
+        helperText: competenciaRef,
+        isLoading: query.isLoading,
+      },
+    ],
+    [resumoGeral, competenciaRef, query.isLoading]
+  );
 
   return (
     <div className="p-6 space-y-6">
@@ -234,11 +463,61 @@ export function TransacoesPage() {
         </div>
       </section>
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-3 dark:border-slate-700 dark:bg-slate-900">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Filtros</h2>
-          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{competenciaRef}</p>
+      <FilterBar
+        title="Filtros"
+        subtitle={competenciaRef}
+        periodLabel={periodoModo === 'periodo' && periodoLegivel ? `Período ativo: ${periodoLegivel}` : undefined}
+        chips={filtrosAtivos}
+        onClear={limparFiltros}
+      >
+        <div className="rounded-lg border border-indigo-100 bg-indigo-50/70 p-3 dark:border-indigo-900/50 dark:bg-indigo-950/30">
+          <p className="mb-2 text-xs font-semibold text-indigo-900 dark:text-indigo-100">Views salvas</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              value={novaViewNome}
+              onChange={(e) => setNovaViewNome(e.target.value)}
+              placeholder="Ex.: Fechamento semanal"
+              className="w-52 rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-xs dark:border-indigo-700 dark:bg-slate-900"
+            />
+            <button
+              type="button"
+              onClick={salvarViewAtual}
+              disabled={!novaViewNome.trim()}
+              className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Salvar view
+            </button>
+            {savedViews.length === 0 ? (
+              <span className="text-xs text-slate-600 dark:text-slate-300">Sem views salvas ainda.</span>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {savedViews.map((view) => (
+                  <div key={view.id} className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-white px-2 py-1 text-xs dark:border-indigo-700 dark:bg-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => aplicarView(view)}
+                      className="font-medium text-indigo-700 hover:underline dark:text-indigo-300"
+                    >
+                      {view.nome}
+                    </button>
+                    {!view.fixa ? (
+                      <button
+                        type="button"
+                        onClick={() => excluirView(view.id)}
+                        className="text-slate-500 hover:text-rose-600 dark:text-slate-300 dark:hover:text-rose-300"
+                        aria-label={`Excluir view ${view.nome}`}
+                      >
+                        ×
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
+
         <div className="grid gap-3 md:grid-cols-6">
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-500">Tipo</label>
@@ -342,51 +621,35 @@ export function TransacoesPage() {
             />
           </div>
         </div>
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={limparFiltros}
-            className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-100"
-          >
-            Limpar filtros
-          </button>
-        </div>
-      </section>
+      </FilterBar>
 
-      <section className="grid gap-4 md:grid-cols-4">
-        <KpiCard
-          label="Entrou"
-          value={formatCurrency(resumoGeral.total_entradas)}
-          helperText={competenciaRef}
-          isLoading={query.isLoading}
-          accentColor="success"
-        />
-        <KpiCard
-          label="Saiu"
-          value={formatCurrency(resumoGeral.total_saidas)}
-          helperText={competenciaRef}
-          isLoading={query.isLoading}
-          accentColor="danger"
-        />
-        <KpiCard
-          label="Saldo líquido"
-          value={formatCurrency(resumoGeral.saldo_liquido)}
-          helperText={competenciaRef}
-          isLoading={query.isLoading}
-        />
-        <KpiCard
-          label="Nº transações"
-          value={String(resumoGeral.quantidade_total)}
-          helperText={competenciaRef}
-          isLoading={query.isLoading}
-        />
-      </section>
+      <KpiStrip items={kpiItems} />
 
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <div className="mb-2">
             <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Resumo por dia</h3>
-            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{competenciaRef}</p>
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              {competenciaRef}
+              {diaFiltradoResumo ? (
+                <>
+                  {' '}
+                  · Filtrando: <strong>{formatDate(diaFiltradoResumo)}</strong>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      limparPeriodoDias();
+                      setPeriodoModo('mes');
+                    }}
+                    className="ml-1 font-semibold text-indigo-700 hover:underline dark:text-indigo-300"
+                  >
+                    ver mês inteiro
+                  </button>
+                </>
+              ) : (
+                <> · Clique na <strong>data</strong> para ver só aquele dia · passe o mouse nos valores para a composição</>
+              )}
+            </p>
           </div>
           <div className="max-h-72 overflow-auto rounded-lg border border-slate-100 dark:border-slate-700">
             <table className="w-full border-collapse text-sm">
@@ -400,17 +663,76 @@ export function TransacoesPage() {
                 </tr>
               </thead>
               <tbody>
-                {resumoPorDia.map((r) => (
-                  <tr key={r.data} className="border-b border-slate-100 dark:border-slate-800">
-                    <td className="py-2 pl-2 pr-2">{formatDate(r.data)}</td>
-                    <td className="py-2 pr-2 text-right text-emerald-700 dark:text-emerald-400">{formatCurrency(r.entradas)}</td>
-                    <td className="py-2 pr-2 text-right text-rose-700 dark:text-rose-400">{formatCurrency(r.saidas)}</td>
-                    <td className={`py-2 pr-2 text-right ${r.saldo >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`}>
-                      {formatCurrency(r.saldo)}
-                    </td>
-                    <td className="py-2 pr-2 text-right tabular-nums">{r.qtd}</td>
-                  </tr>
-                ))}
+                {resumoPorDia.map((r) => {
+                  const linhas = linhasDoDia(r.data, r.linhas);
+                  const dataLabel = formatDate(r.data);
+                  const diaSelecionado = diaFiltradoResumo === r.data;
+                  return (
+                    <tr
+                      key={r.data}
+                      className={`border-b border-slate-100 dark:border-slate-800 ${
+                        diaSelecionado ? 'bg-indigo-50/70 dark:bg-indigo-950/35' : ''
+                      }`}
+                    >
+                      <td className="py-2 pl-2 pr-2">
+                        <button
+                          type="button"
+                          onClick={() => aplicarFiltroDiaNaData(r.data)}
+                          title={
+                            diaSelecionado
+                              ? 'Clique para voltar ao mês inteiro'
+                              : 'Clique para ver transações só deste dia'
+                          }
+                          className={`rounded-md px-1.5 py-0.5 text-left font-medium transition-colors ${
+                            diaSelecionado
+                              ? 'bg-indigo-600 text-white dark:bg-indigo-500'
+                              : 'text-indigo-800 underline decoration-indigo-300/80 underline-offset-2 hover:bg-indigo-50 dark:text-indigo-200 dark:hover:bg-indigo-950/50'
+                          }`}
+                        >
+                          {dataLabel}
+                        </button>
+                      </td>
+                      <td className="py-2 pr-2 text-right text-emerald-700 dark:text-emerald-400">
+                        <ResumoDiaValorHover
+                          valorExibido={formatCurrency(r.entradas)}
+                          linhas={linhas}
+                          modo="entradas"
+                          dataLabel={dataLabel}
+                          className="text-emerald-700 dark:text-emerald-400"
+                        />
+                      </td>
+                      <td className="py-2 pr-2 text-right text-rose-700 dark:text-rose-400">
+                        <ResumoDiaValorHover
+                          valorExibido={formatCurrency(r.saidas)}
+                          linhas={linhas}
+                          modo="saidas"
+                          dataLabel={dataLabel}
+                          className="text-rose-700 dark:text-rose-400"
+                        />
+                      </td>
+                      <td
+                        className={`py-2 pr-2 text-right ${r.saldo >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`}
+                      >
+                        <ResumoDiaValorHover
+                          valorExibido={formatCurrency(r.saldo)}
+                          linhas={linhas}
+                          modo="saldo"
+                          dataLabel={dataLabel}
+                          className={r.saldo >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}
+                        />
+                      </td>
+                      <td className="py-2 pr-2 text-right text-slate-700 dark:text-slate-300">
+                        <ResumoDiaValorHover
+                          valorExibido={String(r.qtd)}
+                          linhas={linhas}
+                          modo="qtd"
+                          dataLabel={dataLabel}
+                          className="text-slate-700 dark:text-slate-300"
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
                 {resumoPorDia.length === 0 && (
                   <tr>
                     <td colSpan={5} className="py-4 text-center text-slate-500">
@@ -481,63 +803,47 @@ export function TransacoesPage() {
         </div>
       </section>
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-        <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-2">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Últimas transações</h3>
-            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{competenciaRef}</p>
-          </div>
-          <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">Limite: 300 linhas · {competenciaNumerica}</span>
-        </div>
-        {query.error && (
-          <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
-            {query.error instanceof Error ? query.error.message : 'Erro ao carregar transações.'}
-          </div>
-        )}
-        <div className="overflow-auto max-h-[460px]">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-slate-500">
-                <th className="py-2 pr-2">Data</th>
-                <th className="py-2 pr-2">Tipo</th>
-                <th className="py-2 pr-2">Pessoa</th>
-                <th className="py-2 pr-2">Descrição</th>
-                <th className="py-2 pr-2">Método</th>
-                <th className="py-2 text-right">Valor</th>
-              </tr>
-            </thead>
-            <tbody>
-              {itens.map((t) => (
-                <tr key={t.id} className="border-b border-slate-100">
-                  <td className="py-2 pr-2">{formatDate(t.data)}</td>
-                  <td className="py-2 pr-2">
-                    <span
-                      className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
-                        t.tipo === 'entrada' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                      }`}
-                    >
-                      {t.tipo === 'entrada' ? 'Entrada' : 'Saída'}
-                    </span>
-                  </td>
-                  <td className="py-2 pr-2">{t.pessoa || '–'}</td>
-                  <td className="py-2 pr-2">{t.descricao || '–'}</td>
-                  <td className="py-2 pr-2">{'metodo' in t && t.metodo ? t.metodo : '—'}</td>
-                  <td className={`py-2 text-right font-medium ${t.tipo === 'entrada' ? 'text-emerald-700' : 'text-rose-700'}`}>
-                    {formatCurrency(Math.abs(Number(t.valor || 0)))}
-                  </td>
-                </tr>
-              ))}
-              {itens.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="py-5 text-center text-slate-500">
-                    Sem transações para os filtros selecionados.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <DataTable
+        title="Últimas transações"
+        subtitle={`${competenciaRef} · Limite: 300 linhas · ${competenciaNumerica}`}
+        rows={itens}
+        columns={[
+          {
+            id: 'data',
+            header: 'Data',
+            sticky: true,
+            render: (t) => <span className="font-medium">{formatDate(t.data)}</span>,
+          },
+          {
+            id: 'tipo',
+            header: 'Tipo',
+            render: (t) => (
+              <StatusBadge
+                tone={t.tipo === 'entrada' ? 'ok' : 'pendente'}
+                label={t.tipo === 'entrada' ? 'Entrada' : 'Saída'}
+              />
+            ),
+          },
+          { id: 'pessoa', header: 'Pessoa', render: (t) => t.pessoa || '–' },
+          { id: 'descricao', header: 'Descrição', render: (t) => t.descricao || '–' },
+          { id: 'metodo', header: 'Método', optional: true, render: (t) => ('metodo' in t && t.metodo ? t.metodo : '—') },
+          {
+            id: 'valor',
+            header: 'Valor',
+            align: 'right',
+            render: (t) => (
+              <span className={`font-medium ${t.tipo === 'entrada' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                {formatCurrency(Math.abs(Number(t.valor || 0)))}
+              </span>
+            ),
+          },
+        ]}
+        loadingRows={query.isLoading ? <LoadingRow colSpan={6} rows={5} /> : undefined}
+        emptyBlock={<EmptyState message="Sem transações para os filtros selecionados." />}
+      />
+      {query.error ? (
+        <ErrorPanel message={query.error instanceof Error ? query.error.message : 'Erro ao carregar transações.'} />
+      ) : null}
     </div>
   );
 }

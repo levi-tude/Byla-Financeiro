@@ -22,7 +22,22 @@ type TransacaoComMetodo = {
   metodoRaw: string | null;
 };
 
-type ResumoDia = { data: string; entradas: number; saidas: number; saldo: number; qtd: number };
+type ResumoDiaLinha = {
+  pessoa: string;
+  valor: number;
+  tipo: 'entrada' | 'saida';
+  descricao: string | null;
+  metodo: MetodoPagamento;
+};
+
+type ResumoDia = {
+  data: string;
+  entradas: number;
+  saidas: number;
+  saldo: number;
+  qtd: number;
+  linhas: ResumoDiaLinha[];
+};
 type ResumoMetodo = {
   metodo: MetodoPagamento;
   entradas_valor: number;
@@ -117,11 +132,18 @@ router.get('/transacoes', async (req: Request, res: Response) => {
 
     const mapDia = new Map<string, ResumoDia>();
     for (const t of filtradas) {
-      const cur = mapDia.get(t.data) ?? { data: t.data, entradas: 0, saidas: 0, saldo: 0, qtd: 0 };
+      const cur = mapDia.get(t.data) ?? { data: t.data, entradas: 0, saidas: 0, saldo: 0, qtd: 0, linhas: [] };
       if (t.tipo === 'entrada') cur.entradas += Math.abs(t.valor);
       else cur.saidas += Math.abs(t.valor);
       cur.qtd += 1;
       cur.saldo = cur.entradas - cur.saidas;
+      cur.linhas.push({
+        pessoa: t.pessoa,
+        valor: Math.abs(t.valor),
+        tipo: t.tipo,
+        descricao: t.descricao,
+        metodo: t.metodo,
+      });
       mapDia.set(t.data, cur);
     }
     const resumoPorDia = [...mapDia.values()].sort((a, b) => (a.data < b.data ? 1 : -1));

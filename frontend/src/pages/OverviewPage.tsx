@@ -15,7 +15,6 @@ import {
   getTransacoesPorMes,
 } from '../services/backendApi';
 import {
-  buildFechamentoAlerts,
   computeFluxoOperacionalResumo,
   controleToTrendPoint,
   formatBrl,
@@ -32,7 +31,6 @@ import {
 import { buildReceitaPorAbaModalidade } from '../fluxo/fluxoAbaHierarchy';
 import { SourceLegend } from '../components/overview/SourceLegend';
 import { OverviewSection } from '../components/overview/OverviewSection';
-import { AlertBanner } from '../components/overview/AlertBanner';
 import { OverviewChartShell, OVERVIEW_CHART_MIN_H } from '../components/overview/OverviewChartShell';
 import { ModalityRevenueDrilldownChart } from '../components/overview/ModalityRevenueDrilldownChart';
 import { ModalityRevenueLegend } from '../components/overview/ModalityRevenueLegend';
@@ -158,19 +156,9 @@ export function OverviewPage() {
     entrada != null && transacoesEntradaQuery.isSuccess ? entrada - somaExtratoEntradas : null;
   const diffExtratoSaidas =
     saida != null && transacoesSaidaQuery.isSuccess ? saida - somaExtratoSaidas : null;
-
-  const fechamentoAlerts = useMemo(
-    () =>
-      buildFechamentoAlerts({
-        lucro,
-        lucroPrev,
-        entrada,
-        entradaPrev,
-        saida,
-        saidaPrev,
-      }),
-    [lucro, lucroPrev, entrada, entradaPrev, saida, saidaPrev],
-  );
+  const hasExtratoDiff =
+    (diffExtratoEntradas != null && Math.abs(diffExtratoEntradas) > 0) ||
+    (diffExtratoSaidas != null && Math.abs(diffExtratoSaidas) > 0);
 
   const controleHistoryComplete = controleHistoryQueries.every((q) => q.isSuccess && q.data != null);
 
@@ -249,47 +237,12 @@ export function OverviewPage() {
         />
       )}
 
-      {/* Hero — fechamento */}
-      <section className="rounded-xl border border-indigo-200 bg-gradient-to-br from-indigo-50/80 to-white p-5 shadow-sm dark:border-indigo-900/50 dark:from-indigo-950/30 dark:to-slate-900">
-        <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-          O negócio está saudável em {periodoLabel}?
-        </p>
-        <div className="mt-3 flex flex-wrap items-end gap-6">
-          <div>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Lucro do fechamento</p>
-            <p className="text-3xl font-bold text-indigo-600 dark:text-indigo-400">
-              {kpiLoading ? '…' : formatBrl(lucro)}
-            </p>
-            {!kpiLoading && lucroPrev != null && lucro != null && (
-              <p className="mt-1 text-sm font-medium text-slate-700 dark:text-slate-300">
-                {formatDeltaBrl(lucro, lucroPrev)} ({formatPctChange(lucro, lucroPrev) ?? '—'}) vs {prevLabel}
-              </p>
-            )}
-          </div>
-          <p className="text-sm text-slate-700 dark:text-slate-300 max-w-lg">
-            {kpiLoading
-              ? 'Carregando fechamento…'
-              : lucro == null
-                ? 'Fechamento ainda não disponível para este mês.'
-                : saudavel
-                  ? `Sim — lucro positivo e igual ou maior que em ${prevLabel}.`
-                  : lucro > 0
-                    ? `Parcial — lucro positivo, mas menor que em ${prevLabel}.`
-                    : 'Não — lucro negativo no fechamento. Revise entradas e despesas.'}
-          </p>
-        </div>
-        <p className="mt-3 text-[11px] font-medium text-indigo-800/80 dark:text-indigo-300/80">
-          Fonte: Controle de caixa (fechamento do mês)
-        </p>
-      </section>
-
-      {/* Fechamento do mês */}
       <OverviewSection
-        title="Fechamento do mês"
-        whatIs="Valores que você consolidou no Controle de caixa — a base para lucro e comparação com o mês anterior."
+        title="Painel executivo do mês"
+        whatIs="Primeira dobra para fechamento: até 6 KPIs comparados com mês anterior e alertas com ação direta."
         source="fechamento"
       >
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <KpiCard
             label="Entradas (fechamento)"
             value={kpiLoading ? '…' : formatBrl(entrada)}
@@ -301,6 +254,8 @@ export function OverviewPage() {
             trend={trendFromDelta(entrada, entradaPrev)}
             accentColor="primary"
             isLoading={kpiLoading}
+            ctaTo="/controle-caixa"
+            ctaLabel="Ver fechamento"
           />
           <KpiCard
             label="Saídas (fechamento)"
@@ -313,6 +268,8 @@ export function OverviewPage() {
             trend={trendFromDelta(saida, saidaPrev) === 'up' ? 'down' : trendFromDelta(saida, saidaPrev)}
             accentColor="danger"
             isLoading={kpiLoading}
+            ctaTo="/controle-caixa"
+            ctaLabel="Analisar saídas"
           />
           <KpiCard
             label="Lucro (fechamento)"
@@ -325,23 +282,92 @@ export function OverviewPage() {
             trend={trendFromDelta(lucro, lucroPrev)}
             accentColor="success"
             isLoading={kpiLoading}
+            ctaTo="/controle-caixa"
+            ctaLabel="Ajustar fechamento"
+          />
+          <KpiCard
+            label="Sem pagamento no mês"
+            value={fluxoLoading ? '…' : String(fluxoResumo.semPagamentoNoMes)}
+            helperText={`competência ${labelMesAno(mes, ano)}`}
+            trend={fluxoResumo.semPagamentoNoMes > 0 ? 'down' : 'neutral'}
+            accentColor="danger"
+            isLoading={fluxoLoading}
+            ctaTo="/fluxo-caixa"
+            ctaLabel="Abrir Fluxo"
+          />
+          <KpiCard
+            label="Pendências de cadastro"
+            value={fluxoLoading ? '…' : String(fluxoResumo.pendenciasCadastro)}
+            helperText="alunos com dados incompletos"
+            trend={fluxoResumo.pendenciasCadastro > 0 ? 'down' : 'neutral'}
+            accentColor="danger"
+            isLoading={fluxoLoading}
+            ctaTo="/validacao-pagamentos-diaria"
+            ctaLabel="Ir para Validação"
+          />
+          <KpiCard
+            label="Diferença extrato × fechamento"
+            value={
+              transacoesEntradaQuery.isLoading || transacoesSaidaQuery.isLoading
+                ? '…'
+                : formatBrl((diffExtratoEntradas ?? 0) + (diffExtratoSaidas ?? 0))
+            }
+            helperText="soma das diferenças de entradas e saídas"
+            trend={hasExtratoDiff ? 'down' : 'neutral'}
+            accentColor={hasExtratoDiff ? 'danger' : 'success'}
+            isLoading={transacoesEntradaQuery.isLoading || transacoesSaidaQuery.isLoading}
+            ctaTo="/transacoes"
+            ctaLabel="Conferir transações"
           />
         </div>
 
-        {fechamentoAlerts.length > 0 && (
-          <div className="space-y-2">
-            {fechamentoAlerts.map((a) => (
-              <AlertBanner key={a.title} alert={a} />
-            ))}
+        <div className="grid gap-3 lg:grid-cols-3">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-100">
+            <p className="font-semibold">Lucro do mês</p>
+            <p className="mt-1 opacity-90">
+              {kpiLoading
+                ? 'Carregando fechamento...'
+                : lucro == null
+                  ? 'Fechamento ainda não disponível.'
+                  : saudavel
+                    ? `Saudável: lucro positivo e igual/maior que ${prevLabel}.`
+                    : lucro > 0
+                      ? `Atenção: lucro positivo, porém menor que ${prevLabel}.`
+                      : 'Crítico: lucro negativo no fechamento.'}
+            </p>
+            <Link to="/controle-caixa" className="mt-2 inline-block font-semibold hover:underline">
+              Abrir Controle de caixa →
+            </Link>
           </div>
-        )}
 
-        <Link
-          to="/controle-caixa"
-          className="inline-block text-sm font-medium text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
-        >
-          Editar fechamento →
-        </Link>
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-100">
+            <p className="font-semibold">Cobrança do mês</p>
+            <p className="mt-1 opacity-90">
+              {fluxoLoading
+                ? 'Carregando dados operacionais...'
+                : fluxoResumo.semPagamentoNoMes > 0
+                  ? `${fluxoResumo.semPagamentoNoMes} aluno(s) sem pagamento em ${labelMesAno(mes, ano)}.`
+                  : 'Sem atraso de pagamento detectado no mês.'}
+            </p>
+            <Link to="/fluxo-caixa" className="mt-2 inline-block font-semibold hover:underline">
+              Ir para Fluxo de caixa →
+            </Link>
+          </div>
+
+          <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900 dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-100">
+            <p className="font-semibold">Conferência com extrato</p>
+            <p className="mt-1 opacity-90">
+              {transacoesEntradaQuery.isLoading || transacoesSaidaQuery.isLoading
+                ? 'Carregando conciliação...'
+                : hasExtratoDiff
+                  ? 'Existe diferença entre extrato e fechamento. Priorize conferência do dia.'
+                  : 'Sem diferença relevante entre extrato e fechamento.'}
+            </p>
+            <Link to="/transacoes" className="mt-2 inline-block font-semibold hover:underline">
+              Conferir em Transações →
+            </Link>
+          </div>
+        </div>
       </OverviewSection>
 
       <OverviewSection
@@ -368,39 +394,46 @@ export function OverviewPage() {
         whatIs="Últimos 6 meses: fluxo de entradas e saídas e evolução do lucro mês a mês."
         source={trendUsesExtrato ? 'extrato' : 'fechamento'}
       >
-        {trendUsesExtrato ? (
-          <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-100">
-            Fechamento indisponível em parte do período — gráficos com base no extrato bancário (resumo).
-          </p>
-        ) : null}
-        <div className="grid gap-6 lg:grid-cols-2 lg:items-stretch">
-          <OverviewChartShell
-            title="Entradas × saídas — últimos 6 meses"
-            isLoading={trendLoading}
-            chartHeight={OVERVIEW_CHART_MIN_H}
-          >
-            <MonthlyTrendChart
-              data={trendData}
-              showLucroLine={false}
-              showSeriesChips
-              height={OVERVIEW_CHART_MIN_H}
-            />
-          </OverviewChartShell>
-          <OverviewChartShell
-            title="Lucro mês a mês (objetivo: crescer todo mês)"
-            subtitle="Sem meta fixa de receita"
-            isLoading={trendLoading}
-            chartHeight={OVERVIEW_CHART_MIN_H}
-          >
-            <BarChartAtividade
-              data={lucroBarData}
-              valueLabel="Lucro"
-              barColor="#16a34a"
-              highlightLabel={selectedMonthLabel}
-              height={OVERVIEW_CHART_MIN_H}
-            />
-          </OverviewChartShell>
-        </div>
+        <details className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900" open={false}>
+          <summary className="cursor-pointer text-sm font-semibold text-slate-800 dark:text-slate-100">
+            Ver gráficos de tendência (secundário)
+          </summary>
+          <div className="mt-4 space-y-4">
+            {trendUsesExtrato ? (
+              <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-100">
+                Fechamento indisponível em parte do período — gráficos com base no extrato bancário (resumo).
+              </p>
+            ) : null}
+            <div className="grid gap-6 lg:grid-cols-2 lg:items-stretch">
+              <OverviewChartShell
+                title="Entradas × saídas — últimos 6 meses"
+                isLoading={trendLoading}
+                chartHeight={OVERVIEW_CHART_MIN_H}
+              >
+                <MonthlyTrendChart
+                  data={trendData}
+                  showLucroLine={false}
+                  showSeriesChips
+                  height={OVERVIEW_CHART_MIN_H}
+                />
+              </OverviewChartShell>
+              <OverviewChartShell
+                title="Lucro mês a mês (objetivo: crescer todo mês)"
+                subtitle="Sem meta fixa de receita"
+                isLoading={trendLoading}
+                chartHeight={OVERVIEW_CHART_MIN_H}
+              >
+                <BarChartAtividade
+                  data={lucroBarData}
+                  valueLabel="Lucro"
+                  barColor="#16a34a"
+                  highlightLabel={selectedMonthLabel}
+                  height={OVERVIEW_CHART_MIN_H}
+                />
+              </OverviewChartShell>
+            </div>
+          </div>
+        </details>
       </OverviewSection>
 
       {/* Operação Fluxo */}
@@ -459,13 +492,20 @@ export function OverviewPage() {
         whatIs={`Pagamentos no Fluxo com competência ${labelMesAno(mes, ano)} — não são as entradas do fechamento.`}
         source="fluxo"
       >
-        {topAbaInsight ? (
-          <p className="mb-3 rounded-lg border border-emerald-100 bg-emerald-50/80 px-4 py-2.5 text-sm text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-100">
-            {topAbaInsight}
-          </p>
-        ) : null}
-        <ModalityRevenueDrilldownChart key={`${mes}-${ano}`} data={receitaDrilldown} isLoading={fluxoLoading} />
-        <ModalityRevenueLegend mesAnoLabel={labelMesAno(mes, ano)} />
+        <details className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900" open={false}>
+          <summary className="cursor-pointer text-sm font-semibold text-slate-800 dark:text-slate-100">
+            Ver detalhamento por modalidade (secundário)
+          </summary>
+          <div className="mt-4 space-y-3">
+            {topAbaInsight ? (
+              <p className="rounded-lg border border-emerald-100 bg-emerald-50/80 px-4 py-2.5 text-sm text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-100">
+                {topAbaInsight}
+              </p>
+            ) : null}
+            <ModalityRevenueDrilldownChart key={`${mes}-${ano}`} data={receitaDrilldown} isLoading={fluxoLoading} />
+            <ModalityRevenueLegend mesAnoLabel={labelMesAno(mes, ano)} />
+          </div>
+        </details>
       </OverviewSection>
 
       {/* Ações rápidas */}

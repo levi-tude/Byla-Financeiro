@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Topbar } from '../app/Topbar';
+import { ValidacaoCalendarioGuia } from '../components/validacao/ValidacaoCalendarioGuia';
 import {
   createValidacaoVinculo,
   deleteValidacaoVinculo,
-  getFluxoOperacionalPagamentosMetaAno,
-  getPagamentosPlanilhaTodasAbas,
+  getValidacaoFluxoIndiceAno,
+  type ValidacaoFluxoIndiceAnoResponse,
   getValidacaoVinculos,
   getValidacaoPagamentosDiaria,
-  type PagamentosPorAba,
   type ValidacaoDiariaPlanilhaItem,
   type ValidacaoDiariaBancoItem,
   type ValidacaoPagamentosDiariaResponse,
@@ -210,6 +210,8 @@ function CelulaCompetenciaPlanilha({ item }: { item: ValidacaoDiariaPlanilhaItem
 
 export function ValidacaoPagamentosDiariaPage() {
   const [searchParams] = useSearchParams();
+  const dataQuery = searchParams.get('data');
+  const veioDoCalendario = Boolean(dataQuery && /^\d{4}-\d{2}-\d{2}$/.test(dataQuery));
   const [data, setData] = useState(todayIsoLocal());
   const [dataBusca, setDataBusca] = useState('');
   const [aba, setAba] = useState('TODAS');
@@ -217,7 +219,8 @@ export function ValidacaoPagamentosDiariaPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resposta, setResposta] = useState<ValidacaoPagamentosDiariaResponse | null>(null);
-  const [pagamentosAno, setPagamentosAno] = useState<PagamentosPorAba[]>([]);
+  const [indiceAno, setIndiceAno] = useState<ValidacaoFluxoIndiceAnoResponse | null>(null);
+  const [indiceAnoLoading, setIndiceAnoLoading] = useState(false);
   const [statusPorData, setStatusPorData] = useState<Record<string, 'pendente' | 'ok' | 'atencao' | 'divergente'>>({});
   const statusPorDataRef = useRef(statusPorData);
   statusPorDataRef.current = statusPorData;
@@ -289,45 +292,45 @@ export function ValidacaoPagamentosDiariaPage() {
     };
   }, [data, aba, modalidade, mesCompetenciaFiltro]);
 
-  /** Uma chamada só: ano civil atual (ex.: 2026). Não recarrega a cada clique na data. */
+  /** Índice do ano (datas + abas) — mesma leitura do fluxo que o detalhe do dia. */
   useEffect(() => {
     let cancelled = false;
-    async function loadAno() {
+    async function loadIndice() {
       const cy = ANO_PLANILHA_LISTA();
+      setIndiceAnoLoading(true);
       try {
-        let r;
-        try {
-          r = await getFluxoOperacionalPagamentosMetaAno(cy);
-        } catch {
-          r = await getPagamentosPlanilhaTodasAbas(cy);
+        const modalidadeParam = modalidade === 'TODAS' ? undefined : modalidade || undefined;
+        const r = await getValidacaoFluxoIndiceAno(cy, aba, modalidadeParam);
+        if (!cancelled) setIndiceAno(r);
+      } catch (e) {
+        if (!cancelled) {
+          setIndiceAno(null);
+          setError(e instanceof Error ? e.message : String(e));
         }
-        if (cancelled) return;
-        setPagamentosAno(r.abas ?? []);
-      } catch {
-        /* mantém lista anterior */
+      } finally {
+        if (!cancelled) setIndiceAnoLoading(false);
       }
     }
-    loadAno();
+    loadIndice();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [aba, modalidade]);
 
   const abasDisponiveis = useMemo(() => {
     const set = new Set<string>(['TODAS']);
-    for (const a of pagamentosAno) set.add(a.aba);
+    for (const a of indiceAno?.abas ?? []) set.add(a);
     return Array.from(set);
-  }, [pagamentosAno]);
+  }, [indiceAno]);
 
   const modalidadesDisponiveis = useMemo(() => {
     if (aba === 'TODAS') return ['TODAS'];
-    const alvo = pagamentosAno.find((x) => x.aba === aba);
     const set = new Set<string>(['TODAS']);
-    for (const al of alvo?.alunos ?? []) {
-      if (al.modalidade?.trim()) set.add(al.modalidade.trim());
+    for (const m of indiceAno?.modalidadesPorAba?.[aba] ?? []) {
+      if (m.trim()) set.add(m.trim());
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR'));
-  }, [pagamentosAno, aba]);
+  }, [indiceAno, aba]);
 
   useEffect(() => {
     setModalidade('TODAS');
@@ -413,76 +416,7 @@ export function ValidacaoPagamentosDiariaPage() {
     }
   }
 
-  const datasComPagamentosBase = useMemo(() => {
-    const anoLista = ANO_PLANILHA_LISTA();
-    const prefixAno = `${anoLista}-`;
-    const map = new Map<
-      string,
-      {
-        quantidade: number;
-        total: number;
-        porCompetencia: Map<
-          string,
-          { quantidade: number; total: number; mesCompetencia: number; anoCompetencia: number }
-        >;
-      }
-    >();
-
-    for (const a of pagamentosAno) {
-      if (aba !== 'TODAS' && a.aba !== aba) continue;
-      for (const al of a.alunos ?? []) {
-        if (modalidade !== 'TODAS' && (al.modalidade ?? '').trim() !== modalidade) continue;
-        for (const p of al.pagamentos ?? []) {
-          const iso = p.data?.slice(0, 10);
-          if (!iso || !iso.startsWith(prefixAno)) continue;
-
-          const fallbackAno = Number(iso.slice(0, 4));
-          const fallbackMes = Number(iso.slice(5, 7));
-          const mesCompetencia = Number((p as any).mesCompetencia ?? fallbackMes) || fallbackMes;
-          const anoCompetencia = Number((p as any).anoCompetencia ?? fallbackAno) || fallbackAno;
-
-          const cur =
-            map.get(iso) ?? { quantidade: 0, total: 0, porCompetencia: new Map<string, any>() };
-          cur.quantidade += 1;
-          cur.total += Number(p.valor || 0);
-
-          const chaveComp = `${anoCompetencia}-${String(mesCompetencia).padStart(2, '0')}`;
-          const compCur =
-            cur.porCompetencia.get(chaveComp) ?? {
-              quantidade: 0,
-              total: 0,
-              mesCompetencia,
-              anoCompetencia,
-            };
-          compCur.quantidade += 1;
-          compCur.total += Number(p.valor || 0);
-          cur.porCompetencia.set(chaveComp, compCur);
-
-          map.set(iso, cur);
-        }
-      }
-    }
-
-    const arr = Array.from(map.entries()).map(([iso, v]) => {
-      let best = null as null | { quantidade: number; total: number; mesCompetencia: number; anoCompetencia: number };
-      for (const comp of v.porCompetencia.values()) {
-        if (!best) best = comp;
-        else if (comp.total > best.total) best = comp;
-        else if (comp.total === best.total && comp.quantidade > best.quantidade) best = comp;
-      }
-      const fallbackAno = Number(iso.slice(0, 4));
-      const fallbackMes = Number(iso.slice(5, 7));
-      return {
-        data: iso,
-        quantidade: v.quantidade,
-        total: v.total,
-        mesCompetencia: best?.mesCompetencia ?? fallbackMes,
-        anoCompetencia: best?.anoCompetencia ?? fallbackAno,
-      };
-    });
-    arr.sort((x, y) => (y.quantidade - x.quantidade) || y.total - x.total || y.data.localeCompare(x.data));
-    return arr;
-  }, [pagamentosAno, aba, modalidade]);
+  const datasComPagamentosBase = useMemo(() => indiceAno?.datas ?? [], [indiceAno]);
 
   /** Acesso rápido por data: opcionalmente só datas cujo principal mês de competência bate com o filtro. */
   const datasComPagamentos = useMemo(() => {
@@ -597,19 +531,32 @@ export function ValidacaoPagamentosDiariaPage() {
   return (
     <div className="p-6">
       <Topbar
-        title="Validação de pagamentos"
-        subtitle="Confere pagamentos declarados na planilha versus entradas reais no banco (por data e, se quiser, por mês de competência)."
+        title="Validação — dia a dia"
+        subtitle="Conferir um dia: pagamentos do fluxo operacional × entradas no extrato bancário."
       />
 
-      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-        <h2 className="text-sm font-semibold text-slate-900">Checklist do dia</h2>
-        <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-slate-700">
-          <li>Selecione a <strong>data</strong> do extrato (atalho «Hoje» ou «Ontem»).</li>
-          <li>Filtre <strong>aba</strong> e <strong>modalidade</strong> quando quiser reduzir o volume.</li>
-          <li>Compare totais <strong>planilha × banco</strong> e abra a lista de não confirmados.</li>
-          <li>Use <strong>vínculo manual</strong> quando o sistema marcar match apenas como possível.</li>
-        </ol>
-      </div>
+      <ValidacaoCalendarioGuia variant="validacao" />
+
+      {veioDoCalendario ? (
+        <div
+          className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-950 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100"
+          role="status"
+        >
+          <span>
+            Você veio do <strong>calendário</strong> para validar o dia{' '}
+            <strong className="tabular-nums">
+              {Number(data.slice(8, 10))}/{Number(data.slice(5, 7))}/{data.slice(0, 4)}
+            </strong>
+            .
+          </span>
+          <Link
+            to="/calendario-financeiro"
+            className="shrink-0 rounded-lg border border-indigo-300 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-800 hover:bg-indigo-50 dark:border-indigo-600 dark:bg-slate-900 dark:text-indigo-200"
+          >
+            Voltar ao calendário →
+          </Link>
+        </div>
+      ) : null}
 
       <div className="mt-4 flex flex-wrap gap-3 items-end">
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-2">
@@ -691,9 +638,9 @@ export function ValidacaoPagamentosDiariaPage() {
       <section className="mt-4 bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="px-4 py-3 border-b bg-gray-50 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="font-semibold text-gray-900">Datas com mais pagamentos (planilha)</h2>
+            <h2 className="font-semibold text-gray-900">Datas com pagamentos no fluxo</h2>
             <p className="text-xs text-gray-500 mt-0.5 max-w-xl">
-              Ano {ANO_PLANILHA_LISTA()}: lista só com pagamentos nesse ano. Clique na data para ver o detalhe. Status
+              Ano {ANO_PLANILHA_LISTA()}: pagamentos lançados no fluxo operacional (Supabase). Clique na data para conferir × banco. Status
               colorido nos chips é prévia (até {MAX_DATAS_STATUS_PREVIA} datas); o painel abaixo ao abrir o dia é o
               definitivo.
             </p>
@@ -707,9 +654,14 @@ export function ValidacaoPagamentosDiariaPage() {
           />
         </div>
         <div className="p-3 space-y-4">
-          {datasFiltradas.length === 0 ? (
+          {indiceAnoLoading ? (
+            <p className="text-sm text-gray-500">Carregando datas do fluxo…</p>
+          ) : datasFiltradas.length === 0 ? (
             <div className="px-1">
-              <p className="text-sm text-gray-600">Nenhuma data para os filtros atuais.</p>
+              {indiceAno?.erro ? (
+                <p className="text-sm text-amber-800 mb-2">{indiceAno.erro}</p>
+              ) : null}
+              <p className="text-sm text-gray-600">Nenhuma data com pagamento no fluxo para os filtros atuais.</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -814,10 +766,38 @@ export function ValidacaoPagamentosDiariaPage() {
 
       {!loading && resposta && respostaFiltrada && (
         <>
+          {(resposta.planilha.erro || (respostaFiltrada.planilha.quantidade === 0 && respostaFiltrada.banco.quantidade === 0)) && (
+            <div
+              className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+              role="status"
+            >
+              {resposta.planilha.erro ? (
+                <p>
+                  <strong>Fluxo operacional:</strong> {resposta.planilha.erro}
+                </p>
+              ) : (
+                <p>
+                  Nenhum pagamento nem entrada no banco neste dia com os filtros atuais. Confira a data, a aba e o filtro de{' '}
+                  <strong>competência</strong> (use &quot;Todos os meses&quot; se o pagamento for de outro mês de serviço).
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="mt-4 flex items-center gap-2 flex-wrap">
             <span className={`inline-flex items-center px-3 py-1 rounded-full border text-xs font-semibold ${statusClass}`}>
               Status: {(validacaoAjustada ?? respostaFiltrada.validacao).status_geral.toUpperCase()}
             </span>
+            {resposta.meta.fonte_pagamentos ? (
+              <span className="text-xs text-gray-500" title="Origem dos pagamentos comparados com o banco">
+                Fonte pagamentos:{' '}
+                <strong className="text-gray-700 dark:text-slate-200">
+                  {resposta.meta.fonte_pagamentos === 'fluxo_operacional'
+                    ? 'Fluxo operacional (Supabase)'
+                    : 'Planilha Google (legado)'}
+                </strong>
+              </span>
+            ) : null}
             <span className="text-xs text-gray-500">
               Abas consideradas:{' '}
               {Array.isArray(resposta.meta.abas_consideradas) && resposta.meta.abas_consideradas.length > 0
@@ -834,7 +814,7 @@ export function ValidacaoPagamentosDiariaPage() {
 
           <div className="mt-4 grid gap-4 md:grid-cols-4">
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="text-xs text-gray-500">Total planilha</div>
+              <div className="text-xs text-gray-500">Total fluxo (operacional)</div>
               <div className="mt-1 text-xl font-semibold text-indigo-700">{formatCurrency(respostaFiltrada.planilha.total)}</div>
               <div className="text-xs text-gray-500 mt-1">{respostaFiltrada.planilha.quantidade} item(ns)</div>
             </div>
@@ -844,7 +824,7 @@ export function ValidacaoPagamentosDiariaPage() {
               <div className="text-xs text-gray-500 mt-1">{respostaFiltrada.banco.quantidade} item(ns)</div>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="text-xs text-gray-500">Delta (planilha - banco)</div>
+              <div className="text-xs text-gray-500">Delta (fluxo − banco)</div>
               <div className="mt-1 text-xl font-semibold text-emerald-700">{formatCurrency((validacaoAjustada ?? respostaFiltrada.validacao).delta_total_planilha_menos_banco)}</div>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -859,7 +839,7 @@ export function ValidacaoPagamentosDiariaPage() {
 
           <section className="mt-6 bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-4 py-3 border-b bg-gray-50">
-              <h2 className="font-semibold text-gray-900">Pagamentos da planilha no dia</h2>
+              <h2 className="font-semibold text-gray-900">Pagamentos do fluxo no dia</h2>
               <p className="text-xs text-gray-500 mt-1">
                 Os lançamentos aparecem no dia da <b>data de pagamento</b>. Se a competência (mês do serviço) for outra, mostramos um aviso na coluna Competência.
               </p>
@@ -879,7 +859,7 @@ export function ValidacaoPagamentosDiariaPage() {
                 </thead>
                 <tbody>
                   {respostaFiltrada.planilha.itens.length === 0 ? (
-                    <tr><td className="py-3 text-gray-500" colSpan={7}>Nenhum pagamento na planilha para este filtro.</td></tr>
+                    <tr><td className="py-3 text-gray-500" colSpan={7}>Nenhum pagamento no fluxo para este filtro.</td></tr>
                   ) : (
                     respostaFiltrada.planilha.itens.map((i) => (
                       <tr key={i.id} className="border-b border-gray-100">
@@ -939,13 +919,13 @@ export function ValidacaoPagamentosDiariaPage() {
 
           <section className="mt-6 bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-4 py-3 border-b bg-gray-50">
-              <h2 className="font-semibold text-gray-900">Confirmados (planilha x banco)</h2>
+              <h2 className="font-semibold text-gray-900">Confirmados (fluxo × banco)</h2>
             </div>
             <div className="p-4 overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b text-left text-gray-500">
-                    <th className="py-2 pr-2">Aluno (planilha)</th>
+                    <th className="py-2 pr-2">Aluno (fluxo)</th>
                     <th className="py-2 pr-2">Pessoa (banco)</th>
                     <th className="py-2 pr-2">Data</th>
                     <th className="py-2 pr-2">Competência</th>

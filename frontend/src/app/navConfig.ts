@@ -6,6 +6,8 @@ export type NavItem = {
   roles: AppRole[];
   /** Destaque visual no menu (item principal do perfil). */
   primary?: boolean;
+  /** Subtítulo na sidebar (ex.: agrupar itens sob "Validação"). */
+  group?: string;
 };
 
 export type NavSection = {
@@ -41,9 +43,19 @@ export const navSections: NavSection[] = [
       { path: '/', label: 'Visão geral', roles: ['admin'] },
       { path: '/transacoes', label: 'Transações', roles: ['admin'] },
       { path: '/controle-caixa', label: 'Controle de caixa', roles: ['admin'] },
-      { path: '/validacao-pagamentos-diaria', label: 'Validação de pagamentos', roles: ['admin'] },
+      {
+        path: '/validacao-pagamentos-diaria',
+        label: 'Pagamentos (dia a dia)',
+        group: 'Validação',
+        roles: ['admin'],
+      },
+      {
+        path: '/calendario-financeiro',
+        label: 'Calendário (mensal)',
+        group: 'Validação',
+        roles: ['admin'],
+      },
       { path: '/conciliacao', label: 'Conciliação', roles: ['admin'] },
-      { path: '/calendario-financeiro', label: 'Calendário financeiro', roles: ['admin'] },
       { path: '/fluxo-divergencias', label: 'Divergências (sistema × planilha)', roles: ['admin'] },
     ],
   },
