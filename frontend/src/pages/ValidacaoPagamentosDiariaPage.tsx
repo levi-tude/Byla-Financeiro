@@ -142,7 +142,7 @@ function badgesGrupoPossivel(items: PossivelMatchRow[]): Array<{ label: string; 
   if (cand.length === 1 && Math.abs(Number(cand[0].valor) - sum) <= VALOR_EPS) {
     badges.push({
       label: 'Soma → 1 no banco',
-      title: `${n} linhas na planilha somam ${formatCurrency(sum)} e batem com uma única entrada de ${formatCurrency(
+      title: `${n} linhas no fluxo somam ${formatCurrency(sum)} e batem com uma única entrada de ${formatCurrency(
         Number(cand[0].valor),
       )} no banco. Confirme após conferir nomes e valores.`,
     });
@@ -201,7 +201,7 @@ function CelulaCompetenciaPlanilha({ item }: { item: ValidacaoDiariaPlanilhaItem
         >
           <span className="font-semibold">Aviso (competência):</span> o serviço referente é de{' '}
           <span className="whitespace-nowrap">{label}</span>, diferente do mês da <b>data</b> de pagamento. O valor permanece
-          neste dia pela data na planilha.
+          neste dia pela data de pagamento no fluxo.
         </div>
       )}
     </td>
@@ -993,7 +993,7 @@ export function ValidacaoPagamentosDiariaPage() {
             <div className="px-4 py-3 border-b bg-gray-50">
               <h2 className="font-semibold text-gray-900">Possíveis matches (revisão manual)</h2>
               <p className="text-xs text-gray-500 mt-1 max-w-3xl">
-                <b>Agrupamento</b> só vale para exceções: <b>mesma pessoa</b> com mais de uma atividade no mesmo dia (soma na planilha =
+                <b>Agrupamento</b> só vale para exceções: <b>mesma pessoa</b> com mais de uma atividade no mesmo dia (soma no fluxo =
                 um PIX no banco, inclusive em abas diferentes); ou <b>mesmo pagador PIX</b> para mais de um aluno (um valor no banco).
                 Itens já marcados como “possível” em 1:1 não entram aqui para não misturar com o agrupamento. Linhas isoladas ficam em
                 um card cada.
@@ -1022,7 +1022,7 @@ export function ValidacaoPagamentosDiariaPage() {
                               className="ml-2 inline-block rounded border border-amber-300 bg-amber-100 px-1.5 py-0.5"
                               title={AVISO_COMPETENCIA_DIFERENTE}
                             >
-                              Aviso: competência ≠ mês da data — valor neste dia pela <b>data</b> na planilha
+                              Aviso: competência ≠ mês da data — valor neste dia pela <b>data de pagamento</b> no fluxo
                             </span>
                           )}
                         </div>
@@ -1113,7 +1113,7 @@ export function ValidacaoPagamentosDiariaPage() {
                     >
                       <div className="flex flex-wrap items-center gap-2 mb-2">
                         <span className="text-xs font-semibold text-amber-950">
-                          Grupo · {grupo.length} linha(s) na planilha · total {formatCurrency(totalPlan)}
+                          Grupo · {grupo.length} linha(s) no fluxo · total {formatCurrency(totalPlan)}
                         </span>
                         {badges.map((b, bi) => (
                           <span

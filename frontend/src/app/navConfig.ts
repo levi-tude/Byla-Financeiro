@@ -55,8 +55,6 @@ export const navSections: NavSection[] = [
         group: 'Validação',
         roles: ['admin'],
       },
-      { path: '/conciliacao', label: 'Conciliação', roles: ['admin'] },
-      { path: '/fluxo-divergencias', label: 'Divergências (sistema × planilha)', roles: ['admin'] },
     ],
   },
   {

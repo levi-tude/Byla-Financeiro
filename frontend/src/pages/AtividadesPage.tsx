@@ -31,8 +31,17 @@ export function AtividadesPage() {
     <div className="p-6">
       <Topbar
         title="Performance por atividade"
-        subtitle={`Receita e alunos por modalidade – mês ${monthYear.mes}/${monthYear.ano}. Dados do Supabase (cadastro de atividades). Para operação diária (cadastro e pagamentos), use o Fluxo de caixa.`}
+        subtitle={`Competência ${String(monthYear.mes).padStart(2, '0')}/${monthYear.ano} · fonte: fluxo operacional / cadastro no Supabase.`}
       />
+
+      <section className="mt-4 rounded-xl border border-slate-200 bg-slate-50/90 p-4 dark:border-slate-700 dark:bg-slate-900/80">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Em 10 segundos</p>
+        <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">
+          Ranking por <strong>receita de mensalidades</strong> e <strong>quantidade de alunos</strong> vinculados à atividade no mês
+          selecionado. &quot;Maior receita&quot; = modalidade com maior soma de valores no período.
+        </p>
+      </section>
+
       {error && (
         <div className="mb-4">
           <ApiErrorPanel
@@ -75,6 +84,9 @@ export function AtividadesPage() {
         <p className="text-xs text-gray-500 mb-3">
           Fonte dos dados: Supabase (tabela <code>atividades</code> e visão <code>v_alunos_por_atividade</code>), filtrados pelo mês selecionado.
         </p>
+        {!isLoading && resumo.length === 0 && !error ? (
+          <p className="text-sm text-slate-500 py-4">Nenhuma atividade com receita neste mês. Confira o seletor de mês ou o Fluxo de caixa.</p>
+        ) : null}
         {isLoading ? (
           <div className="space-y-2">
             {[1, 2, 3].map((i) => (

@@ -23,6 +23,7 @@ import {
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import type { AppRole } from '../auth/types';
+import { ErrorPanel } from '../components/finance/StateBlocks';
 
 /** Renderiza texto de relatório com headings e listas simples (## / -), sem depender de markdown completo. */
 function RelatorioTextoIaView({ text }: { text: string }) {
@@ -144,6 +145,40 @@ function periodoRelatorioLabel(dados: RelatorioPayload): string {
   return '';
 }
 
+const BRL_FMT = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+function buildRelatorioExecutiveBullets(dados: RelatorioPayload): string[] {
+  const bullets: string[] = [];
+  const periodo = periodoRelatorioLabel(dados);
+  if (periodo) bullets.push(`Período analisado: ${periodo}.`);
+
+  const cg =
+    'controle_caixa_leitura_gestao' in dados && dados.controle_caixa_leitura_gestao
+      ? dados.controle_caixa_leitura_gestao
+      : null;
+  if (cg?.totais_planilha) {
+    const t = cg.totais_planilha;
+    const parts: string[] = [];
+    if (t.entradas_reais != null) parts.push(`entradas ${BRL_FMT.format(t.entradas_reais)}`);
+    if (t.saidas_reais != null) parts.push(`saídas ${BRL_FMT.format(t.saidas_reais)}`);
+    if (t.lucro_reais != null) parts.push(`lucro ${BRL_FMT.format(t.lucro_reais)}`);
+    if (parts.length) bullets.push(`Fechamento (CONTROLE): ${parts.join(', ')}.`);
+  }
+  if (cg?.saidas_por_categoria?.length) {
+    const byCat = new Map<string, number>();
+    for (const row of cg.saidas_por_categoria) {
+      byCat.set(row.categoria, (byCat.get(row.categoria) ?? 0) + row.valor_reais);
+    }
+    const top = [...byCat.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
+    if (top.length) {
+      bullets.push(
+        `Maiores saídas por categoria: ${top.map(([c, v]) => `${c} (${BRL_FMT.format(v)})`).join(' · ')}.`,
+      );
+    }
+  }
+  return bullets.slice(0, 3);
+}
+
 function ControleCaixaGestaoPreview({ data }: { data: ControleCaixaLeituraGestao }) {
   const fmt = (n: number) =>
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n);
@@ -219,17 +254,26 @@ function ControleCaixaGestaoPreview({ data }: { data: ControleCaixaLeituraGestao
       {data.saidas_por_categoria.length > 0 && (
         <div>
           <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">Saídas por categoria</h4>
-          <ul className="space-y-1 text-sm">
-            {data.saidas_por_categoria.map((row, i) => (
-              <li key={`s-${i}`} className="flex justify-between gap-2 border-b border-indigo-100/80 pb-1">
-                <span className="text-gray-800">
-                  <span className="text-indigo-900/90 font-medium">{row.categoria}</span>
-                  {row.descricao ? ` — ${row.descricao}` : null}
-                </span>
-                <span className="font-medium tabular-nums shrink-0">{fmt(row.valor_reais)}</span>
-              </li>
-            ))}
-          </ul>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {(() => {
+              const byCat = new Map<string, { total: number; itens: typeof data.saidas_por_categoria }>();
+              for (const row of data.saidas_por_categoria) {
+                const cur = byCat.get(row.categoria) ?? { total: 0, itens: [] };
+                cur.total += row.valor_reais;
+                cur.itens.push(row);
+                byCat.set(row.categoria, cur);
+              }
+              return [...byCat.entries()]
+                .sort((a, b) => b[1].total - a[1].total)
+                .map(([categoria, { total, itens }]) => (
+                  <div key={categoria} className="rounded-lg border border-indigo-200/80 bg-white/90 p-2.5">
+                    <p className="text-xs font-semibold text-indigo-900">{categoria}</p>
+                    <p className="text-base font-bold tabular-nums text-indigo-950">{fmt(total)}</p>
+                    <p className="text-[11px] text-gray-600 mt-1">{itens.length} linha(s)</p>
+                  </div>
+                ));
+            })()}
+          </div>
         </div>
       )}
       {data.gastos_fixos_linha_a_linha.length > 0 && (
@@ -1129,9 +1173,15 @@ export function RelatoriosPage() {
                       : 'Verificando IA…'}
                 </span>
               </div>
-              {errorIA && (
-                <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm">
-                  {errorIA}
+              {errorIA && <ErrorPanel message={errorIA} />}
+              {textoIA && dados && buildRelatorioExecutiveBullets(dados).length > 0 && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-900">Resumo executivo</p>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-emerald-950">
+                    {buildRelatorioExecutiveBullets(dados).map((b) => (
+                      <li key={b}>{b}</li>
+                    ))}
+                  </ul>
                 </div>
               )}
               {textoIA && (

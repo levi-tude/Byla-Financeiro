@@ -554,6 +554,7 @@ export function FluxoCaixaOperacionalPage() {
   const [soPendencias, setSoPendencias] = useState(false);
   const [modoVisao, setModoVisao] = useState<'mensal' | 'multi'>('multi');
   const [multiAbaAtiva, setMultiAbaAtiva] = useState<string>('BYLA DANÇA');
+  const [pendenciasAtividadeFiltro, setPendenciasAtividadeFiltro] = useState<string>('todas');
   const [multiModalidadeAbertaPorAba, setMultiModalidadeAbertaPorAba] = useState<Record<string, string | null>>({});
   const [formaResumoSelecionada, setFormaResumoSelecionada] = useState<string>('Todas');
   const [resumoFiltroPeriodoModo, setResumoFiltroPeriodoModo] = useState<'mes' | 'periodo'>('mes');
@@ -600,6 +601,18 @@ export function FluxoCaixaOperacionalPage() {
       }),
   });
 
+  const alunosPainelQuery = useQuery({
+    queryKey: ['fluxo-operacional-alunos-painel', 'todos-ativos'],
+    queryFn: () => getFluxoOperacionalAlunos({ ativo: true, limit: 2500 }),
+    enabled: activeTopTab === 'pendencias_cobrancas',
+  });
+
+  const pagamentosPainelQuery = useQuery({
+    queryKey: ['fluxo-operacional-pagamentos-painel', new Date().getFullYear()],
+    queryFn: () => getFluxoOperacionalPagamentos({ ano: new Date().getFullYear(), limit: 1000 }),
+    enabled: activeTopTab === 'pendencias_cobrancas',
+  });
+
   const pagamentosResumoQuery = useQuery({
     queryKey: ['fluxo-operacional-pagamentos-resumo', monthYear.ano],
     queryFn: () =>
@@ -644,6 +657,7 @@ export function FluxoCaixaOperacionalPage() {
       setAlunoUiSnapshot(null);
       setIgnorarChavesDraft([]);
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-alunos'] });
+      await qc.invalidateQueries({ queryKey: ['fluxo-operacional-alunos-painel'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-resumo-multi'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-auditoria'] });
     },
@@ -669,6 +683,7 @@ export function FluxoCaixaOperacionalPage() {
       setAlunoUiSnapshot(null);
       setIgnorarChavesDraft([]);
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-alunos'] });
+      await qc.invalidateQueries({ queryKey: ['fluxo-operacional-alunos-painel'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-resumo-multi'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-auditoria'] });
     },
@@ -705,7 +720,9 @@ export function FluxoCaixaOperacionalPage() {
         setIgnorarChavesDraft([]);
       }
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-alunos'] });
+      await qc.invalidateQueries({ queryKey: ['fluxo-operacional-alunos-painel'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos'] });
+      await qc.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos-painel'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos-ano-multi'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-resumo-multi'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-auditoria'] });
@@ -723,6 +740,7 @@ export function FluxoCaixaOperacionalPage() {
       setPagModalOpen(false);
       setPagEditId(null);
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos'] });
+      await qc.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos-painel'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos-ano-multi'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-resumo-multi'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-auditoria'] });
@@ -741,6 +759,7 @@ export function FluxoCaixaOperacionalPage() {
       setPagEditId(null);
       setPagModalOpen(false);
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos'] });
+      await qc.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos-painel'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos-ano-multi'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-resumo-multi'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-auditoria'] });
@@ -759,6 +778,7 @@ export function FluxoCaixaOperacionalPage() {
       setPagEditId(null);
       setPagForm(initialPagamentoForm(monthYear.mes, monthYear.ano));
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos'] });
+      await qc.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos-painel'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos-ano-multi'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-resumo-multi'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-auditoria'] });
@@ -778,6 +798,7 @@ export function FluxoCaixaOperacionalPage() {
         prev && prev.id === args.alunoId ? { ...prev, cobranca_tentativas: data.cobrancaTentativas } : prev,
       );
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-alunos'] });
+      await qc.invalidateQueries({ queryKey: ['fluxo-operacional-alunos-painel'] });
     },
     onError: (e) => {
       showToast(e instanceof Error ? e.message : String(e), 'error');
@@ -863,7 +884,7 @@ export function FluxoCaixaOperacionalPage() {
     const ano = hoje.getFullYear();
     const mes = hoje.getMonth() + 1;
     const pagamentosMes = new Set(
-      (pagamentosQuery.data?.itens ?? [])
+      (pagamentosPainelQuery.data?.itens ?? [])
         .filter((p) => p.ano_competencia === ano && p.mes_competencia === mes)
         .map((p) => `${normalizarAbaMulti(p.aba)}\u0000${p.modalidade}\u0000${p.linha_planilha}\u0000${p.aluno_nome.toLowerCase()}`),
     );
@@ -875,7 +896,7 @@ export function FluxoCaixaOperacionalPage() {
     const cobrancaVencidos: FluxoOperacionalAluno[] = [];
     const cobrancaPlanos: FluxoOperacionalAluno[] = [];
 
-    for (const a of alunosQuery.data?.itens ?? []) {
+    for (const a of alunosPainelQuery.data?.itens ?? []) {
       if (!a.ativo) continue;
       if (camposCadastroFaltantes(a).length > 0) cadastroPendencias.push(a);
 
@@ -919,7 +940,7 @@ export function FluxoCaixaOperacionalPage() {
       cobrancaPlanos,
       referencia: { ano, mes },
     };
-  }, [alunosQuery.data?.itens, pagamentosQuery.data?.itens, pagamentosAnoMultiQuery.data?.itens]);
+  }, [alunosPainelQuery.data?.itens, pagamentosPainelQuery.data?.itens, pagamentosAnoMultiQuery.data?.itens]);
 
   const pendenciasInternasCards = useMemo(() => {
     const byId = new Map<
@@ -950,7 +971,7 @@ export function FluxoCaixaOperacionalPage() {
       });
     }
 
-    return [...byId.values()].slice(0, 10);
+    return [...byId.values()];
   }, [painelOperacional]);
 
   const cobrancasCards = useMemo(() => {
@@ -1005,7 +1026,7 @@ export function FluxoCaixaOperacionalPage() {
         unique.set(row.aluno.id, row);
       }
     }
-    return [...unique.values()].slice(0, 10);
+    return [...unique.values()];
   }, [painelOperacional]);
 
   const agrupadoPendenciasCobrancas = useMemo(() => {
@@ -1043,6 +1064,23 @@ export function FluxoCaixaOperacionalPage() {
           })),
       }));
   }, [pendenciasInternasCards, cobrancasCards]);
+
+  const atividadesPendenciasDisponiveis = useMemo(
+    () => agrupadoPendenciasCobrancas.map((x) => x.atividade),
+    [agrupadoPendenciasCobrancas],
+  );
+
+  const agrupadoPendenciasCobrancasFiltrado = useMemo(() => {
+    if (pendenciasAtividadeFiltro === 'todas') return agrupadoPendenciasCobrancas;
+    return agrupadoPendenciasCobrancas.filter((x) => x.atividade === pendenciasAtividadeFiltro);
+  }, [agrupadoPendenciasCobrancas, pendenciasAtividadeFiltro]);
+
+  useEffect(() => {
+    if (pendenciasAtividadeFiltro === 'todas') return;
+    if (!atividadesPendenciasDisponiveis.includes(pendenciasAtividadeFiltro)) {
+      setPendenciasAtividadeFiltro('todas');
+    }
+  }, [atividadesPendenciasDisponiveis, pendenciasAtividadeFiltro]);
 
   const alunoPorChave = useMemo(() => {
     const m = new Map<string, FluxoOperacionalAluno>();
@@ -2299,7 +2337,30 @@ export function FluxoCaixaOperacionalPage() {
             </section>
 
             <section className="space-y-3">
-              {agrupadoPendenciasCobrancas.map((grupoAtividade) => (
+              <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/80">
+                <div className="flex flex-wrap items-end gap-3">
+                  <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                    Atividade
+                    <select
+                      className="select-with-chevron mt-1 w-56 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                      value={pendenciasAtividadeFiltro}
+                      onChange={(e) => setPendenciasAtividadeFiltro(e.target.value)}
+                    >
+                      <option value="todas">Todas as atividades</option>
+                      {atividadesPendenciasDisponiveis.map((atividade) => (
+                        <option key={atividade} value={atividade}>
+                          {atividade}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Exibindo <strong>{agrupadoPendenciasCobrancasFiltrado.length}</strong> atividade(s) com pendências/cobranças.
+                  </p>
+                </div>
+              </div>
+
+              {agrupadoPendenciasCobrancasFiltrado.map((grupoAtividade) => (
                 <article
                   key={`pc-atividade-${grupoAtividade.atividade}`}
                   className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/90"
@@ -2413,7 +2474,7 @@ export function FluxoCaixaOperacionalPage() {
                   </div>
                 </article>
               ))}
-              {agrupadoPendenciasCobrancas.length === 0 ? (
+              {agrupadoPendenciasCobrancasFiltrado.length === 0 ? (
                 <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-300">
                   Nenhuma pendência ou cobrança encontrada.
                 </div>
@@ -3713,6 +3774,7 @@ export function FluxoCaixaOperacionalPage() {
                         setAlunoUiSnapshot(null);
                         setIgnorarChavesDraft([]);
                         await qc.invalidateQueries({ queryKey: ['fluxo-operacional-alunos'] });
+                        await qc.invalidateQueries({ queryKey: ['fluxo-operacional-alunos-painel'] });
                         await qc.invalidateQueries({ queryKey: ['fluxo-operacional-resumo-multi'] });
                         await qc.invalidateQueries({ queryKey: ['fluxo-operacional-auditoria'] });
                       } catch (e) {

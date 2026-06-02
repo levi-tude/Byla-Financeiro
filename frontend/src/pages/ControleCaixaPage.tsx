@@ -13,6 +13,7 @@ import { useToast } from '../context/ToastContext';
 import { ApiErrorPanel } from '../components/ui/ApiErrorPanel';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { Link } from 'react-router-dom';
+import { FilterBar } from '../components/finance/FilterBar';
 import {
   formatDeltaBrl,
   formatPctChange,
@@ -434,6 +435,16 @@ export function ControleCaixaPage() {
         childrenRight={<MonthYearPicker />}
       />
 
+      <FilterBar
+        title="Fechamento do mês"
+        subtitle="Comece pelo resumo fixo abaixo; expanda os blocos para lançar valores linha a linha."
+        periodLabel={mesExtenso(monthYear.mes, monthYear.ano)}
+      >
+        <p className="text-xs text-slate-600 dark:text-slate-400">
+          Os totais de entradas, saídas e lucro são calculados automaticamente a partir dos blocos.
+        </p>
+      </FilterBar>
+
       {controleQuery.isLoading && <div className="text-sm text-gray-500">Carregando dados do mês...</div>}
       {controleQuery.error && (
         <ApiErrorPanel
@@ -513,7 +524,7 @@ export function ControleCaixaPage() {
               </div>
               <div className="rounded-lg border border-indigo-200 bg-indigo-50/80 px-3 py-2 dark:border-indigo-800 dark:bg-indigo-950/30">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-indigo-800 dark:text-indigo-200">
-                  Resultado
+                  Lucro
                 </p>
                 <p className="mt-0.5 text-xl font-bold tabular-nums text-indigo-950 dark:text-indigo-50">
                   {formatNullableCurrency(totaisCalculados.lucroTotal) || 'R$ 0,00'}
@@ -585,7 +596,7 @@ export function ControleCaixaPage() {
               <div>
                 <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Lançamentos do mês</h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Expanda o bloco desejado e edite o <strong>valor</strong> na linha.
+                  {draft.blocos.length} bloco(s) — todos começam recolhidos. Expanda o bloco desejado e edite o <strong>valor</strong> na linha.
                 </p>
               </div>
               <div className="flex gap-2">

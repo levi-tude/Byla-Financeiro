@@ -29,6 +29,13 @@ services:
         value: "true"
       - key: BYLA_SOURCE_CADASTRO_PRIMARY
         value: supabase
+      # Validação/calendário: fluxo operacional (Supabase) como fonte; planilha só com fallback explícito
+      - key: BYLA_SOURCE_FLUXO_PRIMARY
+        value: "true"
+      - key: BYLA_PLANILHA_READ
+        value: "false"
+      - key: BYLA_VALIDACAO_PLANILHA_FALLBACK
+        value: "false"
       - key: GOOGLE_SHEETS_ENTRADA_SAIDA_ID
         sync: false
       # Mesmos IDs do backend/.env local — necessários para /api/alunos-completo, fluxo-completo, /api/fontes planilha1+2

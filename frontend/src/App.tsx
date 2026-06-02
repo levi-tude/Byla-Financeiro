@@ -1,14 +1,12 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { LayoutShell } from './app/LayoutShell';
 import { OverviewPage } from './pages/OverviewPage';
-import { ConciliacaoPage } from './pages/ConciliacaoPage';
 import { AtividadesPage } from './pages/AtividadesPage';
 import { RelatoriosPage } from './pages/RelatoriosPage';
 import { ValidacaoPagamentosDiariaPage } from './pages/ValidacaoPagamentosDiariaPage';
 import { CalendarioFinanceiroPage } from './pages/CalendarioFinanceiroPage';
 import { ControleCaixaPage } from './pages/ControleCaixaPage';
 import { FluxoCaixaOperacionalPage } from './pages/FluxoCaixaOperacionalPage';
-import { FluxoDivergenciasPage } from './pages/FluxoDivergenciasPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { RequireAuth } from './auth/RequireAuth';
 import { LoginPage } from './pages/LoginPage';
@@ -39,14 +37,7 @@ export default function App() {
           }
         >
           <Route index element={<HomeByRole />} />
-          <Route
-            path="conciliacao"
-            element={
-              <RequireAuth roles={['admin']}>
-                <ConciliacaoPage />
-              </RequireAuth>
-            }
-          />
+          <Route path="conciliacao" element={<Navigate to="/fluxo-caixa" replace />} />
           <Route path="alunos" element={<Navigate to="/fluxo-caixa" replace />} />
           <Route path="pagamentos-planilha" element={<Navigate to="/fluxo-caixa" replace />} />
           <Route path="atividades" element={<Navigate to="/performance-atividades" replace />} />
@@ -99,14 +90,7 @@ export default function App() {
               </RequireAuth>
             }
           />
-          <Route
-            path="fluxo-divergencias"
-            element={
-              <RequireAuth roles={['admin']}>
-                <FluxoDivergenciasPage />
-              </RequireAuth>
-            }
-          />
+          <Route path="fluxo-divergencias" element={<Navigate to="/fluxo-caixa" replace />} />
           <Route
             path="fluxo-caixa"
             element={

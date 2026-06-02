@@ -35,6 +35,9 @@ import { OverviewChartShell, OVERVIEW_CHART_MIN_H } from '../components/overview
 import { ModalityRevenueDrilldownChart } from '../components/overview/ModalityRevenueDrilldownChart';
 import { ModalityRevenueLegend } from '../components/overview/ModalityRevenueLegend';
 import { BankReconciliationCard } from '../components/overview/BankReconciliationCard';
+import { FilterBar } from '../components/finance/FilterBar';
+import { MonthYearPicker } from '../components/ui/MonthYearPicker';
+import { getDespesas } from '../services/backendApi';
 
 function trendFromDelta(current: number | null, prev: number | null): 'up' | 'down' | 'neutral' {
   if (current == null || prev == null) return 'neutral';
@@ -75,6 +78,11 @@ export function OverviewPage() {
   const controleQuery = useQuery({
     queryKey: ['overview-controle-caixa', mes, ano],
     queryFn: () => getControleCaixa(mes, ano),
+  });
+
+  const despesasQuery = useQuery({
+    queryKey: ['overview-despesas-categorias', mes, ano],
+    queryFn: () => getDespesas(mes, ano),
   });
 
   const controlePrevQuery = useQuery({
@@ -220,6 +228,14 @@ export function OverviewPage() {
       />
 
       <SourceLegend />
+
+      <FilterBar
+        title="Contexto do mês"
+        subtitle="KPIs, alertas e saídas por categoria usam o mês selecionado abaixo (ou o seletor global no topo)."
+        periodLabel={periodoLabel}
+      >
+        <MonthYearPicker />
+      </FilterBar>
 
       {resumoError && trendUsesExtrato && (
         <ApiErrorPanel
@@ -371,6 +387,36 @@ export function OverviewPage() {
       </OverviewSection>
 
       <OverviewSection
+        title="Saídas por categoria"
+        whatIs="Resumo das despesas do mês agrupadas por categoria (extrato/saídas lançadas)."
+        source="extrato"
+      >
+        {despesasQuery.isLoading ? (
+          <p className="text-sm text-slate-500">Carregando categorias de saída…</p>
+        ) : despesasQuery.error ? (
+          <p className="text-sm text-rose-700">Não foi possível carregar saídas por categoria.</p>
+        ) : (despesasQuery.data?.resumo.por_categoria.length ?? 0) === 0 ? (
+          <p className="text-sm text-slate-500">Nenhuma saída categorizada neste mês.</p>
+        ) : (
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {despesasQuery.data!.resumo.por_categoria.slice(0, 9).map((row) => (
+              <div
+                key={row.categoria}
+                className="rounded-lg border border-rose-200/80 bg-rose-50/50 px-3 py-2 dark:border-rose-900/40 dark:bg-rose-950/30"
+              >
+                <p className="text-xs font-semibold text-rose-900 dark:text-rose-100 truncate">{row.categoria}</p>
+                <p className="mt-0.5 text-lg font-bold tabular-nums text-rose-950 dark:text-rose-50">{formatBrl(row.total)}</p>
+                <p className="text-[11px] text-rose-800/80 dark:text-rose-200/80">{row.qtd} lançamento(s)</p>
+              </div>
+            ))}
+          </div>
+        )}
+        <Link to="/transacoes" className="mt-3 inline-block text-xs font-semibold text-indigo-700 hover:underline dark:text-indigo-300">
+          Ver saídas em Transações →
+        </Link>
+      </OverviewSection>
+
+      <OverviewSection
         title="Conferência com o extrato"
         whatIs="Cruza entradas e saídas do extrato bancário com o fechamento do mesmo mês."
         source="extrato"
@@ -512,7 +558,7 @@ export function OverviewPage() {
       <section aria-label="Ações rápidas" className="space-y-3">
         <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">Ações rápidas</h2>
         <p className="text-sm text-slate-600 dark:text-slate-400">Atalhos para as telas que você mais usa no dia a dia.</p>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <QuickActionCardColored
             to="/fluxo-caixa"
             title="Fluxo de caixa"
@@ -528,14 +574,6 @@ export function OverviewPage() {
             borderClass="border-emerald-200 dark:border-emerald-800/60"
             bgClass="bg-emerald-50/90 dark:bg-emerald-950/35"
             titleClass="text-emerald-950 dark:text-emerald-100"
-          />
-          <QuickActionCardColored
-            to="/conciliacao"
-            title="Conciliação"
-            description="Vencimentos e adimplência."
-            borderClass="border-amber-200 dark:border-amber-800/60"
-            bgClass="bg-amber-50/90 dark:bg-amber-950/35"
-            titleClass="text-amber-950 dark:text-amber-100"
           />
           <QuickActionCardColored
             to="/transacoes"

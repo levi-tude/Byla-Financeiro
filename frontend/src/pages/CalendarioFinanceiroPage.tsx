@@ -84,6 +84,10 @@ export function CalendarioFinanceiroPage() {
   const [draftBancoPorPlanilha, setDraftBancoPorPlanilha] = useState<Record<string, string>>({});
   const [modalNotice, setModalNotice] = useState<string | null>(null);
 
+  const usaFluxoOperacional = payload?.meta?.fonte_pagamentos === 'fluxo_operacional';
+  const labelLadoFluxo = usaFluxoOperacional ? 'Fluxo' : 'Planilha';
+  const labelLadoFluxoGen = usaFluxoOperacional ? 'fluxo operacional' : 'planilha';
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -294,7 +298,7 @@ export function CalendarioFinanceiroPage() {
     <div className="p-6">
       <Topbar
         title="Validação — calendário mensal"
-        subtitle="Visão do mês: totais por dia (fluxo/planilha × banco). Clique no dia para validar no detalhe diário."
+        subtitle="Visão do mês: totais por dia (fluxo operacional × banco). Clique no dia para validar no detalhe diário."
       />
 
       <ValidacaoCalendarioGuia variant="calendario" dataIso={modalDia?.data ?? lastDiaClicado ?? undefined} />
@@ -306,7 +310,7 @@ export function CalendarioFinanceiroPage() {
             {payload.meta.fonte_pagamentos === 'fluxo_operacional' ? 'Fluxo (Supabase)' : 'Planilha Google'}
           </strong>
           {' '}
-          — mesma fonte da validação dia a dia (fluxo operacional, não planilha Google).
+          — mesma fonte da validação dia a dia.
         </p>
       ) : null}
       {payload?.planilha_aviso ? (
@@ -319,7 +323,7 @@ export function CalendarioFinanceiroPage() {
         <strong className="text-slate-900 dark:text-slate-100">Legenda de status:</strong>{' '}
         <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5">OK</span> conferido ·{' '}
         <span className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5">Atenção</span> revisar ·{' '}
-        <span className="rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5">Divergente</span> planilha × banco · passe o mouse no dia para detalhes.
+        <span className="rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5">Divergente</span> fluxo × banco · passe o mouse no dia para detalhes.
       </div>
 
       <div className="mt-4 flex flex-wrap gap-3 items-end">
@@ -361,7 +365,7 @@ export function CalendarioFinanceiroPage() {
         <div className="mt-4 rounded-xl border border-gray-200 bg-white p-4 max-w-3xl">
           <h3 className="text-sm font-semibold text-gray-900 mb-2">Seleção por clique (como galeria)</h3>
           <p className="text-xs text-gray-500 mb-3">
-            Clique nos dias do calendário para adicionar/remover da seleção. A soma do banco (oficial) e da planilha (pela data de
+            Clique nos dias do calendário para adicionar/remover da seleção. A soma do banco (oficial) e do {labelLadoFluxoGen} (pela data de
             pagamento) atualiza em tempo real.
           </p>
 
@@ -395,9 +399,9 @@ export function CalendarioFinanceiroPage() {
                 <div className="text-[11px] text-sky-700 mt-1">{totaisSelecionados.qtdMovBanco} lançamento(s) no extrato</div>
               </div>
               <div className="rounded-lg border border-indigo-200 bg-indigo-50/80 p-3">
-                <div className="text-[11px] text-indigo-800 font-medium">Planilha — soma selecionada (data pagamento)</div>
+                <div className="text-[11px] text-indigo-800 font-medium">{labelLadoFluxo} — soma selecionada (data pagamento)</div>
                 <div className="text-lg font-semibold text-indigo-900 mt-0.5 tabular-nums">{formatCurrency(totaisSelecionados.totalPlanilha)}</div>
-                <div className="text-[11px] text-indigo-700 mt-1">{totaisSelecionados.qtdMovPlanilha} pagamento(s) na planilha</div>
+                <div className="text-[11px] text-indigo-700 mt-1">{totaisSelecionados.qtdMovPlanilha} pagamento(s) no {labelLadoFluxoGen}</div>
               </div>
             </div>
           )}
@@ -431,7 +435,7 @@ export function CalendarioFinanceiroPage() {
 
       {payload?.planilha_aviso && (
         <div className="mt-3 p-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 text-sm">
-          Planilha: {payload.planilha_aviso}
+          {labelLadoFluxo}: {payload.planilha_aviso}
         </div>
       )}
 
@@ -446,7 +450,7 @@ export function CalendarioFinanceiroPage() {
             <div className="text-xl font-semibold text-sky-900">{formatCurrency(payload.totais_mes.banco)}</div>
           </div>
           <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4">
-            <div className="text-xs text-indigo-800 font-medium">Total planilha (data pagamento) no mês</div>
+            <div className="text-xs text-indigo-800 font-medium">Total {labelLadoFluxoGen} (data pagamento) no mês</div>
             <div className="text-xl font-semibold text-indigo-900">{formatCurrency(payload.totais_mes.planilha)}</div>
           </div>
         </div>
@@ -524,7 +528,7 @@ export function CalendarioFinanceiroPage() {
                     onClick={() => setModalDia(cell)}
                     className="text-left text-[10px] leading-tight rounded px-1 py-0.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-900 border border-indigo-200"
                   >
-                    <span className="block text-indigo-700 font-medium">Planilha</span>
+                    <span className="block text-indigo-700 font-medium">{labelLadoFluxo}</span>
                     <span className="font-semibold">{formatCurrency(planilha.total)}</span>
                     {planilha.quantidade > 0 && <span className="text-indigo-600"> ({planilha.quantidade})</span>}
                   </button>
@@ -552,10 +556,10 @@ export function CalendarioFinanceiroPage() {
                   Detalhes — {modalDia.data}
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Clique em &quot;Validação deste dia&quot; para conferir banco × planilha.
+                  Clique em &quot;Validação deste dia&quot; para conferir banco × {labelLadoFluxoGen}.
                 </p>
                 <div className="mt-1 text-[11px] text-gray-600">
-                  Status do dia: <b>{statusLabel(modalDia.validacao.status_final)}</b> · Planilhas vinculadas:{' '}
+                  Status do dia: <b>{statusLabel(modalDia.validacao.status_final)}</b> · Pagamentos vinculados:{' '}
                   <b>{modalDia.validacao.qtd_planilha_vinculada}</b>
                 </div>
               </div>
@@ -577,7 +581,7 @@ export function CalendarioFinanceiroPage() {
             </div>
             <div className="p-4 overflow-y-auto space-y-5">
               <section className="border rounded-lg border-gray-200 bg-white p-3">
-                <h4 className="text-xs font-semibold text-gray-700 mb-2">Vincular transações (1 banco ↔ N planilha)</h4>
+                <h4 className="text-xs font-semibold text-gray-700 mb-2">Vincular transações (1 banco ↔ N pagamentos do fluxo)</h4>
                 {modalNotice && <div className="mb-2 text-xs text-emerald-700">{modalNotice}</div>}
                 {loadingModalData ? (
                   <p className="text-xs text-gray-500">Carregando possíveis matches...</p>
@@ -678,12 +682,12 @@ export function CalendarioFinanceiroPage() {
                 )}
               </section>
               <section>
-                <h4 className="text-sm font-semibold text-indigo-800 mb-2">Planilha — pagamentos ({modalDia.planilha.quantidade})</h4>
+                <h4 className="text-sm font-semibold text-indigo-800 mb-2">{labelLadoFluxo} — pagamentos ({modalDia.planilha.quantidade})</h4>
                 {modalDia.planilha.itens.length === 0 ? (
                   <>
                     <p className="text-sm text-gray-500">Nenhum pagamento neste dia.</p>
                     <div className="mt-3 pt-3 border-t border-indigo-200 flex flex-wrap justify-between items-center gap-2 text-sm">
-                      <span className="text-indigo-800 font-medium">Total planilha</span>
+                      <span className="text-indigo-800 font-medium">Total {labelLadoFluxoGen}</span>
                       <span className="text-indigo-950 font-bold tabular-nums">{formatCurrency(0)}</span>
                     </div>
                   </>
@@ -695,7 +699,7 @@ export function CalendarioFinanceiroPage() {
                       ))}
                     </ul>
                     <div className="mt-3 pt-3 border-t border-indigo-200 flex flex-wrap justify-between items-center gap-2 text-sm">
-                      <span className="text-indigo-800 font-medium">Total planilha</span>
+                      <span className="text-indigo-800 font-medium">Total {labelLadoFluxoGen}</span>
                       <span className="text-indigo-950 font-bold tabular-nums">{formatCurrency(modalDia.planilha.total)}</span>
                     </div>
                   </>

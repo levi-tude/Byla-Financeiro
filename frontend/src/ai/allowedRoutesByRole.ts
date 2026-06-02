@@ -5,7 +5,6 @@ const secretariaRoutes = new Set(['/', '/fluxo-caixa', '/perfil']);
 
 const adminRoutes = new Set<string>([
   ...secretariaRoutes,
-  '/conciliacao',
   '/transacoes',
   '/entradas',
   '/saidas',
@@ -15,7 +14,6 @@ const adminRoutes = new Set<string>([
   '/controle-caixa',
   '/calendario-financeiro',
   '/validacao-pagamentos-diaria',
-  '/fluxo-divergencias',
 ]);
 
 function normalizeRoute(path: string): string {

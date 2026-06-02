@@ -24,7 +24,7 @@ function formatDataBr(iso: string): string {
 
 const CHECKLIST_VALIDACAO = [
   'Escolha a data do extrato (Hoje, Ontem ou link vindo do calendário).',
-  'Compare os totais planilha × banco do dia.',
+  'Compare os totais fluxo operacional × banco do dia.',
   'Resolva itens não confirmados e matches possíveis.',
   'Salve vínculos manuais quando o sistema só sugerir correspondência.',
 ] as const;
@@ -32,7 +32,7 @@ const CHECKLIST_VALIDACAO = [
 const CHECKLIST_CALENDARIO = [
   'Veja o status de cada dia no mês (OK, atenção, divergente).',
   'Clique no dia com problema para o resumo rápido.',
-  'Use «Validar este dia» para abrir a conferência planilha × banco.',
+  'Use «Validar este dia» para abrir a conferência fluxo × banco.',
   'Use seleção de vários dias só para somar valores — não substitui a validação diária.',
 ] as const;
 
@@ -67,7 +67,7 @@ export function ValidacaoCalendarioGuia({ variant, dataIso }: ValidacaoCalendari
           >
             <p className="text-sm font-bold text-emerald-900 dark:text-emerald-100">Pagamentos (dia a dia)</p>
             <p className="mt-1 text-xs leading-relaxed text-slate-700 dark:text-slate-300">
-              Um <strong>dia por vez</strong>: entradas no banco × pagamentos do fluxo/planilha, vínculos e pendências daquele dia.
+              Um <strong>dia por vez</strong>: entradas no banco × pagamentos do fluxo operacional, vínculos e pendências daquele dia.
             </p>
           </div>
           <div
@@ -105,7 +105,7 @@ export function ValidacaoCalendarioGuia({ variant, dataIso }: ValidacaoCalendari
             </p>
             <p className="mt-1 font-semibold text-slate-900 dark:text-slate-50">Validação de pagamentos</p>
             <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
-              Conferência do <strong>dia</strong>: planilha × extrato, vínculos e não confirmados.
+              Conferência do <strong>dia</strong>: fluxo operacional × extrato, vínculos e não confirmados.
             </p>
             {variant === 'validacao' ? (
               <p className="mt-3 text-xs font-semibold text-violet-800 dark:text-violet-200">✓ Você está aqui</p>
