@@ -128,6 +128,18 @@ async function requestPatch<T>(path: string, body: unknown): Promise<T> {
   return res.json();
 }
 
+async function requestDelete<T>(path: string): Promise<T> {
+  if (!BASE_URL) {
+    throw new Error('VITE_BACKEND_URL não configurado');
+  }
+  const res = await apiFetch(path, { method: 'DELETE' });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(await parseBackendError(res, text));
+  }
+  return res.json();
+}
+
 async function getAuthHeaders(initialHeaders?: HeadersInit): Promise<Headers> {
   const headers = new Headers(initialHeaders ?? {});
   if (!headers.has('Content-Type')) {
@@ -425,6 +437,38 @@ export interface FluxoOperacionalPagamento {
   aluno_valor_referencia?: number | null;
   aluno_responsaveis?: string | null;
   aluno_pagador_pix?: string | null;
+  status_extrato?: 'validado' | 'pendente' | 'divergente' | 'sem_lancamento';
+  planilha_id?: string;
+  banco_id?: string | null;
+  vinculo_id?: string | null;
+}
+
+export type FluxoTotaisCompetenciaLinha = {
+  aba: string;
+  modalidade: string;
+  mes_competencia: number;
+  ano_competencia: number;
+  total: number;
+  qtd: number;
+  total_validado: number;
+  qtd_validado: number;
+};
+
+export async function getFluxoOperacionalTotaisCompetencia(
+  mes: number,
+  ano: number,
+  aba?: string,
+  modalidade?: string,
+): Promise<{
+  mes: number;
+  ano: number;
+  totais: FluxoTotaisCompetenciaLinha[];
+  comparativo: { total_fluxo: number; total_validado_extrato: number; delta: number };
+}> {
+  const qs = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  if (aba) qs.set('aba', aba);
+  if (modalidade) qs.set('modalidade', modalidade);
+  return request(`/api/fluxo-operacional/totais-competencia?${qs.toString()}`);
 }
 
 export interface FluxoOperacionalPagamentosResponse {
@@ -520,6 +564,7 @@ export interface FluxoOperacionalResumoMesItem {
   dataPagamento: string | null;
   formaPagamento: string | null;
   status: 'pago' | 'parcial' | 'pendente' | 'sem_dado' | 'futuro';
+  status_extrato?: 'validado' | 'pendente' | 'sem_lancamento';
 }
 
 export interface FluxoOperacionalResumoAlunoItem {
@@ -722,9 +767,457 @@ export interface DespesasResponse {
   ano: number;
 }
 
+/** @deprecated Legado (tabela despesas). Use getDespesasResumo. */
 export async function getDespesas(mes: number, ano: number): Promise<DespesasResponse> {
   const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
   return request<DespesasResponse>(`/api/saidas?${params.toString()}`);
+}
+
+export type VisaoControle = 'caixa' | 'competencia';
+
+export type TransacaoCompetenciaApi = {
+  mes_competencia?: number;
+  ano_competencia?: number;
+  competencia_confirmada?: boolean;
+  competencia_origem?: string;
+  competencia_sugerida_mes?: number;
+  competencia_sugerida_ano?: number;
+  competencia_alinha_data?: boolean;
+  alerta_duplicata_competencia?: boolean;
+};
+
+export type DespesaCategoriaLinha = {
+  templateKey: string;
+  label: string;
+  blocoTemplateKey: string;
+  blocoTitulo: string;
+  ordem: number;
+  blocoOrdem: number;
+  linhaId?: string;
+  blocoId?: string;
+  isCustom?: boolean;
+};
+
+export type DespesasResumoResponse = {
+  mes: number;
+  ano: number;
+  visao?: VisaoControle;
+  kpis: {
+    total_saidas: number;
+    total_classificado: number;
+    pct_classificado: number;
+    valor_pendente: number;
+    qtd_destinatarios_pendentes: number;
+    qtd_transacoes: number;
+  };
+  por_categoria: {
+    template_key: string;
+    label: string;
+    bloco_template_key: string;
+    bloco_titulo: string;
+    total: number;
+    qtd_transacoes: number;
+    qtd_destinatarios: number;
+  }[];
+  pendente: { total: number; qtd_transacoes: number };
+  por_bloco?: {
+    bloco_titulo: string;
+    bloco_ordem: number;
+    linhas: DespesasResumoResponse['por_categoria'];
+  }[];
+};
+
+export type DespesaGrupo = {
+  pessoa_normalizada: string;
+  pessoa_exibida: string;
+  qtd_mes: number;
+  total_mes: number;
+  datas: string[];
+  score_repeticao: number;
+  estado: 'pendente' | 'classificado';
+  categoria_label: string | null;
+  template_key: string | null;
+  bloco_template_key: string | null;
+  bloco_titulo: string | null;
+  origem_categoria: string;
+  mapeamento_id: string | null;
+  regra_desativada: boolean;
+  sugestao_heuristica?: { label: string; confianca: string; regra: string } | null;
+};
+
+export type DespesasGruposResponse = {
+  mes: number;
+  ano: number;
+  filtro: 'pendente' | 'classificado';
+  total: number;
+  offset: number;
+  limit: number;
+  grupos: DespesaGrupo[];
+};
+
+export type DespesaTransacaoClassificada = {
+  id: string;
+  data: string;
+  pessoa: string;
+  valor: number;
+  descricao: string | null;
+  categoria_sugerida: string | null;
+  origem_categoria: string | null;
+  pessoa_normalizada: string;
+  categoria_efetiva: string | null;
+  template_key_efetivo: string | null;
+  origem_efetiva: string;
+} & TransacaoCompetenciaApi;
+
+export async function getDespesasCategorias(
+  mes: number,
+  ano: number,
+): Promise<{ mes: number; ano: number; categorias: DespesaCategoriaLinha[] }> {
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  return request(`/api/despesas/categorias?${params.toString()}`);
+}
+
+export async function getDespesasResumo(
+  mes: number,
+  ano: number,
+  visao: VisaoControle = 'caixa',
+): Promise<DespesasResumoResponse> {
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano), visao });
+  return request<DespesasResumoResponse>(`/api/despesas/resumo?${params.toString()}`);
+}
+
+export async function patchDespesasTransacaoCompetencia(
+  mes: number,
+  ano: number,
+  transacaoId: string,
+  body: { mes_competencia: number; ano_competencia: number; confirmada: boolean },
+): Promise<{ ok: boolean; transacao_id: string; competencia_confirmada: boolean }> {
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  return requestPatch(
+    `/api/despesas/transacoes/${encodeURIComponent(transacaoId)}/competencia?${params.toString()}`,
+    body,
+  );
+}
+
+export async function getDespesasGrupos(
+  mes: number,
+  ano: number,
+  filtro: 'pendente' | 'classificado',
+  offset = 0,
+  limit = 50,
+): Promise<DespesasGruposResponse> {
+  const params = new URLSearchParams({
+    mes: String(mes),
+    ano: String(ano),
+    filtro,
+    offset: String(offset),
+    limit: String(limit),
+  });
+  return request<DespesasGruposResponse>(`/api/despesas/grupos?${params.toString()}`);
+}
+
+export async function getDespesasGrupoTransacoes(
+  pessoaNorm: string,
+  mes: number,
+  ano: number,
+): Promise<{
+  mes: number;
+  ano: number;
+  pessoa_normalizada: string;
+  grupo: DespesaGrupo | null;
+  transacoes: DespesaTransacaoClassificada[];
+}> {
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  const enc = encodeURIComponent(pessoaNorm);
+  return request(`/api/despesas/grupos/${enc}/transacoes?${params.toString()}`);
+}
+
+export async function getDespesasCategoriaTransacoes(
+  templateKey: string,
+  mes: number,
+  ano: number,
+): Promise<{
+  mes: number;
+  ano: number;
+  template_key: string;
+  label: string;
+  transacoes: DespesaTransacaoClassificada[];
+}> {
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  const enc = encodeURIComponent(templateKey);
+  return request(`/api/despesas/categorias/${enc}/transacoes?${params.toString()}`);
+}
+
+export async function putDespesasMapeamento(
+  mes: number,
+  ano: number,
+  body: {
+    pessoa_normalizada: string;
+    template_key: string;
+  },
+): Promise<{
+  id: string;
+  pessoa_normalizada: string;
+  categoria: string;
+  template_key: string | null;
+  ativo: boolean;
+}> {
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  return requestPut(`/api/despesas/mapeamento?${params.toString()}`, { ...body, aplica_tipo: 'saida' });
+}
+
+export async function patchDespesasMapeamento(
+  mes: number,
+  ano: number,
+  id: string,
+  body: { ativo?: boolean; template_key?: string },
+): Promise<{ id: string; ativo: boolean }> {
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  return requestPatch(`/api/despesas/mapeamento/${encodeURIComponent(id)}?${params.toString()}`, body);
+}
+
+export async function deleteDespesasMapeamento(
+  mes: number,
+  ano: number,
+  id: string,
+): Promise<{ ok: boolean; id: string; pessoa_normalizada: string }> {
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  return requestDelete(`/api/despesas/mapeamento/${encodeURIComponent(id)}?${params.toString()}`);
+}
+
+export type EntradaCategoriaLinha = {
+  templateKey: string;
+  label: string;
+  blocoTemplateKey: string;
+  blocoTitulo: string;
+  ordem: number;
+  blocoOrdem: number;
+  linhaId: string;
+  blocoId: string;
+  isCustom: boolean;
+};
+
+export type EntradasResumoResponse = {
+  mes: number;
+  ano: number;
+  visao?: VisaoControle;
+  kpis: {
+    total_entradas: number;
+    total_classificado: number;
+    pct_classificado: number;
+    valor_pendente: number;
+    qtd_grupos_pendentes: number;
+    qtd_transacoes: number;
+  };
+  por_categoria: Array<{
+    template_key: string;
+    label: string;
+    bloco_template_key: string;
+    bloco_titulo: string;
+    total: number;
+    qtd_transacoes: number;
+    qtd_pagadores: number;
+    bloco_ordem: number;
+    ordem: number;
+  }>;
+  pendente: { total: number; qtd_transacoes: number };
+  por_bloco?: {
+    bloco_titulo: string;
+    bloco_ordem: number;
+    linhas: EntradasResumoResponse['por_categoria'];
+  }[];
+};
+
+export type EntradaGrupo = {
+  grupo_key: string;
+  pessoa_normalizada: string;
+  pessoa_exibida: string;
+  titulo_card: string;
+  aluno_nome: string | null;
+  modalidade: string | null;
+  aba_fluxo: string | null;
+  qtd_mes: number;
+  total_mes: number;
+  datas: string[];
+  score_repeticao: number;
+  estado: 'pendente' | 'classificado';
+  categoria_label: string | null;
+  template_key: string | null;
+  bloco_template_key: string | null;
+  bloco_titulo: string | null;
+  origem_categoria: string;
+  mapeamento_id: string | null;
+  regra_desativada: boolean;
+  sugestao_fluxo?: {
+    mapeamento_id: string;
+    template_key: string;
+    label: string;
+    detalhe: string | null;
+  } | null;
+  regra_pendente_confirmacao?: boolean;
+  segmento?: 'mensalidades' | 'aluguel_coworking';
+  match_aluguel?: {
+    template_key: string;
+    label: string;
+    confianca: 'alta' | 'media' | 'baixa';
+    motivo: string;
+  } | null;
+  origem_grupo?: 'pix' | 'pix_vinculo' | 'cartao_vinculo' | 'cartao_match' | 'cartao_avulso';
+  banco_transacao_id?: string | null;
+  metodo_pagamento?: string | null;
+  fluxo_planilha_id?: string | null;
+  cartao_detalhe?: string | null;
+  sugestao?: {
+    aba: string | null;
+    modalidade: string | null;
+    aluno_nome: string | null;
+    template_key: string | null;
+    label: string | null;
+    origem: string;
+    confianca: string;
+  } | null;
+};
+
+export type EntradasGruposResponse = {
+  mes: number;
+  ano: number;
+  filtro: 'pendente' | 'classificado';
+  total: number;
+  offset: number;
+  limit: number;
+  grupos: EntradaGrupo[];
+};
+
+export type EntradaTransacaoClassificada = {
+  id: string;
+  data: string;
+  pessoa: string;
+  valor: number;
+  descricao: string | null;
+  categoria_sugerida: string | null;
+  origem_categoria: string | null;
+  modalidade: string | null;
+  nome_aluno: string | null;
+  pessoa_normalizada: string;
+  categoria_efetiva: string | null;
+  template_key_efetivo: string | null;
+  origem_efetiva: string;
+} & TransacaoCompetenciaApi;
+
+export async function getEntradasCategorias(
+  mes: number,
+  ano: number,
+): Promise<{ mes: number; ano: number; categorias: EntradaCategoriaLinha[] }> {
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  return request(`/api/entradas/categorias?${params.toString()}`);
+}
+
+export async function getEntradasResumo(
+  mes: number,
+  ano: number,
+  visao: VisaoControle = 'caixa',
+): Promise<EntradasResumoResponse> {
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano), visao });
+  return request<EntradasResumoResponse>(`/api/entradas/resumo?${params.toString()}`);
+}
+
+export async function patchEntradasTransacaoCompetencia(
+  mes: number,
+  ano: number,
+  transacaoId: string,
+  body: { mes_competencia: number; ano_competencia: number; confirmada: boolean },
+): Promise<{ ok: boolean; transacao_id: string; competencia_confirmada: boolean }> {
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  return requestPatch(
+    `/api/entradas/transacoes/${encodeURIComponent(transacaoId)}/competencia?${params.toString()}`,
+    body,
+  );
+}
+
+export async function getEntradasGrupos(
+  mes: number,
+  ano: number,
+  filtro: 'pendente' | 'classificado',
+  offset = 0,
+  limit = 50,
+): Promise<EntradasGruposResponse> {
+  const params = new URLSearchParams({
+    mes: String(mes),
+    ano: String(ano),
+    filtro,
+    offset: String(offset),
+    limit: String(limit),
+  });
+  return request<EntradasGruposResponse>(`/api/entradas/grupos?${params.toString()}`);
+}
+
+export async function getEntradasGrupoTransacoes(
+  grupoKey: string,
+  mes: number,
+  ano: number,
+): Promise<{
+  mes: number;
+  ano: number;
+  grupo_key: string;
+  grupo: EntradaGrupo | null;
+  transacoes: EntradaTransacaoClassificada[];
+}> {
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  const enc = encodeURIComponent(grupoKey);
+  return request(`/api/entradas/grupos/${enc}/transacoes?${params.toString()}`);
+}
+
+export async function getEntradasCategoriaTransacoes(
+  templateKey: string,
+  mes: number,
+  ano: number,
+): Promise<{
+  mes: number;
+  ano: number;
+  template_key: string;
+  label: string;
+  transacoes: EntradaTransacaoClassificada[];
+}> {
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  const enc = encodeURIComponent(templateKey);
+  return request(`/api/entradas/categorias/${enc}/transacoes?${params.toString()}`);
+}
+
+export async function putEntradasMapeamento(
+  mes: number,
+  ano: number,
+  body: { pessoa_normalizada: string; template_key: string; subcategoria?: string },
+): Promise<{ id: string; pessoa_normalizada: string; categoria: string; template_key: string | null; ativo: boolean }> {
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  return requestPut(`/api/entradas/mapeamento?${params.toString()}`, { ...body, aplica_tipo: 'entrada' });
+}
+
+export async function patchEntradasMapeamento(
+  mes: number,
+  ano: number,
+  id: string,
+  body: { ativo?: boolean; confirmado?: boolean; template_key?: string },
+): Promise<{ id: string; ativo: boolean; confirmado?: boolean }> {
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  return requestPatch(`/api/entradas/mapeamento/${encodeURIComponent(id)}?${params.toString()}`, body);
+}
+
+export async function deleteEntradasMapeamento(
+  mes: number,
+  ano: number,
+  id: string,
+): Promise<{ ok: boolean; id: string; pessoa_normalizada: string }> {
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  return requestDelete(`/api/entradas/mapeamento/${encodeURIComponent(id)}?${params.toString()}`);
+}
+
+export async function postControleCaixaSincronizarEntradas(
+  mes: number,
+  ano: number,
+  visao: VisaoControle = 'competencia',
+): Promise<{ ok: boolean; mes: number; ano: number; visao: VisaoControle; controle: ControleCaixaResponse }> {
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano), visao });
+  return requestPost(`/api/controle-caixa/sincronizar-entradas?${params.toString()}`, {});
 }
 
 /** Resumo por modalidade/categoria (extrato oficial) e, para saídas, por funcionário (tabela despesas). */

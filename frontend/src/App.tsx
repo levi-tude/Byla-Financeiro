@@ -13,6 +13,8 @@ import { LoginPage } from './pages/LoginPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { useAuth } from './auth/AuthContext';
 import { TransacoesPage } from './pages/TransacoesPage';
+import { DespesasPage } from './pages/DespesasPage';
+import { EntradasPage } from './pages/EntradasPage';
 
 function HomeByRole() {
   const auth = useAuth();
@@ -61,7 +63,7 @@ export default function App() {
             path="entradas"
             element={
               <RequireAuth roles={['admin']}>
-                <Navigate to="/transacoes" replace />
+                <EntradasPage />
               </RequireAuth>
             }
           />
@@ -73,7 +75,14 @@ export default function App() {
               </RequireAuth>
             }
           />
-          <Route path="despesas" element={<Navigate to="/transacoes" replace />} />
+          <Route
+            path="despesas"
+            element={
+              <RequireAuth roles={['admin']}>
+                <DespesasPage />
+              </RequireAuth>
+            }
+          />
           <Route
             path="relatorios-ia"
             element={

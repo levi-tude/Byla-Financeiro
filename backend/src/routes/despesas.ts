@@ -4,7 +4,10 @@ import { mesAnoQuerySchema, parseQuery } from '../validation/apiQuery.js';
 
 const router = Router();
 
-/** GET /api/despesas e /api/saidas – mesma resposta (lista despesas + resumos). */
+/**
+ * GET /api/despesas e /api/saidas — legado (tabela `despesas`).
+ * @deprecated Preferir GET /api/despesas/resumo (extrato + mapeamento).
+ */
 async function handleDespesasMes(req: Request, res: Response): Promise<void> {
   try {
     const parsed = parseQuery(mesAnoQuerySchema, req.query as Record<string, unknown>);

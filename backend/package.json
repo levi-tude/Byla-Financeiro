@@ -22,6 +22,7 @@
     "n8n:push-export-workflow": "tsx scripts/n8nPushWebhookExportWorkflow.ts",
     "inspect:controle": "tsx scripts/inspectControleCaixa.ts",
     "migrate:controle-mes": "tsx scripts/migrateControleCaixaMes.ts",
+    "ensure:controle-mes": "tsx scripts/ensureControleMes.ts",
     "migrate:fluxo-operacional": "tsx scripts/migrateFluxoBylaOperacional.ts",
     "validate:fluxo-migracao": "tsx scripts/validateFluxoMigracao.ts"
   },

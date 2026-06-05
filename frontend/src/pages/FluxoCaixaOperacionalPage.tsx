@@ -9,6 +9,7 @@ import {
   getFluxoOperacionalAuditoria,
   getFluxoOperacionalAlunos,
   getFluxoOperacionalPagamentos,
+  getFluxoOperacionalTotaisCompetencia,
   getFluxoOperacionalResumoMultiMes,
   patchFluxoOperacionalAlunoPendenciasIgnoradas,
   postFluxoOperacionalAlunoCobrancaTentativa,
@@ -65,6 +66,24 @@ function formatDataBr(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number);
   if (!y || !m || !d) return iso;
   return new Date(y, m - 1, d).toLocaleDateString('pt-BR');
+}
+
+function badgeStatusExtrato(st?: FluxoOperacionalPagamento['status_extrato']) {
+  if (st === 'validado') {
+    return (
+      <span className="font-medium text-emerald-700 dark:text-emerald-400" title="Validado com extrato bancário">
+        OK extrato
+      </span>
+    );
+  }
+  if (st === 'pendente') {
+    return (
+      <span className="font-medium text-amber-700 dark:text-amber-300" title="Lançamento no fluxo sem vínculo no extrato">
+        Pend. extrato
+      </span>
+    );
+  }
+  return <span className="text-slate-400">—</span>;
 }
 
 function mesReferenciaLegivel(mes: number, ano: number): string {
@@ -599,6 +618,18 @@ export function FluxoCaixaOperacionalPage() {
         modalidade: modalidadeFiltro || undefined,
         q: buscaEscopo === 'responsavel' || buscaEscopo === 'pagador' ? undefined : buscaDebounced || undefined,
       }),
+  });
+
+  const totaisCompetenciaQuery = useQuery({
+    queryKey: ['fluxo-totais-competencia', monthYear.mes, monthYear.ano, abaFiltro, modalidadeFiltro],
+    queryFn: () =>
+      getFluxoOperacionalTotaisCompetencia(
+        monthYear.mes,
+        monthYear.ano,
+        abaFiltro || undefined,
+        modalidadeFiltro || undefined,
+      ),
+    enabled: modoVisao === 'mensal',
   });
 
   const alunosPainelQuery = useQuery({
@@ -1927,6 +1958,7 @@ export function FluxoCaixaOperacionalPage() {
           ) : null}
           <td className="whitespace-nowrap px-3 py-2.5 tabular-nums text-slate-800 dark:text-slate-200">{formatDataBr(p.data_pagamento)}</td>
           <td className="whitespace-nowrap px-3 py-2.5 font-medium tabular-nums text-slate-900 dark:text-slate-50">{formatBrl(p.valor)}</td>
+          <td className="whitespace-nowrap px-3 py-2.5 text-xs">{badgeStatusExtrato(p.status_extrato)}</td>
           {mensalColunasExtras ? (
             <>
               <td className="max-w-[90px] truncate px-3 py-2.5 text-slate-700 dark:text-slate-300" title={p.forma?.trim() || ''}>
@@ -2090,6 +2122,7 @@ export function FluxoCaixaOperacionalPage() {
           )}
         </td>
         {mensalColunasExtras ? <td className="px-3 py-2.5 text-slate-400 dark:text-slate-500">—</td> : null}
+        <td className="px-3 py-2.5 text-slate-400 dark:text-slate-500">—</td>
         <td className="px-3 py-2.5 text-slate-400 dark:text-slate-500">—</td>
         <td className="px-3 py-2.5 text-slate-400 dark:text-slate-500">—</td>
         {mensalColunasExtras ? (
@@ -2992,6 +3025,9 @@ export function FluxoCaixaOperacionalPage() {
                                         <div className="mt-1">Data: {mesItem.dataPagamento ? formatDataBr(mesItem.dataPagamento) : '—'}</div>
                                         <div>Forma: {mesItem.formaPagamento || '—'}</div>
                                         <div>Valor: {mesItem.valorPago > 0 ? formatBrl(mesItem.valorPago) : '—'}</div>
+                                        {mesItem.status_extrato && mesItem.valorPago > 0 ? (
+                                          <div className="mt-1">{badgeStatusExtrato(mesItem.status_extrato)}</div>
+                                        ) : null}
                                         <button
                                           type="button"
                                           onClick={() => abrirPagamentoPorMesMulti(item, mesItem)}
@@ -3084,6 +3120,31 @@ export function FluxoCaixaOperacionalPage() {
             </label>
           </div>
         </FilterBar>
+
+        {totaisCompetenciaQuery.data && totaisCompetenciaQuery.data.totais.length > 0 ? (
+          <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm dark:border-slate-700 dark:bg-slate-900/80">
+            <h3 className="font-semibold text-slate-900 dark:text-slate-100">
+              Totais fluxo × extrato — {mesReferenciaLegivel(monthYear.mes, monthYear.ano)}
+            </h3>
+            <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+              Fluxo: <strong>{formatBrl(totaisCompetenciaQuery.data.comparativo.total_fluxo)}</strong>
+              {' · '}
+              Validado no extrato:{' '}
+              <strong>{formatBrl(totaisCompetenciaQuery.data.comparativo.total_validado_extrato)}</strong>
+              {' · '}
+              Diferença: <strong>{formatBrl(totaisCompetenciaQuery.data.comparativo.delta)}</strong>
+            </p>
+            <ul className="mt-2 grid gap-1 text-xs sm:grid-cols-2 lg:grid-cols-3">
+              {totaisCompetenciaQuery.data.totais.map((t) => (
+                <li key={`${t.aba}|${t.modalidade}`} className="rounded border border-slate-100 px-2 py-1 dark:border-slate-800">
+                  <span className="font-medium">{t.aba}</span>
+                  {t.modalidade !== t.aba ? ` · ${t.modalidade}` : ''}: {formatBrl(t.total)} ({t.qtd_validado}/{t.qtd}{' '}
+                  OK extrato)
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
         <section ref={listaMesRef} className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900/80">
           <div className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 px-4 py-2 text-xs text-slate-700 backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-200">
@@ -3251,6 +3312,7 @@ export function FluxoCaixaOperacionalPage() {
                                   {mensalColunasExtras ? <th className="px-3 py-2">Competência</th> : null}
                                   <th className="px-3 py-2">Data pagto.</th>
                                   <th className="px-3 py-2">Valor pago</th>
+                                  <th className="px-3 py-2">Extrato</th>
                                   {mensalColunasExtras ? (
                                     <>
                                       <th className="px-3 py-2">Forma</th>

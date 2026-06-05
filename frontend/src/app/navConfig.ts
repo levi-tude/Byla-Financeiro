@@ -42,6 +42,8 @@ export const navSections: NavSection[] = [
     items: [
       { path: '/', label: 'Visão geral', roles: ['admin'] },
       { path: '/transacoes', label: 'Transações', roles: ['admin'] },
+      { path: '/entradas', label: 'Entradas', roles: ['admin'] },
+      { path: '/despesas', label: 'Despesas', roles: ['admin'] },
       { path: '/controle-caixa', label: 'Controle de caixa', roles: ['admin'] },
       {
         path: '/validacao-pagamentos-diaria',

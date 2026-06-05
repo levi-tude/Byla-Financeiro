@@ -6,6 +6,20 @@ export const mesAnoQuerySchema = z.object({
   ano: z.coerce.number().int().min(2000).max(2100),
 });
 
+/** Filtro Caixa (data extrato) vs Competência (mês de referência). */
+export const mesAnoVisaoQuerySchema = mesAnoQuerySchema.extend({
+  visao: z.preprocess(
+    (v) => (v === '' || v == null ? 'caixa' : v),
+    z.enum(['caixa', 'competencia']).default('caixa'),
+  ),
+});
+
+export const competenciaPatchBodySchema = z.object({
+  mes_competencia: z.number().int().min(1).max(12),
+  ano_competencia: z.number().int().min(2000).max(2100),
+  confirmada: z.boolean(),
+});
+
 export const dataIsoQuerySchema = z.object({
   data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.'),
 });
@@ -135,3 +149,54 @@ export function parseBody<T extends z.ZodTypeAny>(
   if (r.success) return { ok: true, data: r.data };
   return { ok: false, message: zodErrorMessage(r.error) };
 }
+
+/** Página Despesas — classificação de saídas por destinatário. */
+export const despesasGruposQuerySchema = mesAnoQuerySchema.extend({
+  filtro: z.preprocess(
+    (v) => (typeof v === 'string' ? v.toLowerCase() : v),
+    z.enum(['pendente', 'classificado']),
+  ),
+  limit: z.coerce.number().int().min(1).max(200).optional().default(50),
+  offset: z.coerce.number().int().min(0).optional().default(0),
+});
+
+export const despesasMapeamentoPutBodySchema = z.object({
+  pessoa_normalizada: z.string().min(1).max(400),
+  template_key: z.string().min(1).max(80),
+  bloco_template_key: z.string().min(1).max(80).optional(),
+  categoria_label: z.string().min(1).max(200).optional(),
+  aplica_tipo: z.literal('saida').optional().default('saida'),
+});
+
+export const despesasMapeamentoPatchBodySchema = z
+  .object({
+    ativo: z.boolean().optional(),
+    template_key: z.string().min(1).max(80).optional(),
+    bloco_template_key: z.string().min(1).max(80).optional(),
+    categoria_label: z.string().min(1).max(200).optional(),
+  })
+  .refine((b) => b.ativo !== undefined || b.template_key != null, {
+    message: 'Informe ativo ou template_key para atualizar.',
+  });
+
+/** Página Entradas — classificação de mensalidades (Entradas Parceiros). */
+export const entradasMapeamentoPutBodySchema = z.object({
+  pessoa_normalizada: z.string().min(1).max(400),
+  template_key: z.string().min(1).max(80),
+  subcategoria: z.string().min(1).max(200).optional(),
+  bloco_template_key: z.string().min(1).max(80).optional(),
+  categoria_label: z.string().min(1).max(200).optional(),
+  aplica_tipo: z.literal('entrada').optional().default('entrada'),
+});
+
+export const entradasMapeamentoPatchBodySchema = z
+  .object({
+    ativo: z.boolean().optional(),
+    confirmado: z.boolean().optional(),
+    template_key: z.string().min(1).max(80).optional(),
+    bloco_template_key: z.string().min(1).max(80).optional(),
+    categoria_label: z.string().min(1).max(200).optional(),
+  })
+  .refine((b) => b.ativo !== undefined || b.template_key != null || b.confirmado !== undefined, {
+    message: 'Informe ativo, confirmado ou template_key para atualizar.',
+  });

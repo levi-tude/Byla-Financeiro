@@ -1,299 +1,495 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Topbar } from '../app/Topbar';
-import { KpiCard } from '../components/ui/KpiCard';
-import { PieChartFormaPagamento } from '../components/charts/PieChartFormaPagamento';
-import { CategoriasBancoDrillModal, type CategoriasGrupo } from '../components/CategoriasBancoDrillModal';
-import { useEntradas } from '../hooks/useEntradas';
 import { useMonthYear } from '../context/MonthYearContext';
-import { getCategoriasBancoResumo } from '../services/backendApi';
-import { downloadCsv } from '../lib/csv';
+import { useToast } from '../context/ToastContext';
+import { FilterBar } from '../components/finance/FilterBar';
+import { KpiStrip } from '../components/finance/KpiStrip';
+import { ErrorPanel, EmptyState } from '../components/finance/StateBlocks';
+import { ClassificacaoGrupoCard } from '../components/finance/classificacao/ClassificacaoGrupoCard';
+import { ClassificacaoLoadingBlock } from '../components/finance/classificacao/ClassificacaoLoadingBlock';
+import { ClassificacaoModal } from '../components/finance/classificacao/ClassificacaoModal';
+import { ClassificacaoTabBar } from '../components/finance/classificacao/ClassificacaoTabBar';
+import { ControleCaixaMesLink } from '../components/finance/classificacao/ControleCaixaMesLink';
+import { PorCategoriaSection } from '../components/finance/classificacao/PorCategoriaSection';
+import { CompetenciaTransacaoEditor } from '../components/finance/classificacao/CompetenciaTransacaoEditor';
+import { formatBrl, formatDate } from '../components/finance/classificacao/utils';
+import {
+  getEntradasCategoriaTransacoes,
+  getEntradasCategorias,
+  getEntradasGrupoTransacoes,
+  getEntradasGrupos,
+  getEntradasResumo,
+  patchEntradasMapeamento,
+  patchEntradasTransacaoCompetencia,
+  putEntradasMapeamento,
+  deleteEntradasMapeamento,
+  type EntradaCategoriaLinha,
+  type EntradaGrupo,
+  type EntradaTransacaoClassificada,
+  type VisaoControle,
+} from '../services/backendApi';
+import { mesPermiteSincronizarEntradasRepasses } from '../lib/syncEntradasRepassesEligible';
 
-function formatCurrency(value: number): string {
-  return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-function formatDate(s: string): string {
-  if (!s) return '–';
-  return new Date(s).toLocaleDateString('pt-BR');
+type TabId = 'pendentes' | 'classificados' | 'categorias';
+type SegmentoEntrada = 'mensalidades' | 'aluguel_coworking';
+
+function categoriaNoSegmento(c: EntradaCategoriaLinha, segmento: SegmentoEntrada): boolean {
+  const titulo = c.blocoTitulo.toLowerCase();
+  if (segmento === 'mensalidades') {
+    return titulo.includes('parceir') || c.blocoTemplateKey === 'entrada_parceiros';
+  }
+  return titulo.includes('aluguel') || titulo.includes('coworking') || c.blocoTemplateKey === 'entrada_aluguel_coworking';
 }
 
-function firstDay(mes: number, ano: number): string {
-  return `${ano}-${String(mes).padStart(2, '0')}-01`;
+function grupoVisivelNoSegmento(g: EntradaGrupo, segmento: SegmentoEntrada): boolean {
+  return (g.segmento ?? 'mensalidades') === segmento;
 }
-function lastDay(mes: number, ano: number): string {
-  const d = new Date(ano, mes, 0);
-  return `${ano}-${String(mes).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+function EntradasClassificarModal({
+  grupo,
+  mes,
+  ano,
+  categorias,
+  segmento,
+  onClose,
+  onSaved,
+}: {
+  grupo: EntradaGrupo;
+  mes: number;
+  ano: number;
+  categorias: EntradaCategoriaLinha[];
+  segmento: SegmentoEntrada;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { showToast } = useToast();
+  const [templateKey, setTemplateKey] = useState(
+    grupo.template_key ??
+      grupo.sugestao_fluxo?.template_key ??
+      grupo.match_aluguel?.template_key ??
+      grupo.sugestao?.template_key ??
+      '',
+  );
+  const detalheQuery = useQuery({
+    queryKey: ['entradas-grupo-transacoes', grupo.grupo_key, mes, ano],
+    queryFn: () => getEntradasGrupoTransacoes(grupo.grupo_key, mes, ano),
+  });
+
+  const competenciaMut = useMutation({
+    mutationFn: (args: {
+      id: string;
+      patch: { mes_competencia: number; ano_competencia: number; confirmada: boolean };
+    }) => patchEntradasTransacaoCompetencia(mes, ano, args.id, args.patch),
+    onSuccess: () => {
+      showToast('Competência atualizada.', 'success');
+      void detalheQuery.refetch();
+      onSaved();
+    },
+    onError: () => showToast('Não foi possível salvar a competência.', 'error'),
+  });
+
+  const saveMut = useMutation({
+    mutationFn: () =>
+      putEntradasMapeamento(mes, ano, {
+        pessoa_normalizada: grupo.pessoa_normalizada,
+        template_key: templateKey,
+        subcategoria:
+          grupo.modalidade && grupo.aba_fluxo
+            ? `${grupo.aba_fluxo} · ${grupo.modalidade}`
+            : grupo.modalidade ?? undefined,
+      }),
+    onSuccess: () => {
+      showToast('Categoria salva. Regra vale para meses futuros.', 'success');
+      onSaved();
+      onClose();
+    },
+  });
+
+  const categoriasSegmento = useMemo(
+    () => categorias.filter((c) => categoriaNoSegmento(c, segmento)),
+    [categorias, segmento],
+  );
+
+  const segmentoLabel =
+    segmento === 'mensalidades' ? 'Entradas Parceiros (mensalidades)' : 'Entradas Aluguel / Coworking';
+
+  return (
+    <ClassificacaoModal
+      title="Classificar entrada"
+      subtitle={grupo.titulo_card}
+      subtitleExtra={`PIX: ${grupo.pessoa_exibida}`}
+      categoriaLabel={`Categoria — ${segmentoLabel}`}
+      categoriaHint={
+        segmento === 'aluguel_coworking'
+          ? 'Escolha o locatário cadastrado no Controle (ex.: Pholha, Neto).'
+          : undefined
+      }
+      emptyCatalogHint={`Abra o Controle de Caixa deste mês para carregar as linhas de ${segmentoLabel.toLowerCase()}.`}
+      categorias={categoriasSegmento}
+      templateKey={templateKey}
+      onTemplateKeyChange={setTemplateKey}
+      transacoes={detalheQuery.data?.transacoes ?? []}
+      transacoesLoading={detalheQuery.isLoading}
+      renderTransacaoExtra={(t) => {
+        const full = detalheQuery.data?.transacoes.find((x) => x.id === t.id) as
+          | EntradaTransacaoClassificada
+          | undefined;
+        if (!full) return null;
+        return (
+          <CompetenciaTransacaoEditor
+            transacao={full}
+            mesRef={mes}
+            anoRef={ano}
+            saving={competenciaMut.isPending && competenciaMut.variables?.id === t.id}
+            onSave={(patch) => competenciaMut.mutate({ id: t.id, patch })}
+          />
+        );
+      }}
+      sugestao={
+        grupo.sugestao_fluxo && segmento === 'mensalidades' && !templateKey ? (
+          <p className="mt-2 text-xs text-emerald-800 dark:text-emerald-200">
+            Sugerido pelo Pagamento dia a dia: {grupo.sugestao_fluxo.label}
+            {grupo.sugestao_fluxo.detalhe ? ` (${grupo.sugestao_fluxo.detalhe})` : ''}
+          </p>
+        ) : grupo.match_aluguel && segmento === 'aluguel_coworking' && !templateKey ? (
+          <p className="mt-2 text-xs text-emerald-800 dark:text-emerald-200">
+            Sugestão aluguel/coworking: {grupo.match_aluguel.label} ({grupo.match_aluguel.motivo},{' '}
+            {grupo.match_aluguel.confianca})
+          </p>
+        ) : grupo.sugestao && !templateKey ? (
+          <p className="mt-2 text-xs text-amber-800 dark:text-amber-200">
+            Sugestão: {grupo.sugestao.label ?? grupo.sugestao.template_key} ({grupo.sugestao.origem},{' '}
+            {grupo.sugestao.confianca})
+          </p>
+        ) : undefined
+      }
+      saveError={saveMut.error instanceof Error ? saveMut.error.message : saveMut.error ? 'Erro ao salvar' : null}
+      savePending={saveMut.isPending}
+      onClose={onClose}
+      onSave={() => saveMut.mutate()}
+    />
+  );
 }
 
 export function EntradasPage() {
   const { monthYear } = useMonthYear();
-  const [dataInicio, setDataInicio] = useState('');
-  const [dataFim, setDataFim] = useState('');
-  const filtro = useMemo(() => ({ dataInicio: dataInicio || undefined, dataFim: dataFim || undefined }), [dataInicio, dataFim]);
-  const { rows, isLoading, error } = useEntradas(filtro);
-  const [filtroPessoa, setFiltroPessoa] = useState('');
-  const [drillOpen, setDrillOpen] = useState(false);
-  const [drillGrupo, setDrillGrupo] = useState<CategoriasGrupo>('modalidade');
-  const [drillChave, setDrillChave] = useState<string | null>(null);
-  const [drillTitulo, setDrillTitulo] = useState('');
+  const { mes, ano } = monthYear;
+  const { showToast } = useToast();
+  const [tab, setTab] = useState<TabId>('pendentes');
+  const [segmento, setSegmento] = useState<SegmentoEntrada>('mensalidades');
+  const [modalGrupo, setModalGrupo] = useState<EntradaGrupo | null>(null);
+  const [visaoResumo, setVisaoResumo] = useState<VisaoControle>('caixa');
+  const qc = useQueryClient();
 
-  const resumoEntradaBanco = useQuery({
-    queryKey: ['categorias-banco-resumo', 'entrada', monthYear.mes, monthYear.ano],
-    queryFn: () => getCategoriasBancoResumo(monthYear.mes, monthYear.ano, 'entrada'),
-  });
-
-  const aplicarMesSelecionado = useCallback(() => {
-    setDataInicio(firstDay(monthYear.mes, monthYear.ano));
-    setDataFim(lastDay(monthYear.mes, monthYear.ano));
-  }, [monthYear.mes, monthYear.ano]);
-  const aplicarMesAnterior = useCallback(() => {
-    const prev = monthYear.mes <= 1 ? { mes: 12, ano: monthYear.ano - 1 } : { mes: monthYear.mes - 1, ano: monthYear.ano };
-    setDataInicio(firstDay(prev.mes, prev.ano));
-    setDataFim(lastDay(prev.mes, prev.ano));
-  }, [monthYear.mes, monthYear.ano]);
-
-  // Sincronizar período com o mês selecionado no topo (ao mudar o mês, atualiza as datas)
-  useEffect(() => {
-    setDataInicio(firstDay(monthYear.mes, monthYear.ano));
-    setDataFim(lastDay(monthYear.mes, monthYear.ano));
-  }, [monthYear.mes, monthYear.ano]);
-
-  const rowsFiltradas = useMemo(() => {
-    const q = filtroPessoa.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) => (r.pessoa || '').toLowerCase().includes(q));
-  }, [rows, filtroPessoa]);
-
-  const totalFiltradoLista = useMemo(() => rowsFiltradas.reduce((s, r) => s + r.valor, 0), [rowsFiltradas]);
-
-  const totalEntradas = rows.reduce((s, r) => s + r.valor, 0);
-  const ticketMedio = rows.length > 0 ? totalEntradas / rows.length : 0;
-
-  const porFormaPagamento = useMemo(() => {
-    const normalize = (s: string): string => {
-      const t = (s || '').trim().toUpperCase();
-      if (!t) return 'Outros';
-      if (t.includes('PIX')) return 'PIX';
-      if (t.includes('DÉBITO') || t.includes('DEBITO')) return 'Débito';
-      if (t.includes('CRÉDITO') || t.includes('CREDITO')) return 'Crédito';
-      if (t.includes('TED') || t.includes('DOC')) return 'TED/DOC';
-      if (t.includes('DINHEIRO') || t.includes('ESPÉCIE')) return 'Dinheiro';
-      if (t.includes('BOLETO')) return 'Boleto';
-      if (t.includes('TRANSFERÊNCIA') || t.includes('TRANSFERENCIA')) return 'Transferência';
-      return t.length > 25 ? t.slice(0, 22) + '…' : t;
-    };
-    const map: Record<string, number> = {};
-    for (const r of rows) {
-      const key = normalize(r.forma_pagamento_banco || '');
-      map[key] = (map[key] || 0) + r.valor;
-    }
-    const sorted = Object.entries(map)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value);
-    const topN = 8;
-    if (sorted.length <= topN) return sorted;
-    const top = sorted.slice(0, topN);
-    const outros = sorted.slice(topN).reduce((s, x) => s + x.value, 0);
-    return [...top, { name: 'Outros', value: outros }];
-  }, [rows]);
-
-  const abrirDrill = (grupo: CategoriasGrupo, nome: string, titulo: string) => {
-    setDrillGrupo(grupo);
-    setDrillChave(nome);
-    setDrillTitulo(titulo);
-    setDrillOpen(true);
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: ['entradas-resumo', mes, ano] });
+    void qc.invalidateQueries({ queryKey: ['entradas-grupos', mes, ano] });
+    void qc.invalidateQueries({ queryKey: ['controle-caixa', mes, ano] });
   };
 
-  function exportarEntradasCsv() {
-    downloadCsv(
-      `entradas-${dataInicio || 'inicio'}_${dataFim || 'fim'}.csv`,
-      ['data', 'pessoa', 'valor', 'forma_pagamento'],
-      rowsFiltradas.map((r) => [r.data, r.pessoa ?? '', r.valor, r.forma_pagamento_banco ?? '']),
-    );
-  }
+  const syncControlePermitido = mesPermiteSincronizarEntradasRepasses(mes, ano);
+
+  const resumoQuery = useQuery({
+    queryKey: ['entradas-resumo', mes, ano, visaoResumo],
+    queryFn: () => getEntradasResumo(mes, ano, visaoResumo),
+  });
+
+  const categoriasQuery = useQuery({
+    queryKey: ['entradas-categorias', mes, ano],
+    queryFn: () => getEntradasCategorias(mes, ano),
+  });
+
+  const gruposQuery = useQuery({
+    queryKey: ['entradas-grupos', mes, ano, tab === 'categorias' ? 'pendentes' : tab],
+    queryFn: () =>
+      getEntradasGrupos(mes, ano, tab === 'classificados' ? 'classificado' : 'pendente', 0, 100),
+    enabled: tab !== 'categorias',
+  });
+
+  const desativarMut = useMutation({
+    mutationFn: (id: string) => patchEntradasMapeamento(mes, ano, id, { ativo: false }),
+    onSuccess: () => {
+      showToast('Regra desativada para meses futuros.', 'success');
+      invalidate();
+    },
+  });
+
+  const desvincularMut = useMutation({
+    mutationFn: (id: string) => deleteEntradasMapeamento(mes, ano, id),
+    onSuccess: () => {
+      showToast('Vínculo removido. Os lançamentos voltaram para pendentes.', 'success');
+      invalidate();
+    },
+    onError: () => {
+      showToast('Não foi possível desvincular.', 'error');
+    },
+  });
+
+  const confirmarSugestaoMut = useMutation({
+    mutationFn: async (g: EntradaGrupo) => {
+      if (g.sugestao_fluxo?.mapeamento_id) {
+        return patchEntradasMapeamento(mes, ano, g.sugestao_fluxo.mapeamento_id, { confirmado: true });
+      }
+      if (g.sugestao_fluxo?.template_key) {
+        return putEntradasMapeamento(mes, ano, {
+          pessoa_normalizada: g.pessoa_normalizada,
+          template_key: g.sugestao_fluxo.template_key,
+          subcategoria:
+            g.modalidade && g.aba_fluxo ? `${g.aba_fluxo} · ${g.modalidade}` : g.modalidade ?? undefined,
+        });
+      }
+      throw new Error('Sem sugestão para confirmar');
+    },
+    onSuccess: () => {
+      showToast('Sugestão confirmada. A regra passa a valer para fechamento e Controle.', 'success');
+      invalidate();
+    },
+    onError: () => {
+      showToast('Não foi possível confirmar a sugestão.', 'error');
+    },
+  });
+
+  const kpis = resumoQuery.data?.kpis;
+  const kpiItems = [
+    { label: 'Total entradas', value: kpis ? formatBrl(kpis.total_entradas) : '—', isLoading: resumoQuery.isLoading },
+    {
+      label: '% classificado',
+      value: kpis ? `${kpis.pct_classificado}%` : '—',
+      isLoading: resumoQuery.isLoading,
+      accentColor: 'success' as const,
+    },
+    {
+      label: 'Valor pendente',
+      value: kpis ? formatBrl(kpis.valor_pendente) : '—',
+      isLoading: resumoQuery.isLoading,
+      accentColor: 'danger' as const,
+    },
+    {
+      label: 'Grupos pendentes',
+      value: kpis ? String(kpis.qtd_grupos_pendentes) : '—',
+      isLoading: resumoQuery.isLoading,
+    },
+  ];
+
+  const gruposFiltrados = useMemo(() => {
+    const lista = gruposQuery.data?.grupos ?? [];
+    return lista.filter((g) => grupoVisivelNoSegmento(g, segmento));
+  }, [gruposQuery.data?.grupos, segmento]);
+
+  const porCategoriaBlocos = useMemo(
+    () =>
+      (resumoQuery.data?.por_bloco ?? []).map((bloco) => ({
+        bloco_titulo: bloco.bloco_titulo,
+        linhas: bloco.linhas.map((row) => ({
+          template_key: row.template_key,
+          label: row.label,
+          total: row.total,
+          qtd_transacoes: row.qtd_transacoes,
+          meta: `${row.qtd_transacoes} lanç. · ${row.qtd_pagadores} pagador(es)`,
+        })),
+      })),
+    [resumoQuery.data?.por_bloco],
+  );
+
+  const segmentoBtn = (id: SegmentoEntrada, label: string, hint: string) => (
+    <button
+      type="button"
+      key={id}
+      onClick={() => setSegmento(id)}
+      title={hint}
+      className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+        segmento === id
+          ? 'bg-indigo-600 text-white'
+          : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+      }`}
+    >
+      {label}
+    </button>
+  );
 
   return (
-    <div className="p-6">
-      <CategoriasBancoDrillModal
-        open={drillOpen}
-        onClose={() => {
-          setDrillOpen(false);
-          setDrillChave(null);
-        }}
-        mes={monthYear.mes}
-        ano={monthYear.ano}
-        tipo="entrada"
-        grupo={drillGrupo}
-        chave={drillChave}
-        tituloGrupo={drillTitulo}
-      />
-
+    <div className="p-6 space-y-4 max-w-7xl mx-auto">
       <Topbar
-        title="Entradas – detalhe"
-        subtitle={`Período: ${dataInicio || '—'} a ${dataFim || '—'} (ajuste pelo seletor de mês no topo ou pelas datas abaixo). Fluxo por período e forma de pagamento.`}
+        title="Entradas"
+        subtitle="Classifique PIX de mensalidades (parceiros) e de aluguel/coworking no Controle de Caixa"
       />
-      {error && (
-        <div className="mb-4 p-4 bg-rose-50 border border-rose-200 rounded-lg text-sm text-rose-800">Não foi possível carregar os dados.</div>
-      )}
-      <div className="flex flex-wrap gap-2 mt-4 items-center">
-        <button type="button" onClick={aplicarMesSelecionado} className="rounded border border-indigo-600 bg-indigo-50 text-indigo-700 px-3 py-1.5 text-sm font-medium hover:bg-indigo-100">
-          Mês selecionado (topo)
-        </button>
-        <button type="button" onClick={aplicarMesAnterior} className="rounded border border-gray-400 bg-gray-50 text-gray-700 px-3 py-1.5 text-sm font-medium hover:bg-gray-100">
-          Mês anterior
-        </button>
-        <span className="text-gray-500 text-sm">ou</span>
-        <input type="date" className="rounded border border-gray-300 px-2 py-1 text-sm" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} aria-label="Data início" />
-        <input type="date" className="rounded border border-gray-300 px-2 py-1 text-sm" value={dataFim} onChange={(e) => setDataFim(e.target.value)} aria-label="Data fim" />
-        <input
-          type="search"
-          placeholder="Filtrar por pessoa ou descrição…"
-          value={filtroPessoa}
-          onChange={(e) => setFiltroPessoa(e.target.value)}
-          className="rounded border border-gray-300 px-3 py-1.5 text-sm min-w-[200px]"
-          aria-label="Filtrar por pessoa"
-        />
-      </div>
-      <div className="grid gap-4 md:grid-cols-3 mt-4">
-        <KpiCard label="Total (período)" value={formatCurrency(totalEntradas)} accentColor="primary" isLoading={isLoading} />
-        <KpiCard label="Nº transações" value={String(rows.length)} accentColor="primary" isLoading={isLoading} />
-        <KpiCard label="Ticket médio" value={formatCurrency(ticketMedio)} accentColor="primary" isLoading={isLoading} />
-      </div>
-      <div className="mt-6 bg-white rounded-xl shadow-sm p-4">
-        <h2 className="text-sm font-medium text-gray-700 mb-2">Entradas por forma de pagamento</h2>
-        <PieChartFormaPagamento data={porFormaPagamento} isLoading={isLoading} />
-      </div>
 
-      <div className="mt-6 bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">
-        <div className="bg-emerald-50 border-b border-emerald-100 px-4 py-3">
-          <h2 className="text-base font-semibold text-emerald-950">Categorização no banco (oficial)</h2>
-          <p className="text-sm text-emerald-900 mt-0.5">
-            Agregado pelo mês selecionado no topo (calendário global), independente do intervalo de datas abaixo. Clique para ver o detalhe.
+      <div className="mt-4">
+        <FilterBar
+          title="Classificação de entradas"
+          subtitle="Duas famílias no Controle: Entradas Parceiros (mensalidades) e Entradas Aluguel / Coworking (locação direta)"
+        >
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            {syncControlePermitido
+              ? 'Mensalidades classificadas em Entradas Parceiros sincronizam o Controle e calculam repasses. Aluguel/coworking vai para o bloco próprio (sem repasse automático).'
+              : 'Neste mês o Controle permanece manual (até mai/2026). Você ainda pode classificar entradas e criar regras para os meses seguintes.'}
           </p>
-        </div>
-        <div className="p-4 grid gap-6 lg:grid-cols-2">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-800 mb-2">Por modalidade</h3>
-            {resumoEntradaBanco.isLoading ? (
-              <p className="text-sm text-slate-500">Carregando…</p>
-            ) : resumoEntradaBanco.error ? (
-              <p className="text-sm text-rose-700">
-                {resumoEntradaBanco.error instanceof Error ? resumoEntradaBanco.error.message : 'Erro ao carregar.'}
-              </p>
-            ) : (resumoEntradaBanco.data?.por_modalidade ?? []).length === 0 ? (
-              <p className="text-sm text-slate-500">Sem modalidades no mês.</p>
-            ) : (
-              <ul className="space-y-1.5 max-h-64 overflow-y-auto">
-                {(resumoEntradaBanco.data?.por_modalidade ?? []).map((b) => (
-                  <li key={b.nome}>
-                    <button
-                      type="button"
-                      onClick={() => abrirDrill('modalidade', b.nome, 'Por modalidade')}
-                      className="w-full flex justify-between gap-2 text-left rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-emerald-50/80 transition-colors"
-                    >
-                      <span className="text-slate-900 font-medium truncate">{b.nome}</span>
-                      <span className="text-slate-700 tabular-nums shrink-0">
-                        {b.total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}{' '}
-                        <span className="text-slate-400 font-normal">({b.qtd})</span>
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-slate-800 mb-2">Por categoria</h3>
-            {resumoEntradaBanco.isLoading ? (
-              <p className="text-sm text-slate-500">Carregando…</p>
-            ) : resumoEntradaBanco.error ? (
-              <p className="text-sm text-rose-700">
-                {resumoEntradaBanco.error instanceof Error ? resumoEntradaBanco.error.message : 'Erro ao carregar.'}
-              </p>
-            ) : (resumoEntradaBanco.data?.por_categoria ?? []).length === 0 ? (
-              <p className="text-sm text-slate-500">Sem categorias no mês.</p>
-            ) : (
-              <ul className="space-y-1.5 max-h-64 overflow-y-auto">
-                {(resumoEntradaBanco.data?.por_categoria ?? []).map((b) => (
-                  <li key={b.nome}>
-                    <button
-                      type="button"
-                      onClick={() => abrirDrill('categoria', b.nome, 'Por categoria')}
-                      className="w-full flex justify-between gap-2 text-left rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-emerald-50/80 transition-colors"
-                    >
-                      <span className="text-slate-900 font-medium truncate">{b.nome}</span>
-                      <span className="text-slate-700 tabular-nums shrink-0">
-                        {b.total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}{' '}
-                        <span className="text-slate-400 font-normal">({b.qtd})</span>
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
+          <ControleCaixaMesLink />
+        </FilterBar>
       </div>
 
-      <div className="mt-6 bg-white rounded-xl shadow-sm p-4 overflow-hidden flex flex-col">
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-          <h2 className="text-sm font-medium text-gray-700">Últimas entradas</h2>
-          {rowsFiltradas.length > 0 && (
-            <button
-              type="button"
-              onClick={exportarEntradasCsv}
-              className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-100"
-            >
-              Exportar CSV (filtro atual)
-            </button>
-          )}
+      {resumoQuery.error && (
+        <div className="mt-4">
+          <ErrorPanel message="Não foi possível carregar o resumo." />
         </div>
-        <div className="overflow-x-auto overflow-y-auto max-h-[400px] min-h-0">
-        {isLoading ? (
-          <div className="space-y-2">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="h-10 bg-gray-100 rounded animate-pulse" />
-            ))}
-          </div>
-        ) : rowsFiltradas.length === 0 ? (
-          <p className="text-sm text-gray-500 py-4">{rows.length === 0 ? 'Nenhum registro.' : 'Nenhum resultado para o filtro.'}</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-gray-500 font-medium">
-                <th className="pb-2 pr-2">Data</th>
-                <th className="pb-2 pr-2">Pessoa</th>
-                <th className="pb-2 pr-2 text-right">Valor</th>
-                <th className="pb-2">Forma pag.</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rowsFiltradas.slice(0, 150).map((r) => (
-                <tr key={r.id_unico || r.id} className="border-b border-gray-100">
-                  <td className="py-2 pr-2">{formatDate(r.data)}</td>
-                  <td className="py-2 pr-2">{r.pessoa || '–'}</td>
-                  <td className="py-2 pr-2 text-right">{formatCurrency(r.valor)}</td>
-                  <td className="py-2">{r.forma_pagamento_banco || '–'}</td>
-                </tr>
-              ))}
-            </tbody>
-            {rowsFiltradas.length > 0 && (
-              <tfoot>
-                <tr className="border-t-2 border-slate-200 bg-slate-50 font-medium text-slate-900">
-                  <td className="py-2 pr-2" colSpan={2}>
-                    Total do filtro ({rowsFiltradas.length} linha{rowsFiltradas.length !== 1 ? 's' : ''})
-                  </td>
-                  <td className="py-2 pr-2 text-right tabular-nums">{formatCurrency(totalFiltradoLista)}</td>
-                  <td className="py-2 text-xs font-normal text-slate-600">
-                    {rowsFiltradas.length > 150 ? 'A tabela mostra até 150 linhas; o total à esquerda é do filtro inteiro.' : ''}
-                  </td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        )}
-        </div>
+      )}
+
+      <KpiStrip items={kpiItems} />
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-slate-500">Visão do resumo:</span>
+        {(['caixa', 'competencia'] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => setVisaoResumo(v)}
+            className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${
+              visaoResumo === v
+                ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900'
+                : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-300'
+            }`}
+          >
+            {v === 'caixa' ? 'Caixa (data PIX)' : 'Competência'}
+          </button>
+        ))}
       </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {segmentoBtn(
+          'mensalidades',
+          'Mensalidades (parceiros)',
+          'PIX de alunos — soma em Entradas Parceiros no Controle',
+        )}
+        {segmentoBtn(
+          'aluguel_coworking',
+          'Aluguel / Coworking',
+          'PIX de quem aluga sala ou faz coworking — bloco Entradas Aluguel / Coworking',
+        )}
+      </div>
+
+      <ClassificacaoTabBar
+        tabs={[
+          { id: 'pendentes' as const, label: 'Pendentes' },
+          { id: 'classificados' as const, label: 'Classificados' },
+          { id: 'categorias' as const, label: 'Por categoria' },
+        ]}
+        active={tab}
+        onChange={setTab}
+      />
+
+      {tab === 'categorias' && (
+        <PorCategoriaSection
+          isLoading={resumoQuery.isLoading}
+          blocos={porCategoriaBlocos}
+          pendenteTotal={resumoQuery.data?.pendente.total ?? 0}
+          pendenteQtd={resumoQuery.data?.pendente.qtd_transacoes ?? 0}
+          emptyMessage="Abra o Controle de Caixa deste mês para carregar as linhas de entrada."
+          valorTone="entrada"
+          mes={mes}
+          ano={ano}
+          loadTransacoes={async (templateKey) => {
+            const res = await getEntradasCategoriaTransacoes(templateKey, mes, ano);
+            return res.transacoes;
+          }}
+        />
+      )}
+
+      {tab !== 'categorias' && (
+        <section className="mt-4 space-y-3">
+          {gruposQuery.isLoading && <ClassificacaoLoadingBlock />}
+          {gruposQuery.error && <ErrorPanel message="Erro ao carregar grupos." />}
+          {!gruposQuery.isLoading && !gruposQuery.error && gruposFiltrados.length === 0 && (
+            <EmptyState
+              message={
+                tab === 'pendentes'
+                  ? segmento === 'mensalidades'
+                    ? 'Nenhuma mensalidade pendente neste mês (ou classifique na aba Aluguel / Coworking).'
+                    : 'Nenhum PIX de aluguel/coworking pendente neste mês.'
+                  : segmento === 'mensalidades'
+                    ? 'Nenhum pagador de mensalidade classificado neste mês.'
+                    : 'Nenhum pagador de aluguel/coworking classificado neste mês.'
+              }
+            />
+          )}
+          {gruposFiltrados.map((g) => (
+            <ClassificacaoGrupoCard
+              key={g.grupo_key}
+              titulo={g.titulo_card}
+              resumo={`${g.qtd_mes} lançamento(s) · ${formatBrl(g.total_mes)}`}
+              meta={`${g.pessoa_exibida} · ${g.datas.map(formatDate).join(', ')}`}
+              estado={g.estado}
+              categoriaLabel={g.regra_pendente_confirmacao ? g.sugestao_fluxo?.label ?? null : g.categoria_label}
+              scoreRepeticao={g.score_repeticao}
+              regraDesativada={g.regra_desativada}
+              sugestaoFluxoBadge={Boolean(
+                g.regra_pendente_confirmacao &&
+                  g.sugestao_fluxo &&
+                  (g.origem_grupo === 'pix_vinculo' ||
+                    g.origem_grupo === 'cartao_vinculo' ||
+                    g.origem_grupo === 'cartao_match'),
+              )}
+              cartaoDetalhe={g.cartao_detalhe ?? null}
+              sugestaoHint={
+                g.sugestao_fluxo
+                  ? `${g.sugestao_fluxo.label}${g.sugestao_fluxo.detalhe ? ` · ${g.sugestao_fluxo.detalhe}` : ''}`
+                  : g.match_aluguel
+                    ? `${g.match_aluguel.label} · ${g.match_aluguel.motivo}`
+                    : g.sugestao
+                      ? `Sugestão: ${g.sugestao.label}${g.sugestao.aluno_nome ? ` · ${g.sugestao.aluno_nome}` : ''}`
+                      : null
+              }
+              onConfirmarSugestao={
+                g.regra_pendente_confirmacao && g.sugestao_fluxo
+                  ? () => confirmarSugestaoMut.mutate(g)
+                  : undefined
+              }
+              confirmarPending={confirmarSugestaoMut.isPending}
+              classificarDesabilitado={g.origem_grupo === 'cartao_avulso'}
+              onClassificar={() => setModalGrupo(g)}
+              onDesativar={
+                g.estado === 'classificado' && g.mapeamento_id
+                  ? () => {
+                      if (window.confirm('Desativar regra para meses futuros? Este mês permanece classificado.')) {
+                        desativarMut.mutate(g.mapeamento_id!);
+                      }
+                    }
+                  : undefined
+              }
+              podeDesativar={g.estado === 'classificado' && Boolean(g.mapeamento_id)}
+              onDesvincular={
+                g.mapeamento_id
+                  ? () => {
+                      const msg =
+                        g.estado === 'pendente' && g.regra_pendente_confirmacao
+                          ? 'Recusar a sugestão de categoria? O pagador voltará a pendente.'
+                          : 'Desvincular apaga a regra e remove a classificação deste mês. Os lançamentos voltam para pendentes. Continuar?';
+                      if (window.confirm(msg)) {
+                        desvincularMut.mutate(g.mapeamento_id!);
+                      }
+                    }
+                  : undefined
+              }
+              podeDesvincular={Boolean(g.mapeamento_id)}
+              desvincularLabel={
+                g.estado === 'pendente' && g.regra_pendente_confirmacao ? 'Recusar sugestão' : 'Desvincular'
+              }
+            />
+          ))}
+        </section>
+      )}
+
+      {modalGrupo && categoriasQuery.data && (
+        <EntradasClassificarModal
+          grupo={modalGrupo}
+          mes={mes}
+          ano={ano}
+          categorias={categoriasQuery.data.categorias}
+          segmento={segmento}
+          onClose={() => setModalGrupo(null)}
+          onSaved={invalidate}
+        />
+      )}
     </div>
   );
 }

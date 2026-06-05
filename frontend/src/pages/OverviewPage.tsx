@@ -36,8 +36,7 @@ import { ModalityRevenueDrilldownChart } from '../components/overview/ModalityRe
 import { ModalityRevenueLegend } from '../components/overview/ModalityRevenueLegend';
 import { BankReconciliationCard } from '../components/overview/BankReconciliationCard';
 import { FilterBar } from '../components/finance/FilterBar';
-import { MonthYearPicker } from '../components/ui/MonthYearPicker';
-import { getDespesas } from '../services/backendApi';
+import { getDespesasResumo } from '../services/backendApi';
 
 function trendFromDelta(current: number | null, prev: number | null): 'up' | 'down' | 'neutral' {
   if (current == null || prev == null) return 'neutral';
@@ -82,7 +81,7 @@ export function OverviewPage() {
 
   const despesasQuery = useQuery({
     queryKey: ['overview-despesas-categorias', mes, ano],
-    queryFn: () => getDespesas(mes, ano),
+    queryFn: () => getDespesasResumo(mes, ano),
   });
 
   const controlePrevQuery = useQuery({
@@ -231,11 +230,9 @@ export function OverviewPage() {
 
       <FilterBar
         title="Contexto do mês"
-        subtitle="KPIs, alertas e saídas por categoria usam o mês selecionado abaixo (ou o seletor global no topo)."
+        subtitle="KPIs, alertas e saídas por categoria usam o mês selecionado no topo da página."
         periodLabel={periodoLabel}
-      >
-        <MonthYearPicker />
-      </FilterBar>
+      />
 
       {resumoError && trendUsesExtrato && (
         <ApiErrorPanel
@@ -259,7 +256,7 @@ export function OverviewPage() {
         source="fechamento"
       >
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          <KpiCard
+            <KpiCard
             label="Entradas (fechamento)"
             value={kpiLoading ? '…' : formatBrl(entrada)}
             helperText={
@@ -268,12 +265,12 @@ export function OverviewPage() {
                 : undefined
             }
             trend={trendFromDelta(entrada, entradaPrev)}
-            accentColor="primary"
+              accentColor="primary"
             isLoading={kpiLoading}
             ctaTo="/controle-caixa"
             ctaLabel="Ver fechamento"
-          />
-          <KpiCard
+            />
+            <KpiCard
             label="Saídas (fechamento)"
             value={kpiLoading ? '…' : formatBrl(saida)}
             helperText={
@@ -282,12 +279,12 @@ export function OverviewPage() {
                 : undefined
             }
             trend={trendFromDelta(saida, saidaPrev) === 'up' ? 'down' : trendFromDelta(saida, saidaPrev)}
-            accentColor="danger"
+              accentColor="danger"
             isLoading={kpiLoading}
             ctaTo="/controle-caixa"
             ctaLabel="Analisar saídas"
-          />
-          <KpiCard
+            />
+            <KpiCard
             label="Lucro (fechamento)"
             value={kpiLoading ? '…' : formatBrl(lucro)}
             helperText={
@@ -296,12 +293,12 @@ export function OverviewPage() {
                 : undefined
             }
             trend={trendFromDelta(lucro, lucroPrev)}
-            accentColor="success"
+              accentColor="success"
             isLoading={kpiLoading}
             ctaTo="/controle-caixa"
             ctaLabel="Ajustar fechamento"
           />
-          <KpiCard
+            <KpiCard
             label="Sem pagamento no mês"
             value={fluxoLoading ? '…' : String(fluxoResumo.semPagamentoNoMes)}
             helperText={`competência ${labelMesAno(mes, ano)}`}
@@ -310,20 +307,20 @@ export function OverviewPage() {
             isLoading={fluxoLoading}
             ctaTo="/fluxo-caixa"
             ctaLabel="Abrir Fluxo"
-          />
-          <KpiCard
+            />
+            <KpiCard
             label="Pendências de cadastro"
             value={fluxoLoading ? '…' : String(fluxoResumo.pendenciasCadastro)}
             helperText="alunos com dados incompletos"
             trend={fluxoResumo.pendenciasCadastro > 0 ? 'down' : 'neutral'}
-            accentColor="danger"
+              accentColor="danger"
             isLoading={fluxoLoading}
             ctaTo="/validacao-pagamentos-diaria"
             ctaLabel="Ir para Validação"
-          />
-          <KpiCard
+            />
+            <KpiCard
             label="Diferença extrato × fechamento"
-            value={
+              value={
               transacoesEntradaQuery.isLoading || transacoesSaidaQuery.isLoading
                 ? '…'
                 : formatBrl((diffExtratoEntradas ?? 0) + (diffExtratoSaidas ?? 0))
@@ -334,8 +331,8 @@ export function OverviewPage() {
             isLoading={transacoesEntradaQuery.isLoading || transacoesSaidaQuery.isLoading}
             ctaTo="/transacoes"
             ctaLabel="Conferir transações"
-          />
-        </div>
+            />
+          </div>
 
         <div className="grid gap-3 lg:grid-cols-3">
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-100">
@@ -382,8 +379,8 @@ export function OverviewPage() {
             <Link to="/transacoes" className="mt-2 inline-block font-semibold hover:underline">
               Conferir em Transações →
             </Link>
-          </div>
-        </div>
+                  </div>
+                </div>
       </OverviewSection>
 
       <OverviewSection
@@ -395,24 +392,27 @@ export function OverviewPage() {
           <p className="text-sm text-slate-500">Carregando categorias de saída…</p>
         ) : despesasQuery.error ? (
           <p className="text-sm text-rose-700">Não foi possível carregar saídas por categoria.</p>
-        ) : (despesasQuery.data?.resumo.por_categoria.length ?? 0) === 0 ? (
+        ) : (despesasQuery.data?.por_categoria.filter((r) => r.qtd_transacoes > 0).length ?? 0) === 0 ? (
           <p className="text-sm text-slate-500">Nenhuma saída categorizada neste mês.</p>
         ) : (
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {despesasQuery.data!.resumo.por_categoria.slice(0, 9).map((row) => (
+            {despesasQuery.data!.por_categoria
+              .filter((r) => r.qtd_transacoes > 0)
+              .slice(0, 9)
+              .map((row) => (
               <div
-                key={row.categoria}
+                key={row.template_key}
                 className="rounded-lg border border-rose-200/80 bg-rose-50/50 px-3 py-2 dark:border-rose-900/40 dark:bg-rose-950/30"
               >
-                <p className="text-xs font-semibold text-rose-900 dark:text-rose-100 truncate">{row.categoria}</p>
+                <p className="text-xs font-semibold text-rose-900 dark:text-rose-100 truncate">{row.label}</p>
                 <p className="mt-0.5 text-lg font-bold tabular-nums text-rose-950 dark:text-rose-50">{formatBrl(row.total)}</p>
-                <p className="text-[11px] text-rose-800/80 dark:text-rose-200/80">{row.qtd} lançamento(s)</p>
+                <p className="text-[11px] text-rose-800/80 dark:text-rose-200/80">{row.qtd_transacoes} lançamento(s)</p>
               </div>
             ))}
-          </div>
-        )}
-        <Link to="/transacoes" className="mt-3 inline-block text-xs font-semibold text-indigo-700 hover:underline dark:text-indigo-300">
-          Ver saídas em Transações →
+              </div>
+            )}
+        <Link to="/despesas" className="mt-3 inline-block text-xs font-semibold text-indigo-700 hover:underline dark:text-indigo-300">
+          Classificar em Despesas →
         </Link>
       </OverviewSection>
 

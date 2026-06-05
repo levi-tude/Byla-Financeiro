@@ -11,6 +11,10 @@ import {
   validacaoVinculoUpsertBodySchema,
 } from '../validation/apiQuery.js';
 import { listVinculosDia, listVinculosMes, removeVinculo, upsertVinculosDia } from '../services/validacaoVinculos.js';
+import {
+  aplicarSugestaoMapeamentoFromVinculos,
+  revogarSugestaoMapeamentoFromVinculo,
+} from '../services/mapeamentoFromValidacaoFluxo.js';
 
 type PlanilhaItem = {
   id: string;
@@ -199,7 +203,22 @@ router.post('/validacao-vinculos', async (req: Request, res: Response) => {
     if (!parsed.ok) return res.status(400).json({ error: parsed.message });
     const { data, mes, ano, banco_id, planilha_ids, observacao } = parsed.data;
     const result = await upsertVinculosDia(data, mes, ano, banco_id, planilha_ids, observacao);
-    return res.json({ ok: true, ...result });
+
+    const supabase = getSupabase();
+    let sugestao_mapeamento: Awaited<ReturnType<typeof aplicarSugestaoMapeamentoFromVinculos>> | null =
+      null;
+    if (supabase && result.persisted === 'supabase') {
+      sugestao_mapeamento = await aplicarSugestaoMapeamentoFromVinculos(
+        supabase,
+        data,
+        mes,
+        ano,
+        banco_id,
+        planilha_ids,
+      );
+    }
+
+    return res.json({ ok: true, ...result, sugestao_mapeamento });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (msg.includes('já vinculada')) return res.status(409).json({ error: msg });
@@ -212,6 +231,12 @@ router.delete('/validacao-vinculos', async (req: Request, res: Response) => {
     const parsed = parseBody(validacaoVinculoDeleteBodySchema, req.body);
     if (!parsed.ok) return res.status(400).json({ error: parsed.message });
     const { planilha_id } = parsed.data;
+
+    const supabase = getSupabase();
+    if (supabase) {
+      await revogarSugestaoMapeamentoFromVinculo(supabase, planilha_id);
+    }
+
     const result = await removeVinculo(planilha_id);
     return res.json({ ok: true, ...result });
   } catch (e) {

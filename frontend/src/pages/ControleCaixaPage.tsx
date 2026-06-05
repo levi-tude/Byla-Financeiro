@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Topbar } from '../app/Topbar';
-import { MonthYearPicker } from '../components/ui/MonthYearPicker';
 import { useMonthYear } from '../context/MonthYearContext';
 import {
   getControleCaixa,
+  postControleCaixaSincronizarEntradas,
   putControleCaixa,
   type ControleCaixaBloco,
+  type ControleCaixaLinha,
   type ControleCaixaResponse,
+  type VisaoControle,
 } from '../services/backendApi';
 import { useToast } from '../context/ToastContext';
 import { ApiErrorPanel } from '../components/ui/ApiErrorPanel';
@@ -21,6 +23,7 @@ import {
   mesExtenso,
   previousMonth,
 } from '../logic/overviewDashboard';
+import { mesPermiteSincronizarEntradasRepasses } from '../lib/syncEntradasRepassesEligible';
 
 type DraftState = {
   abaRef: string;
@@ -76,6 +79,23 @@ function sumBloco(bloco: ControleCaixaBloco): number {
   return bloco.linhas.reduce((acc, linha) => acc + (linha.valor ?? 0), 0);
 }
 
+function linhaValorSomenteLeitura(bloco: ControleCaixaBloco, linha: ControleCaixaLinha): boolean {
+  if (bloco.templateKey === 'saida_parceiros') return true;
+  if (linha.valorTexto === 'calculado_repasse') return true;
+  if (bloco.templateKey === 'entrada_parceiros' && linha.valorTexto === 'extrato_classificado') return true;
+  return false;
+}
+
+function linhaValorHint(_bloco: ControleCaixaBloco, linha: ControleCaixaLinha): string | undefined {
+  if (linha.valorTexto === 'calculado_repasse') {
+    return 'Repasse calculado automaticamente a partir da entrada do parceiro no mês.';
+  }
+  if (linha.valorTexto === 'extrato_classificado') {
+    return 'Total sincronizado do extrato classificado (Página Entradas).';
+  }
+  return undefined;
+}
+
 function trendFromDelta(current: number | null, prev: number | null): 'up' | 'down' | 'neutral' {
   if (current == null || prev == null) return 'neutral';
   if (current > prev) return 'up';
@@ -90,120 +110,72 @@ function pctHelperClass(trend: 'up' | 'down' | 'neutral', invert = false): strin
 }
 
 function createDefaultDraft(): DraftState {
+  const mkLinha = (label: string, ordem: number): ControleCaixaLinha => ({
+    label,
+    valor: null,
+    valorTexto: null,
+    ordem,
+    templateKey: null,
+    isDefault: false,
+    isCustom: true,
+    lockedLevel: 'warn',
+  });
+
   const blocos: ControleCaixaBloco[] = [
     {
       tipo: 'entrada',
-      titulo: 'Entradas Parceiros',
+      titulo: 'ENTRADAS PARCEIROS',
       ordem: 0,
       templateKey: 'entrada_parceiros',
       isDefault: true,
       isCustom: false,
       lockedLevel: 'strong',
-      linhas: [
-        'Pilates',
-        'Dança',
-        'Teatro',
-        'Yoga',
-        'Funcional',
-        'Outros parceiros',
-      ].map((label, ordem) => ({
-        label,
-        valor: null,
-        valorTexto: null,
-        ordem,
-        templateKey: `ent_parc_${ordem}`,
-        isDefault: true,
-        isCustom: false,
-        lockedLevel: 'warn',
-      })),
+      linhas: ['Dança', 'Yoga', 'Pilates Mari', 'Teatro', 'Bruna GR'].map(mkLinha),
     },
     {
       tipo: 'entrada',
-      titulo: 'Entradas Aluguel / Coworking',
+      titulo: 'ENTRADAS ALUGUEL / COWORKING',
       ordem: 1,
       templateKey: 'entrada_aluguel_coworking',
       isDefault: true,
       isCustom: false,
       lockedLevel: 'strong',
-      linhas: ['Aluguel sala 1', 'Aluguel sala 2', 'Coworking', 'Outras entradas aluguel'].map((label, ordem) => ({
-        label,
-        valor: null,
-        valorTexto: null,
-        ordem,
-        templateKey: `ent_alug_${ordem}`,
-        isDefault: true,
-        isCustom: false,
-        lockedLevel: 'warn',
-      })),
+      linhas: ['Neto (SBA)', 'Pholha (Funcional)', 'Forró e Alma', 'Pilates Fabi', 'Loja (Everaldo)'].map(mkLinha),
     },
     {
       tipo: 'saida',
-      titulo: 'Total Saídas (Parceiros)',
+      titulo: 'Saídas Parceiros',
       ordem: 2,
       templateKey: 'saida_parceiros',
       isDefault: true,
       isCustom: false,
       lockedLevel: 'strong',
-      linhas: ['Repasse Pilates', 'Repasse Dança', 'Repasse Teatro', 'Repasse Yoga', 'Repasse Funcional', 'Outros repasses'].map(
-        (label, ordem) => ({
-          label,
-          valor: null,
-          valorTexto: null,
-          ordem,
-          templateKey: `sai_parc_${ordem}`,
-          isDefault: true,
-          isCustom: false,
-          lockedLevel: 'warn',
-        })
-      ),
+      linhas: ['Dança', 'Yoga', 'Pilates Mari', 'Teatro', 'Teatro Infantil', 'Bruna GR'].map(mkLinha),
     },
     {
       tipo: 'saida',
-      titulo: 'Gastos Fixos',
+      titulo: 'Saídas Fixas',
       ordem: 3,
       templateKey: 'saida_gastos_fixos',
       isDefault: true,
       isCustom: false,
       lockedLevel: 'strong',
       linhas: [
-        'Aluguel',
         'Energia',
         'Água',
-        'Internet',
-        'Salários / Pró-labore',
-        'Impostos e taxas',
-        'Sistemas / assinaturas',
-        'Marketing',
-        'Outros gastos fixos',
-      ].map((label, ordem) => ({
-        label,
-        valor: null,
-        valorTexto: null,
-        ordem,
-        templateKey: `sai_fix_${ordem}`,
-        isDefault: true,
-        isCustom: false,
-        lockedLevel: 'warn',
-      })),
-    },
-    {
-      tipo: 'saida',
-      titulo: 'Saídas Aluguel',
-      ordem: 4,
-      templateKey: 'saida_aluguel',
-      isDefault: true,
-      isCustom: false,
-      lockedLevel: 'strong',
-      linhas: ['Limpeza', 'Manutenção', 'Condomínio', 'Outras saídas aluguel'].map((label, ordem) => ({
-        label,
-        valor: null,
-        valorTexto: null,
-        ordem,
-        templateKey: `sai_alug_${ordem}`,
-        isDefault: true,
-        isCustom: false,
-        lockedLevel: 'warn',
-      })),
+        'Net',
+        'Materiais',
+        'Energia Solar',
+        'Contadora',
+        'Parcela Pilates',
+        'Eli Ar Condicionado',
+        'Impostos',
+        'IPTU',
+        'Samuel',
+        'Luciana',
+        'Funcionários',
+        'Transporte',
+      ].map(mkLinha),
     },
   ];
   return {
@@ -283,6 +255,22 @@ export function ControleCaixaPage() {
       showToast('Alterações salvas no Supabase.', 'success');
       await queryClient.invalidateQueries({ queryKey: ['controle-caixa', monthYear.mes, monthYear.ano] });
       await queryClient.invalidateQueries({ queryKey: ['fluxo-completo', monthYear.mes, monthYear.ano] });
+    },
+    onError: (e) => {
+      showToast(e instanceof Error ? e.message : String(e), 'error');
+    },
+  });
+
+  const syncEntradasPermitido = mesPermiteSincronizarEntradasRepasses(monthYear.mes, monthYear.ano);
+  const [visaoSync, setVisaoSync] = useState<VisaoControle>('competencia');
+
+  const syncEntradasMutation = useMutation({
+    mutationFn: () => postControleCaixaSincronizarEntradas(monthYear.mes, monthYear.ano, visaoSync),
+    onSuccess: async (data) => {
+      setDraft(cloneState(data.controle));
+      showToast('Entradas e repasses sincronizados do extrato classificado.', 'success');
+      await queryClient.invalidateQueries({ queryKey: ['controle-caixa', monthYear.mes, monthYear.ano] });
+      await queryClient.invalidateQueries({ queryKey: ['entradas-resumo', monthYear.mes, monthYear.ano] });
     },
     onError: (e) => {
       showToast(e instanceof Error ? e.message : String(e), 'error');
@@ -432,7 +420,6 @@ export function ControleCaixaPage() {
       <Topbar
         title="Controle de Caixa"
         subtitle="Fechamento do mês — comece pelo resumo no topo; expanda os blocos abaixo para lançar valores."
-        childrenRight={<MonthYearPicker />}
       />
 
       <FilterBar
@@ -443,6 +430,38 @@ export function ControleCaixaPage() {
         <p className="text-xs text-slate-600 dark:text-slate-400">
           Os totais de entradas, saídas e lucro são calculados automaticamente a partir dos blocos.
         </p>
+        {syncEntradasPermitido ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="text-xs text-slate-600 dark:text-slate-400">Agregar por:</span>
+            {(['caixa', 'competencia'] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setVisaoSync(v)}
+                className={`rounded-lg px-2 py-1 text-xs font-semibold ${
+                  visaoSync === v
+                    ? 'bg-indigo-600 text-white'
+                    : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-300'
+                }`}
+              >
+                {v === 'caixa' ? 'Caixa' : 'Competência'}
+              </button>
+            ))}
+            <button
+              type="button"
+              className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-900 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-100"
+              disabled={syncEntradasMutation.isPending}
+              onClick={() => syncEntradasMutation.mutate()}
+            >
+              {syncEntradasMutation.isPending ? 'Sincronizando…' : 'Sincronizar entradas e repasses'}
+            </button>
+          </div>
+        ) : (
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+            Sincronização automática a partir de junho/2026. Meses anteriores usam os valores manuais já
+            lançados no Controle.
+          </p>
+        )}
       </FilterBar>
 
       {controleQuery.isLoading && <div className="text-sm text-gray-500">Carregando dados do mês...</div>}
@@ -782,7 +801,10 @@ export function ControleCaixaPage() {
                       />
                       <input
                         value={formatNullableCurrency(linha.valor)}
-                        onChange={(e) =>
+                        readOnly={linhaValorSomenteLeitura(bloco, linha)}
+                        title={linhaValorHint(bloco, linha)}
+                        onChange={(e) => {
+                          if (linhaValorSomenteLeitura(bloco, linha)) return;
                           setDraft((prev) => {
                             if (!prev) return prev;
                             const blocos = [...prev.blocos];
@@ -794,9 +816,13 @@ export function ControleCaixaPage() {
                             };
                             blocos[blocoIdx] = { ...blocos[blocoIdx], linhas };
                             return { ...prev, blocos };
-                          })
-                        }
-                        className="w-full shrink-0 rounded border border-slate-300 px-2 py-1.5 text-sm tabular-nums sm:w-40 dark:border-slate-600 dark:bg-slate-800"
+                          });
+                        }}
+                        className={`w-full shrink-0 rounded border px-2 py-1.5 text-sm tabular-nums sm:w-40 dark:border-slate-600 ${
+                          linhaValorSomenteLeitura(bloco, linha)
+                            ? 'cursor-not-allowed border-slate-200 bg-slate-100 dark:border-slate-700 dark:bg-slate-800/80'
+                            : 'border-slate-300 bg-white dark:bg-slate-800'
+                        }`}
                         placeholder="R$ 0,00"
                         inputMode="decimal"
                         aria-label={`Valor — ${linha.label}`}

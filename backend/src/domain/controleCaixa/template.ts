@@ -1,7 +1,7 @@
 export type ControleLockedLevel = 'none' | 'warn' | 'strong';
 
 export type ControleTemplateLinha = {
-  templateKey: string;
+  templateKey: string | null;
   label: string;
   ordem: number;
   valor: number | null;
@@ -12,7 +12,7 @@ export type ControleTemplateLinha = {
 };
 
 export type ControleTemplateBloco = {
-  templateKey: string;
+  templateKey: string | null;
   tipo: 'entrada' | 'saida';
   titulo: string;
   ordem: number;
@@ -36,10 +36,11 @@ export type ControleTemplatePayload = {
 };
 
 function linha(
-  key: string,
+  key: string | null,
   label: string,
   ordem: number,
-  lockedLevel: ControleLockedLevel = 'warn'
+  lockedLevel: ControleLockedLevel = 'warn',
+  isCustom = true,
 ): ControleTemplateLinha {
   return {
     templateKey: key,
@@ -47,12 +48,16 @@ function linha(
     ordem,
     valor: null,
     valorTexto: null,
-    isDefault: true,
-    isCustom: false,
+    isDefault: !isCustom,
+    isCustom,
     lockedLevel,
   };
 }
 
+/**
+ * Fallback quando não há mês anterior no banco — espelha estrutura operacional (ref. maio/2026).
+ * Novos meses normais herdam via readControleCaixa → mes_anterior.
+ */
 export function buildControleCaixaTemplate(): ControleTemplatePayload {
   return {
     abaRef: null,
@@ -68,85 +73,75 @@ export function buildControleCaixaTemplate(): ControleTemplatePayload {
       {
         templateKey: 'entrada_parceiros',
         tipo: 'entrada',
-        titulo: 'Entradas Parceiros',
+        titulo: 'ENTRADAS PARCEIROS',
         ordem: 0,
         isDefault: true,
         isCustom: false,
         lockedLevel: 'strong',
         linhas: [
-          linha('ent_parc_pilates', 'Pilates', 0),
-          linha('ent_parc_danca', 'Dança', 1),
-          linha('ent_parc_teatro', 'Teatro', 2),
-          linha('ent_parc_yoga', 'Yoga', 3),
-          linha('ent_parc_funcional', 'Funcional', 4),
-          linha('ent_parc_outros', 'Outros parceiros', 5),
+          linha(null, 'Dança', 0),
+          linha(null, 'Yoga', 1),
+          linha(null, 'Pilates Mari', 2),
+          linha(null, 'Teatro', 3),
+          linha(null, 'Bruna GR', 4),
         ],
       },
       {
         templateKey: 'entrada_aluguel_coworking',
         tipo: 'entrada',
-        titulo: 'Entradas Aluguel / Coworking',
+        titulo: 'ENTRADAS ALUGUEL / COWORKING',
         ordem: 1,
         isDefault: true,
         isCustom: false,
         lockedLevel: 'strong',
         linhas: [
-          linha('ent_alug_sala1', 'Aluguel sala 1', 0),
-          linha('ent_alug_sala2', 'Aluguel sala 2', 1),
-          linha('ent_alug_coworking', 'Coworking', 2),
-          linha('ent_alug_outros', 'Outras entradas aluguel', 3),
+          linha(null, 'Neto (SBA)', 0),
+          linha(null, 'Pholha (Funcional)', 1),
+          linha(null, 'Forró e Alma', 2),
+          linha(null, 'Pilates Fabi', 3),
+          linha(null, 'Loja (Everaldo)', 4),
         ],
       },
       {
         templateKey: 'saida_parceiros',
         tipo: 'saida',
-        titulo: 'Total Saídas (Parceiros)',
+        titulo: 'Saídas Parceiros',
         ordem: 2,
         isDefault: true,
         isCustom: false,
         lockedLevel: 'strong',
         linhas: [
-          linha('sai_parc_pilates', 'Repasse Pilates', 0),
-          linha('sai_parc_danca', 'Repasse Dança', 1),
-          linha('sai_parc_teatro', 'Repasse Teatro', 2),
-          linha('sai_parc_yoga', 'Repasse Yoga', 3),
-          linha('sai_parc_funcional', 'Repasse Funcional', 4),
-          linha('sai_parc_outros', 'Outros repasses', 5),
+          linha(null, 'Dança', 0),
+          linha(null, 'Yoga', 1),
+          linha(null, 'Pilates Mari', 2),
+          linha(null, 'Teatro', 3),
+          linha(null, 'Teatro Infantil', 4),
+          linha(null, 'Bruna GR', 5),
         ],
       },
       {
         templateKey: 'saida_gastos_fixos',
         tipo: 'saida',
-        titulo: 'Gastos Fixos',
+        titulo: 'Saídas Fixas',
         ordem: 3,
         isDefault: true,
         isCustom: false,
         lockedLevel: 'strong',
         linhas: [
-          linha('sai_fixo_aluguel', 'Aluguel', 0),
-          linha('sai_fixo_energia', 'Energia', 1),
-          linha('sai_fixo_agua', 'Água', 2),
-          linha('sai_fixo_internet', 'Internet', 3),
-          linha('sai_fixo_salarios', 'Salários / Pró-labore', 4),
-          linha('sai_fixo_impostos', 'Impostos e taxas', 5),
-          linha('sai_fixo_sistemas', 'Sistemas / assinaturas', 6),
-          linha('sai_fixo_marketing', 'Marketing', 7),
-          linha('sai_fixo_outros', 'Outros gastos fixos', 8),
-        ],
-      },
-      {
-        templateKey: 'saida_aluguel_coworking',
-        tipo: 'saida',
-        titulo: 'Saídas Aluguel',
-        ordem: 4,
-        isDefault: true,
-        isCustom: false,
-        lockedLevel: 'strong',
-        linhas: [
-          linha('sai_alug_limpeza', 'Limpeza', 0),
-          linha('sai_alug_manutencao', 'Manutenção', 1),
-          linha('sai_alug_condominio', 'Condomínio', 2),
-          linha('sai_alug_outros', 'Outras saídas aluguel', 3),
+          linha(null, 'Energia', 0),
+          linha(null, 'Água', 1),
+          linha(null, 'Net', 2),
+          linha(null, 'Materiais', 3),
+          linha(null, 'Energia Solar', 4),
+          linha(null, 'Contadora', 5),
+          linha(null, 'Parcela Pilates', 6),
+          linha(null, 'Eli Ar Condicionado', 7),
+          linha(null, 'Impostos', 8),
+          linha(null, 'IPTU', 9),
+          linha(null, 'Samuel', 10),
+          linha(null, 'Luciana', 11),
+          linha(null, 'Funcionários', 12),
+          linha(null, 'Transporte', 13),
         ],
       },
     ],

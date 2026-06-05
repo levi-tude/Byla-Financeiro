@@ -5,6 +5,14 @@ import { parseBody, parseQuery } from '../validation/apiQuery.js';
 import { computeFluxoDivergencias } from '../services/fluxoOperacionalDivergencias.js';
 import { isFluxoPrimaryForValidacao } from '../services/fluxoPrimarySource.js';
 import { carregarIndiceValidacaoFluxoAno } from '../services/fluxoValidacaoPlanilhaItens.js';
+import {
+  agregarTotaisFluxoCompetencia,
+  comparativoFluxoExtrato,
+  enrichFluxoPagamentosComStatusExtrato,
+  indexVinculosPorPlanilha,
+  loadFluxoPagamentosCompetenciaMes,
+  statusExtratoForFluxoPagamento,
+} from '../services/fluxoExtratoValidacaoService.js';
 
 const fluxoAlunosListQuerySchema = z.object({
   aba: z.string().trim().optional(),
@@ -770,7 +778,11 @@ export default function createFluxoOperacionalRouter(): Router {
       new Set((metaPagRows ?? []).map((r) => String(r.modalidade ?? '').trim()).filter(Boolean)),
     ).sort((a, b) => a.localeCompare(b, 'pt-BR'));
 
-    return res.json({ itens, filtros: { abas, modalidades } });
+    const itensOut =
+      q.data.mes != null && q.data.ano != null
+        ? await enrichFluxoPagamentosComStatusExtrato(itens, q.data.mes, q.data.ano)
+        : itens;
+    return res.json({ itens: itensOut, filtros: { abas, modalidades } });
   });
 
   router.post('/fluxo-operacional/pagamentos', async (req: Request, res: Response) => {
@@ -900,6 +912,36 @@ export default function createFluxoOperacionalRouter(): Router {
     return res.json({ ok: true });
   });
 
+  router.get('/fluxo-operacional/totais-competencia', async (req: Request, res: Response) => {
+    const q = parseQuery(
+      z.object({
+        mes: z.coerce.number().int().min(1).max(12),
+        ano: z.coerce.number().int().min(2000).max(2100),
+        aba: z.string().trim().optional(),
+        modalidade: z.string().trim().optional(),
+      }),
+      req.query as Record<string, unknown>,
+    );
+    if (!q.ok) return res.status(400).json({ error: q.message });
+    const supabase = getSupabase();
+    if (!supabase) return res.status(500).json({ error: 'Supabase não configurado no backend.' });
+
+    try {
+      const pagamentos = await loadFluxoPagamentosCompetenciaMes(
+        supabase,
+        q.data.mes,
+        q.data.ano,
+        q.data.aba,
+        q.data.modalidade,
+      );
+      const totais = agregarTotaisFluxoCompetencia(pagamentos, q.data.mes, q.data.ano);
+      const comparativo = comparativoFluxoExtrato(totais);
+      return res.json({ mes: q.data.mes, ano: q.data.ano, totais, comparativo });
+    } catch (e) {
+      return res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+
   router.get('/fluxo-operacional/resumo-multi-mes', async (req: Request, res: Response) => {
     const q = parseQuery(fluxoResumoMultiMesQuerySchema, req.query as Record<string, unknown>);
     if (!q.ok) return res.status(400).json({ error: q.message });
@@ -938,17 +980,24 @@ export default function createFluxoOperacionalRouter(): Router {
 
     const { data: pagamentosRows, error: pagErr } = await supabase
       .from('fluxo_pagamentos_operacionais')
-      .select('aba, modalidade, linha_planilha, aluno_nome, data_pagamento, forma, valor, mes_competencia, ano_competencia')
+      .select('id, aba, modalidade, linha_planilha, aluno_nome, data_pagamento, forma, valor, mes_competencia, ano_competencia')
       .gte('data_pagamento', inicio)
       .lte('data_pagamento', fim)
       .limit(25000);
     if (pagErr) return res.status(500).json({ error: pagErr.message });
+
+    const vinculosByPlanilha = new Map<string, { banco_id: string; id: string }>();
+    for (const m of mesesJanela) {
+      const vm = await indexVinculosPorPlanilha(m.mes, m.ano);
+      for (const [k, v] of vm) vinculosByPlanilha.set(k, v);
+    }
 
     const keyAluno = (aba: string, modalidade: string, linha: number, nome: string) =>
       `${normalizarAbaFluxo(aba).trim().toLowerCase()}|${modalidade.trim().toLowerCase()}|${linha}|${nome.trim().toLowerCase()}`;
 
     const pagoPorAlunoMes = new Map<string, number>();
     const detalhePorAlunoMes = new Map<string, { dataPagamento: string | null; formaPagamento: string | null; valorPago: number }>();
+    const statusPorAlunoMes = new Map<string, Set<string>>();
     for (const p of pagamentosRows ?? []) {
       const keyMes = competenciaKey(Number(p.ano_competencia), Number(p.mes_competencia));
       if (!janelaKeys.has(keyMes)) continue;
@@ -965,6 +1014,10 @@ export default function createFluxoOperacionalRouter(): Router {
           valorPago: valorAtual,
         });
       }
+      const st = statusExtratoForFluxoPagamento(String(p.id), vinculosByPlanilha).status_extrato;
+      const set = statusPorAlunoMes.get(k) ?? new Set<string>();
+      set.add(st);
+      statusPorAlunoMes.set(k, set);
     }
 
     const mesAtualKey = competenciaKey(anoRef, mesRef);
@@ -979,6 +1032,11 @@ export default function createFluxoOperacionalRouter(): Router {
         const keyMes = competenciaKey(m.ano, m.mes);
         const pago = pagoPorAlunoMes.get(`${alunoKey}|${keyMes}`) ?? 0;
         const detalhe = detalhePorAlunoMes.get(`${alunoKey}|${keyMes}`);
+        const statusSet = statusPorAlunoMes.get(`${alunoKey}|${keyMes}`);
+        let status_extrato: 'validado' | 'pendente' | 'sem_lancamento' = 'sem_lancamento';
+        if (pago > 0 && statusSet) {
+          status_extrato = statusSet.has('pendente') ? 'pendente' : 'validado';
+        }
         const agora = new Date();
         const mesAtualRealKey = competenciaKey(agora.getFullYear(), agora.getMonth() + 1);
         let status: 'pago' | 'parcial' | 'pendente' | 'sem_dado' | 'futuro' = 'sem_dado';
@@ -1002,6 +1060,7 @@ export default function createFluxoOperacionalRouter(): Router {
           dataPagamento: detalhe?.dataPagamento ?? null,
           formaPagamento: detalhe?.formaPagamento ?? null,
           status,
+          status_extrato,
         };
       });
 

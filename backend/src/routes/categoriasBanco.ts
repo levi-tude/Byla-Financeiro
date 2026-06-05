@@ -89,25 +89,17 @@ router.get('/categorias-banco/resumo', async (req: Request, res: Response) => {
 
     let porFuncionario: { nome: string; total: number; qtd: number }[] = [];
     if (tipo === 'saida') {
-      const { data: despesasData, error: despesasErr } = await supabase
-        .from('despesas')
-        .select('id, valor, funcionario')
-        .gte('data', inicio)
-        .lte('data', fim)
-        .limit(5000);
-      if (!despesasErr && despesasData) {
-        const mapF = new Map<string, { total: number; qtd: number }>();
-        for (const d of despesasData as { valor: number; funcionario: string | null }[]) {
-          const nome = (d.funcionario ?? '').trim() || 'Sem funcionário';
-          const e = mapF.get(nome) ?? { total: 0, qtd: 0 };
-          e.total += Math.abs(Number(d.valor || 0));
-          e.qtd += 1;
-          mapF.set(nome, e);
-        }
-        porFuncionario = Array.from(mapF.entries())
-          .map(([nome, v]) => ({ nome, total: v.total, qtd: v.qtd }))
-          .sort((a, b) => b.total - a.total);
+      const mapF = new Map<string, { total: number; qtd: number }>();
+      for (const r of filtradas) {
+        const nome = (r.pessoa ?? '').trim() || 'Sem destinatário';
+        const e = mapF.get(nome) ?? { total: 0, qtd: 0 };
+        e.total += Math.abs(Number(r.valor || 0));
+        e.qtd += 1;
+        mapF.set(nome, e);
       }
+      porFuncionario = Array.from(mapF.entries())
+        .map(([nome, v]) => ({ nome, total: v.total, qtd: v.qtd }))
+        .sort((a, b) => b.total - a.total);
     }
 
     res.json({
@@ -118,7 +110,7 @@ router.get('/categorias-banco/resumo', async (req: Request, res: Response) => {
       por_modalidade: tipo === 'entrada' ? porModalidade : [],
       por_categoria: porCategoria,
       por_funcionario: tipo === 'saida' ? porFuncionario : [],
-      fonte: 'v_transacoes_export + filtro oficial' + (tipo === 'saida' ? '; por_funcionario: tabela despesas' : ''),
+      fonte: 'v_transacoes_export + filtro oficial' + (tipo === 'saida' ? '; por_funcionario: pessoa do extrato' : ''),
     });
   } catch (e) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
@@ -137,7 +129,7 @@ router.get('/categorias-banco/detalhe', async (req: Request, res: Response) => {
 
     if (grupo === 'funcionario' && tipo !== 'saida') {
       return res.status(400).json({
-        error: 'grupo=funcionario só pode ser usado com tipo=saida (dados da tabela despesas).',
+        error: 'grupo=funcionario só pode ser usado com tipo=saida (destinatário do extrato).',
         itens: [],
         total: 0,
       });
@@ -145,54 +137,6 @@ router.get('/categorias-banco/detalhe', async (req: Request, res: Response) => {
 
     const { inicio, fim } = rangeMes(mes, ano);
     const chaveNorm = normKey(chave);
-
-    if (grupo === 'funcionario' && tipo === 'saida') {
-      const { data, error } = await supabase
-        .from('despesas')
-        .select('id, data, valor, descricao, categoria, subcategoria, centro_custo, funcionario, origem')
-        .gte('data', inicio)
-        .lte('data', fim)
-        .limit(5000);
-      if (error) return res.status(502).json({ error: error.message, itens: [], total: 0 });
-
-      const todos = (data ?? []) as {
-        id: string;
-        data: string;
-        valor: number;
-        descricao: string;
-        categoria: string;
-        subcategoria: string | null;
-        centro_custo: string | null;
-        funcionario: string | null;
-        origem: string;
-      }[];
-      const filtrados = todos.filter((d) => {
-        const f = (d.funcionario ?? '').trim() || 'Sem funcionário';
-        return normKey(f) === chaveNorm || normKey(f).includes(chaveNorm) || chaveNorm.includes(normKey(f));
-      });
-      const total = filtrados.length;
-      const start = (page - 1) * pageSize;
-      const slice = filtrados.slice(start, start + pageSize);
-      return res.json({
-        mes,
-        ano,
-        tipo,
-        grupo,
-        chave,
-        total,
-        page,
-        pageSize,
-        itens: slice.map((d) => ({
-          id: d.id,
-          data: d.data,
-          valor: Number(d.valor),
-          descricao: d.descricao,
-          categoria: d.categoria,
-          funcionario: d.funcionario,
-          origem: 'despesas',
-        })),
-      });
-    }
 
     const { data, error } = await supabase
       .from('v_transacoes_export')
@@ -229,9 +173,14 @@ router.get('/categorias-banco/detalhe', async (req: Request, res: Response) => {
         const c = (r.categoria_sugerida ?? '').trim() || 'A classificar';
         return normKey(c) === chaveNorm || normKey(c).includes(chaveNorm) || chaveNorm.includes(normKey(c));
       });
+    } else if (grupo === 'funcionario') {
+      filtradas = filtradas.filter((r) => {
+        const p = (r.pessoa ?? '').trim() || 'Sem destinatário';
+        return normKey(p) === chaveNorm || normKey(p).includes(chaveNorm) || chaveNorm.includes(normKey(p));
+      });
     } else {
       return res.status(400).json({
-        error: 'grupo deve ser modalidade ou categoria para detalhe do extrato (v_transacoes_export).',
+        error: 'grupo deve ser modalidade, categoria ou funcionario (extrato).',
         itens: [],
         total: 0,
       });

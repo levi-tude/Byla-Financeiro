@@ -101,6 +101,19 @@ export async function upsertVinculosDia(
   return { persisted: 'memory_fallback', itens: out };
 }
 
+export async function findVinculoByPlanilhaId(planilhaId: string): Promise<VinculoPagamento | null> {
+  const supabase = getSupabase();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('validacao_pagamentos_vinculos')
+      .select('id, data_ref, mes, ano, banco_id, planilha_id, observacao, created_at, updated_at')
+      .eq('planilha_id', planilhaId)
+      .maybeSingle();
+    if (!error && data) return data as VinculoPagamento;
+  }
+  return mem.get(planilhaId) ?? null;
+}
+
 export async function removeVinculo(planilhaId: string): Promise<{ persisted: 'supabase' | 'memory_fallback' }> {
   const supabase = getSupabase();
   if (supabase) {

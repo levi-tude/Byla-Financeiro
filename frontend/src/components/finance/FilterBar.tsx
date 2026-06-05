@@ -19,7 +19,7 @@ export function FilterBar({
   chips?: FilterChip[];
   periodLabel?: string;
   onClear?: () => void;
-  children: ReactNode;
+  children?: ReactNode;
 }) {
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-3 dark:border-slate-700 dark:bg-slate-900">
@@ -58,7 +58,7 @@ export function FilterBar({
         </div>
       ) : null}
 
-      {children}
+      {children ? children : null}
     </section>
   );
 }
