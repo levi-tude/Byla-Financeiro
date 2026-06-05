@@ -15,7 +15,7 @@ export function Sidebar({ mobileOpen = false, onNavigate }: SidebarProps) {
 
   return (
     <aside
-      className={`fixed md:static inset-y-0 left-0 z-40 flex h-screen md:h-auto md:min-h-screen w-56 flex-col border-r border-byla-navy-border bg-byla-navy transition-transform duration-200 ease-out md:translate-x-0 ${
+      className={`fixed inset-y-0 left-0 z-40 flex h-screen w-56 shrink-0 flex-col border-r border-byla-navy-border bg-byla-navy transition-transform duration-200 ease-out md:static md:h-full md:max-h-screen md:translate-x-0 ${
         mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
       }`}
     >
