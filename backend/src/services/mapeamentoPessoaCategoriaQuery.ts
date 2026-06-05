@@ -32,7 +32,7 @@ export async function loadMapeamentosEntradaRows(supabase: SupabaseClient): Prom
 
   if (!error) {
     extendedColumnsAvailable = select === MAPEAMENTO_SELECT_EXTENDED;
-    return ((data ?? []) as MapeamentoRow[]).map(normalizeMapeamentoRow);
+    return ((data ?? []) as unknown as MapeamentoRow[]).map(normalizeMapeamentoRow);
   }
 
   if (extendedColumnsAvailable !== false && isMissingExtendedColumnError(error.message)) {
@@ -42,7 +42,7 @@ export async function loadMapeamentosEntradaRows(supabase: SupabaseClient): Prom
       .select(MAPEAMENTO_SELECT_BASE)
       .in('aplica_tipo', ['entrada', 'todos']);
     if (fallback.error) throw new Error(fallback.error.message);
-    return ((fallback.data ?? []) as MapeamentoRow[]).map(normalizeMapeamentoRow);
+    return ((fallback.data ?? []) as unknown as MapeamentoRow[]).map(normalizeMapeamentoRow);
   }
 
   throw new Error(error.message);

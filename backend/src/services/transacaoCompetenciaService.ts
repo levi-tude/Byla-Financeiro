@@ -133,11 +133,12 @@ export function applyDuplicataAlertas<
 }
 
 export function transacaoContaNaCompetencia(
-  t: { mes_competencia: number; ano_competencia: number; competencia_confirmada?: boolean },
+  t: { mes_competencia?: number; ano_competencia?: number; competencia_confirmada?: boolean },
   mes: number,
   ano: number,
   requireConfirmada = false,
 ): boolean {
+  if (t.mes_competencia == null || t.ano_competencia == null) return false;
   if (t.mes_competencia !== mes || t.ano_competencia !== ano) return false;
   if (requireConfirmada && !t.competencia_confirmada) return false;
   return true;

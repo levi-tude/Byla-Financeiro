@@ -133,7 +133,6 @@ export function buildGrupoFromFluxoVinculo(
     bloco_titulo: map?.categoria.blocoTitulo ?? null,
     origem_categoria: classificado ? 'mapeamento_manual' : sugestaoFluxo ? 'validacao_fluxo' : 'pendente',
     mapeamento_id: map?.row.id ?? sugestaoDb?.row.id ?? null,
-    regra_desativada: map?.regraDesativada ?? false,
     sugestao_fluxo: sugestaoFluxo,
     regra_pendente_confirmacao: !classificado && sugestaoFluxo != null,
     origem_grupo: origem,
@@ -142,6 +141,7 @@ export function buildGrupoFromFluxoVinculo(
     fluxo_planilha_id: fluxo.id,
     cartao_detalhe: detalheValidacao,
     ...emptyVinculoBase(),
+    regra_desativada: map?.regraDesativada ?? false,
   };
 }
 
