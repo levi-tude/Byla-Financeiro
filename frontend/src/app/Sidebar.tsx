@@ -34,7 +34,7 @@ export function Sidebar({ mobileOpen = false, onNavigate }: SidebarProps) {
           </span>
         </Link>
       </div>
-      <nav className="flex-1 overflow-y-auto p-3 space-y-4" aria-label="Menu principal">
+      <nav className="flex-1 p-3 space-y-4" aria-label="Menu principal">
         {sections.map((section) => (
           <div key={section.id}>
             <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-wider text-gray-500">

@@ -1,21 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { MonthYearPicker } from '../components/ui/MonthYearPicker';
 import { KeyboardShortcutsModal } from '../components/ui/KeyboardShortcutsModal';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
 import { useAuth } from '../auth/AuthContext';
-import { useMonthYear } from '../context/MonthYearContext';
-import { AccessibilityChatButton } from '../components/ai/AccessibilityChatButton';
-import { AccessibilityChatPanel } from '../components/ai/AccessibilityChatPanel';
 
 export function LayoutShell() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
   const auth = useAuth();
-  const location = useLocation();
-  const { monthYear } = useMonthYear();
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -74,16 +68,6 @@ export function LayoutShell() {
         open={shortcutsOpen}
         onClose={() => setShortcutsOpen(false)}
         role={auth.role}
-      />
-      <AccessibilityChatButton onClick={() => setChatOpen(true)} />
-      <AccessibilityChatPanel
-        open={chatOpen}
-        onClose={() => setChatOpen(false)}
-        role={auth.role}
-        context={{
-          route: location.pathname,
-          monthYear: `${monthYear.mes}/${monthYear.ano}`,
-        }}
       />
     </div>
   );
