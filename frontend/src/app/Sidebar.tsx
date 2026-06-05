@@ -3,11 +3,11 @@ import { useAuth } from '../auth/AuthContext';
 import { isNavPathActive, navSectionsForRole } from './navConfig';
 
 type SidebarProps = {
-  mobileOpen?: boolean;
+  open?: boolean;
   onNavigate?: () => void;
 };
 
-export function Sidebar({ mobileOpen = false, onNavigate }: SidebarProps) {
+export function Sidebar({ open = true, onNavigate }: SidebarProps) {
   const location = useLocation();
   const auth = useAuth();
   const role = auth.role;
@@ -15,8 +15,12 @@ export function Sidebar({ mobileOpen = false, onNavigate }: SidebarProps) {
 
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-40 flex h-screen w-56 shrink-0 flex-col border-r border-byla-navy-border bg-byla-navy transition-transform duration-200 ease-out md:static md:h-full md:max-h-screen md:translate-x-0 ${
-        mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+      id="app-sidebar"
+      aria-hidden={!open}
+      className={`fixed inset-y-0 left-0 z-40 flex h-screen w-56 shrink-0 flex-col border-r border-byla-navy-border bg-byla-navy transition-all duration-200 ease-out md:static md:h-full md:max-h-screen ${
+        open
+          ? 'translate-x-0 md:w-56 md:opacity-100'
+          : '-translate-x-full md:w-0 md:overflow-hidden md:border-r-0 md:opacity-0 md:pointer-events-none'
       }`}
     >
       <div className="p-4 border-b border-byla-navy-border">

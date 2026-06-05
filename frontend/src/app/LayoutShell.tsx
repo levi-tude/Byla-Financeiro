@@ -6,10 +6,31 @@ import { KeyboardShortcutsModal } from '../components/ui/KeyboardShortcutsModal'
 import { ThemeToggle } from '../components/ui/ThemeToggle';
 import { useAuth } from '../auth/AuthContext';
 
+const SIDEBAR_STORAGE_KEY = 'byla-sidebar-open';
+
+function readSidebarOpenPreference(): boolean {
+  try {
+    const saved = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+    if (saved === 'false') return false;
+    if (saved === 'true') return true;
+  } catch {
+    /* ignore */
+  }
+  return true;
+}
+
 export function LayoutShell() {
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpenPreference);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const auth = useAuth();
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_STORAGE_KEY, String(sidebarOpen));
+    } catch {
+      /* ignore */
+    }
+  }, [sidebarOpen]);
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -27,25 +48,32 @@ export function LayoutShell() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-      {menuOpen ? (
+      {sidebarOpen ? (
         <button
           type="button"
           aria-label="Fechar menu"
           className="fixed inset-0 z-30 bg-slate-900/40 md:hidden"
-          onClick={() => setMenuOpen(false)}
+          onClick={() => setSidebarOpen(false)}
         />
       ) : null}
-      <Sidebar mobileOpen={menuOpen} onNavigate={() => setMenuOpen(false)} />
+      <Sidebar
+        open={sidebarOpen}
+        onNavigate={() => {
+          if (window.matchMedia('(max-width: 767px)').matches) setSidebarOpen(false);
+        }}
+      />
       <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-slate-100 dark:bg-slate-950">
         <div className="sticky top-0 z-20 flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-slate-100/95 px-3 py-2 backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/95">
           <button
             type="button"
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 md:hidden dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-            onClick={() => setMenuOpen((v) => !v)}
-            aria-expanded={menuOpen}
-            aria-label={menuOpen ? 'Fechar menu' : 'Abrir menu'}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+            onClick={() => setSidebarOpen((v) => !v)}
+            aria-expanded={sidebarOpen}
+            aria-controls="app-sidebar"
+            aria-label={sidebarOpen ? 'Ocultar menu lateral' : 'Mostrar menu lateral'}
+            title={sidebarOpen ? 'Ocultar menu lateral' : 'Mostrar menu lateral'}
           >
-            Menu
+            {sidebarOpen ? '◀ Menu' : '☰ Menu'}
           </button>
           <div className="flex flex-1 flex-wrap items-center justify-end gap-3">
             <ThemeToggle />
