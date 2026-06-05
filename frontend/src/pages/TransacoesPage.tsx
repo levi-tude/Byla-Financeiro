@@ -5,12 +5,27 @@ import { ResumoDiaValorHover, type ResumoDiaLinhaDetalhe } from '../components/t
 import { TransacoesDailyFlowChart } from '../components/charts/TransacoesDailyFlowChart';
 import { Topbar } from '../app/Topbar';
 import { useMonthYear } from '../context/MonthYearContext';
-import { getTransacoesPorMes, type TransacaoItem } from '../services/backendApi';
+import {
+  getDespesasCategorias,
+  getEntradasCategorias,
+  getTransacoesPorMes,
+  type TransacaoItem,
+} from '../services/backendApi';
 import { FilterBar } from '../components/finance/FilterBar';
 import { KpiStrip } from '../components/finance/KpiStrip';
 import { DataTable } from '../components/finance/DataTable';
 import { StatusBadge } from '../components/finance/StatusBadge';
 import { EmptyState, ErrorPanel, LoadingRow } from '../components/finance/StateBlocks';
+import {
+  FiltroCategoriaControleSelect,
+  filtroCategoriaCompativelComTipo,
+} from '../components/finance/classificacao/FiltroCategoriaControleSelect';
+import {
+  agruparPorBlocoChave,
+  FILTRO_TIPO_PENDENTE,
+  FILTRO_TIPO_TODAS,
+  type CategoriaOpcao,
+} from '../components/finance/classificacao/utils';
 
 const METODOS: Array<TransacaoItem['metodo']> = [
   'PIX',
@@ -49,6 +64,26 @@ function ordenarDatasIso(a: string, b: string): { min: string; max: string } {
   return a <= b ? { min: a, max: b } : { min: b, max: a };
 }
 
+function labelCategoriaControleFiltro(
+  filtro: string,
+  entradas: CategoriaOpcao[],
+  saidas: CategoriaOpcao[],
+): string {
+  if (!filtro || filtro === FILTRO_TIPO_TODAS) return '';
+  if (filtro === FILTRO_TIPO_PENDENTE) return 'Sem categoria (pendente)';
+  const match = filtro.match(/^(entrada|saida)::(.+)$/);
+  if (!match) return filtro;
+  const familia = match[1] as 'entrada' | 'saida';
+  const rest = match[2];
+  const cats = familia === 'entrada' ? entradas : saidas;
+  if (rest.startsWith('bloco:')) {
+    const blocoKey = rest.slice('bloco:'.length);
+    const bloco = agruparPorBlocoChave(cats).find((b) => b.blocoTemplateKey === blocoKey);
+    return bloco ? `Bloco inteiro — ${bloco.blocoTitulo}` : rest;
+  }
+  return cats.find((c) => c.templateKey === rest)?.label ?? rest;
+}
+
 type SavedView = {
   id: string;
   nome: string;
@@ -57,6 +92,7 @@ type SavedView = {
     tipo: 'todos' | 'entrada' | 'saida';
     metodo: string;
     busca: string;
+    categoriaControle: string;
     periodoModo: 'mes' | 'periodo';
     periodoInicio: string;
     periodoFim: string;
@@ -73,6 +109,7 @@ const DEFAULT_SAVED_VIEWS: SavedView[] = [
       tipo: 'todos',
       metodo: '',
       busca: '',
+      categoriaControle: '',
       periodoModo: 'mes',
       periodoInicio: '',
       periodoFim: '',
@@ -86,6 +123,7 @@ const DEFAULT_SAVED_VIEWS: SavedView[] = [
       tipo: 'entrada',
       metodo: 'PIX',
       busca: '',
+      categoriaControle: '',
       periodoModo: 'mes',
       periodoInicio: '',
       periodoFim: '',
@@ -99,6 +137,7 @@ const DEFAULT_SAVED_VIEWS: SavedView[] = [
       tipo: 'saida',
       metodo: '',
       busca: '',
+      categoriaControle: '',
       periodoModo: 'mes',
       periodoInicio: '',
       periodoFim: '',
@@ -127,6 +166,7 @@ export function TransacoesPage() {
   const [tipo, setTipo] = useState<'todos' | 'entrada' | 'saida'>('todos');
   const [metodo, setMetodo] = useState<string>('');
   const [busca, setBusca] = useState('');
+  const [categoriaControle, setCategoriaControle] = useState('');
   const [periodoModo, setPeriodoModo] = useState<'mes' | 'periodo'>('mes');
   /** Intervalo inclusivo (yyyy-mm-dd); dois cliques no calendário dos filtros. */
   const [periodoInicio, setPeriodoInicio] = useState('');
@@ -145,7 +185,14 @@ export function TransacoesPage() {
     setPeriodoCliquePendente(null);
     setCalendarioAberto(false);
     setPeriodoModo('mes');
+    setCategoriaControle('');
   }, [monthYear.mes, monthYear.ano]);
+
+  useEffect(() => {
+    if (!filtroCategoriaCompativelComTipo(categoriaControle, tipo)) {
+      setCategoriaControle('');
+    }
+  }, [tipo, categoriaControle]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -166,6 +213,7 @@ export function TransacoesPage() {
       const t = e.target as Node;
       if (calendarioPopoverRef.current?.contains(t)) return;
       if (calendarioTriggerRef.current?.contains(t)) return;
+      if (t instanceof Element && t.closest('select, input, textarea, option')) return;
       setCalendarioAberto(false);
     };
     document.addEventListener('mousedown', onDown);
@@ -209,12 +257,13 @@ export function TransacoesPage() {
     return {
       metodo: metodo || undefined,
       q: busca.trim() || undefined,
+      categoria: categoriaControle || undefined,
       dia,
       dia_fim,
       limit: 300,
       offset: 0,
     };
-  }, [metodo, busca, periodoModo, periodoInicio, periodoFim]);
+  }, [metodo, busca, categoriaControle, periodoModo, periodoInicio, periodoFim]);
 
   const periodoLegivel = useMemo(() => {
     if (!periodoInicio || !periodoFim) return null;
@@ -280,6 +329,34 @@ export function TransacoesPage() {
     },
     [periodoCliquePendente, periodoInicio, periodoFim]
   );
+
+  const entradasCategoriasQuery = useQuery({
+    queryKey: ['transacoes-filtro-categorias-entrada', monthYear.mes, monthYear.ano],
+    queryFn: () => getEntradasCategorias(monthYear.mes, monthYear.ano),
+  });
+
+  const despesasCategoriasQuery = useQuery({
+    queryKey: ['transacoes-filtro-categorias-saida', monthYear.mes, monthYear.ano],
+    queryFn: () => getDespesasCategorias(monthYear.mes, monthYear.ano),
+  });
+
+  const categoriasEntrada = useMemo((): CategoriaOpcao[] => {
+    return (entradasCategoriasQuery.data?.categorias ?? []).map((c) => ({
+      templateKey: c.templateKey,
+      label: c.label,
+      blocoTitulo: c.blocoTitulo,
+      blocoTemplateKey: c.blocoTemplateKey,
+    }));
+  }, [entradasCategoriasQuery.data?.categorias]);
+
+  const categoriasSaida = useMemo((): CategoriaOpcao[] => {
+    return (despesasCategoriasQuery.data?.categorias ?? []).map((c) => ({
+      templateKey: c.templateKey,
+      label: c.label,
+      blocoTitulo: c.blocoTitulo,
+      blocoTemplateKey: c.blocoTemplateKey,
+    }));
+  }, [despesasCategoriasQuery.data?.categorias]);
 
   const query = useQuery({
     queryKey: ['transacoes-unificadas', monthYear.mes, monthYear.ano, tipo, apiExtra],
@@ -348,6 +425,7 @@ export function TransacoesPage() {
     setTipo('todos');
     setMetodo('');
     setBusca('');
+    setCategoriaControle('');
     setPeriodoModo('mes');
     limparPeriodoDias();
   };
@@ -362,6 +440,7 @@ export function TransacoesPage() {
         tipo,
         metodo,
         busca: busca.trim(),
+        categoriaControle,
         periodoModo,
         periodoInicio,
         periodoFim,
@@ -369,13 +448,14 @@ export function TransacoesPage() {
     };
     setSavedViews((prev) => [nova, ...prev.filter((v) => v.nome.toLowerCase() !== nome.toLowerCase())]);
     setNovaViewNome('');
-  }, [novaViewNome, tipo, metodo, busca, periodoModo, periodoInicio, periodoFim]);
+  }, [novaViewNome, tipo, metodo, busca, categoriaControle, periodoModo, periodoInicio, periodoFim]);
 
   const aplicarView = useCallback(
     (view: SavedView) => {
       setTipo(view.filtros.tipo);
       setMetodo(view.filtros.metodo);
       setBusca(view.filtros.busca);
+      setCategoriaControle(view.filtros.categoriaControle ?? '');
       setPeriodoModo(view.filtros.periodoModo);
       setPeriodoInicio(view.filtros.periodoInicio);
       setPeriodoFim(view.filtros.periodoFim);
@@ -393,12 +473,19 @@ export function TransacoesPage() {
     const chips: Array<{ id: string; label: string; onRemove?: () => void }> = [];
     if (tipo !== 'todos') chips.push({ id: 'tipo', label: `Tipo: ${tipo}`, onRemove: () => setTipo('todos') });
     if (metodo) chips.push({ id: 'metodo', label: `Método: ${metodo}`, onRemove: () => setMetodo('') });
+    if (categoriaControle) {
+      chips.push({
+        id: 'categoria',
+        label: `Controle: ${labelCategoriaControleFiltro(categoriaControle, categoriasEntrada, categoriasSaida)}`,
+        onRemove: () => setCategoriaControle(''),
+      });
+    }
     if (busca.trim()) chips.push({ id: 'busca', label: `Busca: ${busca.trim()}`, onRemove: () => setBusca('') });
     if (periodoModo === 'periodo' && periodoLegivel) {
       chips.push({ id: 'periodo', label: `Período: ${periodoLegivel}`, onRemove: limparPeriodoDias });
     }
     return chips;
-  }, [tipo, metodo, busca, periodoModo, periodoLegivel, limparPeriodoDias]);
+  }, [tipo, metodo, categoriaControle, categoriasEntrada, categoriasSaida, busca, periodoModo, periodoLegivel, limparPeriodoDias]);
 
   const kpiItems = useMemo(
     () => [
@@ -470,83 +557,116 @@ export function TransacoesPage() {
         chips={filtrosAtivos}
         onClear={limparFiltros}
       >
-        <div className="rounded-lg border border-indigo-100 bg-indigo-50/70 p-3 dark:border-indigo-900/50 dark:bg-indigo-950/30">
-          <p className="mb-2 text-xs font-semibold text-indigo-900 dark:text-indigo-100">Views salvas</p>
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="text"
-              value={novaViewNome}
-              onChange={(e) => setNovaViewNome(e.target.value)}
-              placeholder="Ex.: Fechamento semanal"
-              className="w-52 rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-xs dark:border-indigo-700 dark:bg-slate-900"
-            />
-            <button
-              type="button"
-              onClick={salvarViewAtual}
-              disabled={!novaViewNome.trim()}
-              className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Salvar view
-            </button>
-            {savedViews.length === 0 ? (
-              <span className="text-xs text-slate-600 dark:text-slate-300">Sem views salvas ainda.</span>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {savedViews.map((view) => (
-                  <div key={view.id} className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-white px-2 py-1 text-xs dark:border-indigo-700 dark:bg-slate-800">
-                    <button
-                      type="button"
-                      onClick={() => aplicarView(view)}
-                      className="font-medium text-indigo-700 hover:underline dark:text-indigo-300"
-                    >
-                      {view.nome}
-                    </button>
-                    {!view.fixa ? (
+        <div className="space-y-4">
+          <div>
+            <p className="mb-2 text-xs font-medium text-slate-500 dark:text-slate-400">Views salvas</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                value={novaViewNome}
+                onChange={(e) => setNovaViewNome(e.target.value)}
+                placeholder="Ex.: Fechamento semanal"
+                className="w-52 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-900"
+              />
+              <button
+                type="button"
+                onClick={salvarViewAtual}
+                disabled={!novaViewNome.trim()}
+                className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Salvar view
+              </button>
+              {savedViews.length === 0 ? (
+                <span className="text-xs text-slate-500 dark:text-slate-400">Sem views salvas ainda.</span>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {savedViews.map((view) => (
+                    <div key={view.id} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800">
                       <button
                         type="button"
-                        onClick={() => excluirView(view.id)}
-                        className="text-slate-500 hover:text-rose-600 dark:text-slate-300 dark:hover:text-rose-300"
-                        aria-label={`Excluir view ${view.nome}`}
+                        onClick={() => aplicarView(view)}
+                        className="font-medium text-indigo-700 hover:underline dark:text-indigo-300"
                       >
-                        ×
+                        {view.nome}
                       </button>
-                    ) : null}
-                  </div>
+                      {!view.fixa ? (
+                        <button
+                          type="button"
+                          onClick={() => excluirView(view.id)}
+                          className="text-slate-500 hover:text-rose-600 dark:text-slate-300 dark:hover:text-rose-300"
+                          aria-label={`Excluir view ${view.nome}`}
+                        >
+                          ×
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-4 border-t border-slate-100 pt-4 dark:border-slate-800">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-12">
+            <div className="lg:col-span-2">
+              <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Tipo</label>
+              <select
+                value={tipo}
+                onChange={(e) => setTipo(e.target.value as 'todos' | 'entrada' | 'saida')}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+              >
+                <option value="todos">Todos</option>
+                <option value="entrada">Entrada</option>
+                <option value="saida">Saída</option>
+              </select>
+            </div>
+            <div className="lg:col-span-2">
+              <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Método</label>
+              <select
+                value={metodo}
+                onChange={(e) => setMetodo(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+              >
+                <option value="">Todos</option>
+                {METODOS.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
                 ))}
+              </select>
+            </div>
+            {(categoriasEntrada.length > 0 || categoriasSaida.length > 0) && (
+              <div className="sm:col-span-2 lg:col-span-4">
+                <FiltroCategoriaControleSelect
+                  value={categoriaControle}
+                  onChange={setCategoriaControle}
+                  entradas={categoriasEntrada}
+                  saidas={categoriasSaida}
+                  tipoTransacao={tipo}
+                  label="Categoria"
+                  layout="stacked"
+                />
               </div>
             )}
+            <div
+              className={
+                categoriasEntrada.length > 0 || categoriasSaida.length > 0
+                  ? 'sm:col-span-2 lg:col-span-4'
+                  : 'sm:col-span-2 lg:col-span-8'
+              }
+            >
+              <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Pesquisa</label>
+              <input
+                type="search"
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                placeholder="Pessoa ou descrição"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+              />
+            </div>
           </div>
-        </div>
 
-        <div className="grid gap-3 md:grid-cols-6">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-500">Tipo</label>
-            <select
-              value={tipo}
-              onChange={(e) => setTipo(e.target.value as 'todos' | 'entrada' | 'saida')}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            >
-              <option value="todos">Todos</option>
-              <option value="entrada">Entrada</option>
-              <option value="saida">Saída</option>
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-500">Método</label>
-            <select
-              value={metodo}
-              onChange={(e) => setMetodo(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            >
-              <option value="">Todos</option>
-              {METODOS.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="relative md:col-span-2" ref={calendarioTriggerRef}>
+          <div className="relative border-t border-slate-100 pt-4 dark:border-slate-800" ref={calendarioTriggerRef}>
             <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Período no mês</label>
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <button
@@ -580,7 +700,7 @@ export function TransacoesPage() {
                 type="button"
                 onClick={() => setCalendarioAberto((v) => !v)}
                 disabled={periodoModo !== 'periodo'}
-                className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-900 shadow-sm hover:bg-indigo-100 dark:border-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-100 dark:hover:bg-indigo-900/60"
+                className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-900 shadow-sm hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-100 dark:hover:bg-indigo-900/60"
                 aria-expanded={calendarioAberto}
                 aria-haspopup="dialog"
               >
@@ -610,15 +730,6 @@ export function TransacoesPage() {
               />
             ) : null}
           </div>
-          <div className="md:col-span-2">
-            <label className="mb-1 block text-xs font-medium text-slate-500">Pesquisa</label>
-            <input
-              type="search"
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              placeholder="Pessoa ou descrição"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            />
           </div>
         </div>
       </FilterBar>
@@ -826,6 +937,12 @@ export function TransacoesPage() {
           },
           { id: 'pessoa', header: 'Pessoa', render: (t) => t.pessoa || '–' },
           { id: 'descricao', header: 'Descrição', render: (t) => t.descricao || '–' },
+          {
+            id: 'categoria',
+            header: 'Controle',
+            optional: true,
+            render: (t) => t.categoria_label || '—',
+          },
           { id: 'metodo', header: 'Método', optional: true, render: (t) => ('metodo' in t && t.metodo ? t.metodo : '—') },
           {
             id: 'valor',

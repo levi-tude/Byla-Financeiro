@@ -51,6 +51,11 @@ export const transacoesQuerySchema = mesAnoQuerySchema.extend({
   ),
   limit: z.coerce.number().int().min(1).max(500).optional().default(100),
   offset: z.coerce.number().int().min(0).optional().default(0),
+  /** `_pendente` ou `entrada::<template_key>` ou `saida::<template_key>`. */
+  categoria: z.preprocess(
+    (v) => (v === '' || v == null ? undefined : v),
+    z.string().trim().min(1).max(120).optional(),
+  ),
 })
   .refine((q) => !q.dia_fim || !!q.dia, {
     message: 'Informe dia (início) quando usar dia_fim.',

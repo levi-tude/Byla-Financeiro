@@ -699,6 +699,9 @@ export interface TransacaoItem {
   tipo: 'entrada' | 'saida';
   metodo: 'PIX' | 'Crédito' | 'Débito' | 'Transferência' | 'Boleto' | 'Dinheiro' | 'Outros';
   metodoRaw: string | null;
+  categoria_label?: string | null;
+  template_key?: string | null;
+  classificado?: boolean;
 }
 
 export interface TransacoesPorMesResponse {
@@ -742,13 +745,22 @@ export async function getTransacoesPorMes(
   mes: number,
   ano: number,
   tipo: 'entrada' | 'saida' | 'todos',
-  extra?: { metodo?: string; q?: string; dia?: string; dia_fim?: string; limit?: number; offset?: number }
+  extra?: {
+    metodo?: string;
+    q?: string;
+    dia?: string;
+    dia_fim?: string;
+    categoria?: string;
+    limit?: number;
+    offset?: number;
+  },
 ): Promise<TransacoesPorMesResponse> {
   const params = new URLSearchParams({ mes: String(mes), ano: String(ano), tipo });
   if (extra?.metodo) params.set('metodo', extra.metodo);
   if (extra?.q) params.set('q', extra.q);
   if (extra?.dia) params.set('dia', extra.dia);
   if (extra?.dia_fim) params.set('dia_fim', extra.dia_fim);
+  if (extra?.categoria) params.set('categoria', extra.categoria);
   if (extra?.limit != null) params.set('limit', String(extra.limit));
   if (extra?.offset != null) params.set('offset', String(extra.offset));
   return request<TransacoesPorMesResponse>(`/api/transacoes?${params.toString()}`);

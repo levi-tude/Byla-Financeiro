@@ -12,8 +12,18 @@ import { ClassificacaoModal } from '../components/finance/classificacao/Classifi
 import { ClassificacaoTabBar } from '../components/finance/classificacao/ClassificacaoTabBar';
 import { ControleCaixaMesLink } from '../components/finance/classificacao/ControleCaixaMesLink';
 import { PorCategoriaSection } from '../components/finance/classificacao/PorCategoriaSection';
+import { FiltroTipoCategoria } from '../components/finance/classificacao/FiltroTipoCategoria';
 import { CompetenciaTransacaoEditor } from '../components/finance/classificacao/CompetenciaTransacaoEditor';
-import { formatBrl, formatDate } from '../components/finance/classificacao/utils';
+import {
+  filtrarPorCategoriaBlocos,
+  formatBrl,
+  formatDate,
+  FILTRO_TIPO_PENDENTE,
+  grupoPassaFiltroTipo,
+  resolveGrupoTemplateKey,
+  resolveGrupoBlocoTemplateKey,
+  type CategoriaOpcao,
+} from '../components/finance/classificacao/utils';
 import {
   getDespesasCategoriaTransacoes,
   getDespesasCategorias,
@@ -127,6 +137,7 @@ export function DespesasPage() {
   const { mes, ano } = monthYear;
   const { showToast } = useToast();
   const [tab, setTab] = useState<TabId>('pendentes');
+  const [filtroTipo, setFiltroTipo] = useState('');
   const [modalGrupo, setModalGrupo] = useState<DespesaGrupo | null>(null);
   const [visaoResumo, setVisaoResumo] = useState<VisaoControle>('caixa');
   const qc = useQueryClient();
@@ -195,22 +206,45 @@ export function DespesasPage() {
     },
   ];
 
-  const porCategoriaBlocos = useMemo(
-    () =>
-      (resumoQuery.data?.por_bloco ?? []).map((bloco) => ({
-        bloco_titulo: bloco.bloco_titulo,
-        linhas: bloco.linhas.map((row) => ({
-          template_key: row.template_key,
-          label: row.label,
-          total: row.total,
-          qtd_transacoes: row.qtd_transacoes,
-          meta: `${row.qtd_transacoes} lanç. no extrato${
-            row.qtd_destinatarios > 0 ? ` · ${row.qtd_destinatarios} destinatário(s)` : ''
-          }`,
-        })),
+  const categoriasOpcoes = useMemo((): CategoriaOpcao[] => {
+    const cats = categoriasQuery.data?.categorias ?? [];
+    return cats.map((c) => ({
+      templateKey: c.templateKey,
+      label: c.label,
+      blocoTitulo: c.blocoTitulo,
+      blocoTemplateKey: c.blocoTemplateKey,
+    }));
+  }, [categoriasQuery.data?.categorias]);
+
+  const gruposFiltrados = useMemo(() => {
+    const lista = gruposQuery.data?.grupos ?? [];
+    return lista.filter((g) => {
+      const key = resolveGrupoTemplateKey(g, categoriasOpcoes);
+      const bloco = resolveGrupoBlocoTemplateKey(g, key, categoriasOpcoes);
+      return grupoPassaFiltroTipo(key, filtroTipo, bloco);
+    });
+  }, [gruposQuery.data?.grupos, filtroTipo, categoriasOpcoes]);
+
+  const porCategoriaBlocos = useMemo(() => {
+    const blocos = (resumoQuery.data?.por_bloco ?? []).map((bloco) => ({
+      bloco_titulo: bloco.bloco_titulo,
+      bloco_template_key: bloco.linhas[0]?.bloco_template_key,
+      linhas: bloco.linhas.map((row) => ({
+        template_key: row.template_key,
+        label: row.label,
+        total: row.total,
+        qtd_transacoes: row.qtd_transacoes,
+        meta: `${row.qtd_transacoes} lanç. no extrato${
+          row.qtd_destinatarios > 0 ? ` · ${row.qtd_destinatarios} destinatário(s)` : ''
+        }`,
       })),
-    [resumoQuery.data?.por_bloco],
-  );
+    }));
+    return filtrarPorCategoriaBlocos(blocos, filtroTipo);
+  }, [resumoQuery.data?.por_bloco, filtroTipo]);
+
+  const filtroTipoAtivo = Boolean(filtroTipo);
+  const mostrarPendentePorCategoria =
+    tab === 'categorias' && (!filtroTipo || filtroTipo === FILTRO_TIPO_PENDENTE);
 
   return (
     <div className="p-6 space-y-4 max-w-7xl mx-auto">
@@ -266,12 +300,21 @@ export function DespesasPage() {
         onChange={setTab}
       />
 
+      {categoriasOpcoes.length > 0 && (
+        <FiltroTipoCategoria
+          value={filtroTipo}
+          onChange={setFiltroTipo}
+          categorias={categoriasOpcoes}
+          label="Tipo de saída"
+        />
+      )}
+
       {tab === 'categorias' && (
         <PorCategoriaSection
           isLoading={resumoQuery.isLoading}
           blocos={porCategoriaBlocos}
-          pendenteTotal={resumoQuery.data?.pendente.total ?? 0}
-          pendenteQtd={resumoQuery.data?.pendente.qtd_transacoes ?? 0}
+          pendenteTotal={mostrarPendentePorCategoria ? (resumoQuery.data?.pendente.total ?? 0) : 0}
+          pendenteQtd={mostrarPendentePorCategoria ? (resumoQuery.data?.pendente.qtd_transacoes ?? 0) : 0}
           emptyMessage="Abra o Controle de Caixa deste mês para carregar as linhas de saída."
           valorTone="saida"
           mes={mes}
@@ -287,16 +330,18 @@ export function DespesasPage() {
         <section className="mt-4 space-y-3">
           {gruposQuery.isLoading && <ClassificacaoLoadingBlock />}
           {gruposQuery.error && <ErrorPanel message="Erro ao carregar grupos." />}
-          {!gruposQuery.isLoading && !gruposQuery.error && (gruposQuery.data?.grupos.length ?? 0) === 0 && (
+          {!gruposQuery.isLoading && !gruposQuery.error && gruposFiltrados.length === 0 && (
             <EmptyState
               message={
-                tab === 'pendentes'
-                  ? 'Todas as saídas deste mês estão classificadas.'
-                  : 'Nenhum destinatário classificado neste mês.'
+                filtroTipoAtivo
+                  ? 'Nenhum destinatário corresponde ao tipo selecionado nesta aba.'
+                  : tab === 'pendentes'
+                    ? 'Todas as saídas deste mês estão classificadas.'
+                    : 'Nenhum destinatário classificado neste mês.'
               }
             />
           )}
-          {gruposQuery.data?.grupos.map((g) => (
+          {gruposFiltrados.map((g) => (
             <ClassificacaoGrupoCard
               key={g.pessoa_normalizada}
               titulo={g.pessoa_exibida}

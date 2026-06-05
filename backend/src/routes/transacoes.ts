@@ -8,6 +8,11 @@ import {
   type MetodoPagamento,
 } from '../services/transacoesFiltro.js';
 import { parseQuery, transacoesQuerySchema } from '../validation/apiQuery.js';
+import {
+  mapClassificacaoPorId,
+  parseCategoriaControleFiltro,
+  transacaoPassaFiltroCategoriaControle,
+} from '../services/transacoesClassificacaoMap.js';
 
 const router = Router();
 
@@ -59,7 +64,14 @@ router.get('/transacoes', async (req: Request, res: Response) => {
     if (!parsed.ok) {
       return res.status(400).json({ error: parsed.message, itens: [] });
     }
-    const { mes, ano, tipo, metodo, q, dia, dia_fim, limit, offset } = parsed.data;
+    const { mes, ano, tipo, metodo, q, dia, dia_fim, limit, offset, categoria } = parsed.data;
+    const categoriaFiltro = parseCategoriaControleFiltro(categoria);
+    if (categoria && !categoriaFiltro) {
+      return res.status(400).json({
+        error: 'categoria inválida. Use _pendente, entrada::<template_key> ou saida::<template_key>.',
+        itens: [],
+      });
+    }
     const supabase = getSupabase();
     if (!supabase) return res.status(503).json({ error: 'Supabase não configurado.', itens: [] });
 
@@ -102,11 +114,19 @@ router.get('/transacoes', async (req: Request, res: Response) => {
 
     const qNorm = (q ?? '').trim().toLowerCase();
     const metodoNorm = metodo ? normalizarMetodoPagamento(metodo) : null;
+
+    const classificacaoMap = categoriaFiltro
+      ? await mapClassificacaoPorId(supabase, mes, ano)
+      : null;
+
     const filtradas = comMetodo.filter((t) => {
       if (metodoNorm && t.metodo !== metodoNorm) return false;
       if (qNorm) {
         const hay = `${t.pessoa ?? ''} ${t.descricao ?? ''}`.toLowerCase();
         if (!hay.includes(qNorm)) return false;
+      }
+      if (classificacaoMap && categoriaFiltro) {
+        if (!transacaoPassaFiltroCategoriaControle(t, categoriaFiltro, classificacaoMap)) return false;
       }
       return true;
     });
@@ -117,7 +137,17 @@ router.get('/transacoes', async (req: Request, res: Response) => {
       return String(b.id).localeCompare(String(a.id));
     });
 
-    const paginadas = filtradas.slice(offset, offset + limit);
+    const paginadas = filtradas.slice(offset, offset + limit).map((t) => {
+      if (!classificacaoMap) return t;
+      const info = classificacaoMap.get(t.id);
+      if (!info) return t;
+      return {
+        ...t,
+        categoria_label: info.categoria_label,
+        template_key: info.template_key,
+        classificado: info.classificado,
+      };
+    });
 
     const resumoGeral = filtradas.reduce(
       (acc, t) => {
@@ -191,6 +221,7 @@ router.get('/transacoes', async (req: Request, res: Response) => {
         q: q ?? null,
         dia: dia ?? null,
         dia_fim: dia_fim ?? null,
+        categoria: categoriaFiltro,
         limit,
         offset,
       },

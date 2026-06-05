@@ -207,7 +207,8 @@ export function PorCategoriaSection({
 
   if (isLoading) return <ClassificacaoLoadingBlock />;
 
-  if (blocos.length === 0) {
+  const semLinhasClassificadas = blocos.length === 0;
+  if (semLinhasClassificadas && pendenteTotal <= 0) {
     return <EmptyState message={emptyMessage} />;
   }
 

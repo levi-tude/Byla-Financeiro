@@ -12,8 +12,18 @@ import { ClassificacaoModal } from '../components/finance/classificacao/Classifi
 import { ClassificacaoTabBar } from '../components/finance/classificacao/ClassificacaoTabBar';
 import { ControleCaixaMesLink } from '../components/finance/classificacao/ControleCaixaMesLink';
 import { PorCategoriaSection } from '../components/finance/classificacao/PorCategoriaSection';
+import { FiltroTipoCategoria } from '../components/finance/classificacao/FiltroTipoCategoria';
 import { CompetenciaTransacaoEditor } from '../components/finance/classificacao/CompetenciaTransacaoEditor';
-import { formatBrl, formatDate } from '../components/finance/classificacao/utils';
+import {
+  filtrarPorCategoriaBlocos,
+  formatBrl,
+  formatDate,
+  FILTRO_TIPO_PENDENTE,
+  grupoPassaFiltroTipo,
+  resolveGrupoTemplateKey,
+  resolveGrupoBlocoTemplateKey,
+  type CategoriaOpcao,
+} from '../components/finance/classificacao/utils';
 import {
   getEntradasCategoriaTransacoes,
   getEntradasCategorias,
@@ -178,6 +188,7 @@ export function EntradasPage() {
   const { showToast } = useToast();
   const [tab, setTab] = useState<TabId>('pendentes');
   const [segmento, setSegmento] = useState<SegmentoEntrada>('mensalidades');
+  const [filtroTipo, setFiltroTipo] = useState('');
   const [modalGrupo, setModalGrupo] = useState<EntradaGrupo | null>(null);
   const [visaoResumo, setVisaoResumo] = useState<VisaoControle>('caixa');
   const qc = useQueryClient();
@@ -272,31 +283,55 @@ export function EntradasPage() {
     },
   ];
 
+  const categoriasOpcoes = useMemo((): CategoriaOpcao[] => {
+    const cats = categoriasQuery.data?.categorias ?? [];
+    return cats
+      .filter((c) => categoriaNoSegmento(c, segmento))
+      .map((c) => ({
+        templateKey: c.templateKey,
+        label: c.label,
+        blocoTitulo: c.blocoTitulo,
+        blocoTemplateKey: c.blocoTemplateKey,
+      }));
+  }, [categoriasQuery.data?.categorias, segmento]);
+
   const gruposFiltrados = useMemo(() => {
     const lista = gruposQuery.data?.grupos ?? [];
-    return lista.filter((g) => grupoVisivelNoSegmento(g, segmento));
-  }, [gruposQuery.data?.grupos, segmento]);
+    return lista.filter((g) => {
+      if (!grupoVisivelNoSegmento(g, segmento)) return false;
+      const key = resolveGrupoTemplateKey(g, categoriasOpcoes);
+      const bloco = resolveGrupoBlocoTemplateKey(g, key, categoriasOpcoes);
+      return grupoPassaFiltroTipo(key, filtroTipo, bloco);
+    });
+  }, [gruposQuery.data?.grupos, segmento, filtroTipo, categoriasOpcoes]);
 
-  const porCategoriaBlocos = useMemo(
-    () =>
-      (resumoQuery.data?.por_bloco ?? []).map((bloco) => ({
-        bloco_titulo: bloco.bloco_titulo,
-        linhas: bloco.linhas.map((row) => ({
-          template_key: row.template_key,
-          label: row.label,
-          total: row.total,
-          qtd_transacoes: row.qtd_transacoes,
-          meta: `${row.qtd_transacoes} lanç. · ${row.qtd_pagadores} pagador(es)`,
-        })),
+  const porCategoriaBlocos = useMemo(() => {
+    const blocos = (resumoQuery.data?.por_bloco ?? []).map((bloco) => ({
+      bloco_titulo: bloco.bloco_titulo,
+      bloco_template_key: bloco.linhas[0]?.bloco_template_key,
+      linhas: bloco.linhas.map((row) => ({
+        template_key: row.template_key,
+        label: row.label,
+        total: row.total,
+        qtd_transacoes: row.qtd_transacoes,
+        meta: `${row.qtd_transacoes} lanç. · ${row.qtd_pagadores} pagador(es)`,
       })),
-    [resumoQuery.data?.por_bloco],
-  );
+    }));
+    return filtrarPorCategoriaBlocos(blocos, filtroTipo);
+  }, [resumoQuery.data?.por_bloco, filtroTipo]);
+
+  const filtroTipoAtivo = Boolean(filtroTipo);
+  const mostrarPendentePorCategoria =
+    tab === 'categorias' && (!filtroTipo || filtroTipo === FILTRO_TIPO_PENDENTE);
 
   const segmentoBtn = (id: SegmentoEntrada, label: string, hint: string) => (
     <button
       type="button"
       key={id}
-      onClick={() => setSegmento(id)}
+      onClick={() => {
+        setSegmento(id);
+        setFiltroTipo('');
+      }}
       title={hint}
       className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
         segmento === id
@@ -378,12 +413,21 @@ export function EntradasPage() {
         onChange={setTab}
       />
 
+      {categoriasOpcoes.length > 0 && (
+        <FiltroTipoCategoria
+          value={filtroTipo}
+          onChange={setFiltroTipo}
+          categorias={categoriasOpcoes}
+          label="Tipo de entrada"
+        />
+      )}
+
       {tab === 'categorias' && (
         <PorCategoriaSection
           isLoading={resumoQuery.isLoading}
           blocos={porCategoriaBlocos}
-          pendenteTotal={resumoQuery.data?.pendente.total ?? 0}
-          pendenteQtd={resumoQuery.data?.pendente.qtd_transacoes ?? 0}
+          pendenteTotal={mostrarPendentePorCategoria ? (resumoQuery.data?.pendente.total ?? 0) : 0}
+          pendenteQtd={mostrarPendentePorCategoria ? (resumoQuery.data?.pendente.qtd_transacoes ?? 0) : 0}
           emptyMessage="Abra o Controle de Caixa deste mês para carregar as linhas de entrada."
           valorTone="entrada"
           mes={mes}
@@ -402,13 +446,15 @@ export function EntradasPage() {
           {!gruposQuery.isLoading && !gruposQuery.error && gruposFiltrados.length === 0 && (
             <EmptyState
               message={
-                tab === 'pendentes'
-                  ? segmento === 'mensalidades'
-                    ? 'Nenhuma mensalidade pendente neste mês (ou classifique na aba Aluguel / Coworking).'
-                    : 'Nenhum PIX de aluguel/coworking pendente neste mês.'
-                  : segmento === 'mensalidades'
-                    ? 'Nenhum pagador de mensalidade classificado neste mês.'
-                    : 'Nenhum pagador de aluguel/coworking classificado neste mês.'
+                filtroTipoAtivo
+                  ? 'Nenhum grupo corresponde ao tipo selecionado nesta aba.'
+                  : tab === 'pendentes'
+                    ? segmento === 'mensalidades'
+                      ? 'Nenhuma mensalidade pendente neste mês (ou classifique na aba Aluguel / Coworking).'
+                      : 'Nenhum PIX de aluguel/coworking pendente neste mês.'
+                    : segmento === 'mensalidades'
+                      ? 'Nenhum pagador de mensalidade classificado neste mês.'
+                      : 'Nenhum pagador de aluguel/coworking classificado neste mês.'
               }
             />
           )}
