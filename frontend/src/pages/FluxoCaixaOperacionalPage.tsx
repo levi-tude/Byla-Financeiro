@@ -11,6 +11,7 @@ import {
   getFluxoOperacionalPagamentos,
   getFluxoOperacionalTotaisCompetencia,
   getFluxoOperacionalResumoMultiMes,
+  patchFluxoOperacionalAlunoAtivo,
   patchFluxoOperacionalAlunoPendenciasIgnoradas,
   postFluxoOperacionalAlunoCobrancaTentativa,
   updateFluxoOperacionalAluno,
@@ -275,6 +276,16 @@ function temPendenciaTrabalho(l: LinhaUnificadaFluxo): boolean {
   if (l.kind === 'com_pagamento' && !l.aluno) return true;
   if (l.kind === 'com_pagamento' && l.aluno) return camposCadastroFaltantes(l.aluno).length > 0;
   return false;
+}
+
+function alunoDaLinha(l: LinhaUnificadaFluxo): FluxoOperacionalAluno | null {
+  if (l.kind === 'sem_pagamento_no_mes') return l.aluno;
+  return l.aluno;
+}
+
+function linhaEhInativa(l: LinhaUnificadaFluxo): boolean {
+  const a = alunoDaLinha(l);
+  return a != null && !a.ativo;
 }
 
 type GrupoModalidadeFluxo = { modalidade: string; linhas: LinhaUnificadaFluxo[] };
@@ -597,12 +608,11 @@ export function FluxoCaixaOperacionalPage() {
   const listaMesRef = useRef<HTMLElement | null>(null);
 
   const alunosQuery = useQuery({
-    queryKey: ['fluxo-operacional-alunos', abaFiltro, modalidadeFiltro, ativoFiltro, buscaDebounced, buscaEscopo],
+    queryKey: ['fluxo-operacional-alunos', abaFiltro, modalidadeFiltro, buscaDebounced, buscaEscopo],
     queryFn: () =>
       getFluxoOperacionalAlunos({
         aba: abaFiltro || undefined,
         modalidade: modalidadeFiltro || undefined,
-        ativo: ativoFiltro === 'todos' ? undefined : ativoFiltro === 'ativos',
         q: buscaEscopo === 'responsavel' || buscaEscopo === 'pagador' ? undefined : buscaDebounced || undefined,
         limit: 2500,
       }),
@@ -713,6 +723,25 @@ export function FluxoCaixaOperacionalPage() {
       setAlunoModalDestacarPendencias(false);
       setAlunoUiSnapshot(null);
       setIgnorarChavesDraft([]);
+      await qc.invalidateQueries({ queryKey: ['fluxo-operacional-alunos'] });
+      await qc.invalidateQueries({ queryKey: ['fluxo-operacional-alunos-painel'] });
+      await qc.invalidateQueries({ queryKey: ['fluxo-operacional-resumo-multi'] });
+      await qc.invalidateQueries({ queryKey: ['fluxo-operacional-auditoria'] });
+    },
+    onError: (e) => {
+      showToast(e instanceof Error ? e.message : String(e), 'error');
+    },
+  });
+
+  const toggleAtivoMut = useMutation({
+    mutationFn: (args: { id: string; ativo: boolean }) => patchFluxoOperacionalAlunoAtivo(args.id, args.ativo),
+    onSuccess: async (_, { ativo }) => {
+      showToast(
+        ativo
+          ? 'Aluno reativado — voltou para a lista de ativos.'
+          : 'Aluno marcado como inativo. Pagamentos anteriores permanecem no histórico.',
+        'success',
+      );
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-alunos'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-alunos-painel'] });
       await qc.invalidateQueries({ queryKey: ['fluxo-operacional-resumo-multi'] });
@@ -842,7 +871,11 @@ export function FluxoCaixaOperacionalPage() {
   const totalVisivel = alunosQuery.data?.itens.length ?? 0;
   const totalAtivos = useMemo(
     () => (alunosQuery.data?.itens ?? []).filter((x) => x.ativo).length,
-    [alunosQuery.data?.itens]
+    [alunosQuery.data?.itens],
+  );
+  const totalInativos = useMemo(
+    () => (alunosQuery.data?.itens ?? []).filter((x) => !x.ativo).length,
+    [alunosQuery.data?.itens],
   );
   const totalPagamentosMes = pagamentosQuery.data?.itens.length ?? 0;
 
@@ -1355,16 +1388,26 @@ export function FluxoCaixaOperacionalPage() {
     return out;
   }, [linhasUnificadas, soPendencias, filtroRapido, buscaDebounced, buscaEscopo, ordemCampo, ordemDirecao]);
 
-  const gruposFluxo = useMemo(() => agruparLinhasFluxo(linhasParaLista), [linhasParaLista]);
+  const linhasAtivas = useMemo(
+    () => linhasParaLista.filter((l) => !linhaEhInativa(l)),
+    [linhasParaLista],
+  );
+  const linhasInativas = useMemo(
+    () => linhasParaLista.filter((l) => linhaEhInativa(l)),
+    [linhasParaLista],
+  );
+
+  const gruposFluxoAtivos = useMemo(() => agruparLinhasFluxo(linhasAtivas), [linhasAtivas]);
+  const gruposFluxoInativos = useMemo(() => agruparLinhasFluxo(linhasInativas), [linhasInativas]);
 
   useEffect(() => {
     if (activeTopTab !== 'atividades' || modoVisao !== 'mensal') return;
-    if (gruposFluxo.length === 0) return;
+    if (gruposFluxoAtivos.length === 0) return;
     setAbaDetalheAberta((atual) => {
-      if (atual && gruposFluxo.some((g) => g.aba === atual)) return atual;
-      return gruposFluxo[0].aba;
+      if (atual && gruposFluxoAtivos.some((g) => g.aba === atual)) return atual;
+      return gruposFluxoAtivos[0].aba;
     });
-  }, [activeTopTab, modoVisao, gruposFluxo]);
+  }, [activeTopTab, modoVisao, gruposFluxoAtivos]);
 
   const opcoesAbasFiltro = useMemo(() => {
     const s = new Set<string>();
@@ -2021,12 +2064,34 @@ export function FluxoCaixaOperacionalPage() {
                   Próximo mês
                 </button>
               ) : null}
+              {aluno ? (
+                aluno.ativo ? (
+                  <button
+                    type="button"
+                    disabled={toggleAtivoMut.isPending}
+                    onClick={() => toggleAtivoMut.mutate({ id: aluno.id, ativo: false })}
+                    className="rounded-lg border border-slate-300 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                    title="Remove da lista de ativos sem apagar pagamentos"
+                  >
+                    Inativar
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={toggleAtivoMut.isPending}
+                    onClick={() => toggleAtivoMut.mutate({ id: aluno.id, ativo: true })}
+                    className="rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-200"
+                  >
+                    Reativar
+                  </button>
+                )
+              ) : null}
               <button
                 type="button"
                 onClick={() => setConfirm({ kind: 'pagamento', id: p.id, name: p.aluno_nome })}
                 className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-medium text-rose-800 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200"
               >
-                Excluir
+                Excluir pag.
               </button>
             </div>
           </td>
@@ -2169,13 +2234,26 @@ export function FluxoCaixaOperacionalPage() {
             >
               Próximo mês
             </button>
-            <button
-              type="button"
-              onClick={() => setConfirm({ kind: 'aluno', id: item.id, name: item.aluno_nome })}
-              className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-medium text-rose-800 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200"
-            >
-              Excluir
-            </button>
+            {item.ativo ? (
+              <button
+                type="button"
+                disabled={toggleAtivoMut.isPending}
+                onClick={() => toggleAtivoMut.mutate({ id: item.id, ativo: false })}
+                className="rounded-lg border border-slate-300 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                title="Remove da lista de ativos sem apagar pagamentos"
+              >
+                Inativar
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={toggleAtivoMut.isPending}
+                onClick={() => toggleAtivoMut.mutate({ id: item.id, ativo: true })}
+                className="rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-200"
+              >
+                Reativar
+              </button>
+            )}
           </div>
         </td>
         <td className="px-3 py-2.5">
@@ -2191,6 +2269,126 @@ export function FluxoCaixaOperacionalPage() {
         </td>
       </tr>
     );
+  }
+
+  function renderGruposFluxoLista(grupos: GrupoAbaFluxo[], keyPrefix: string): ReactElement[] {
+    return grupos.map((grupoAba) => {
+      const chromeAba = getFluxoAbaTabStyle(grupoAba.aba);
+      const todasLinhasAba = grupoAba.modalidades.flatMap((m) => m.linhas);
+      const nAlunosAba = contarAlunosUnicos(todasLinhasAba);
+      const nMods = grupoAba.modalidades.length;
+      const modalidadeAuto = nMods === 1 ? grupoAba.modalidades[0].modalidade : null;
+      const modalidadeAberta = modalidadesAbertasPorAba[grupoAba.aba] ?? modalidadeAuto;
+      const abaKey = `${keyPrefix}::${grupoAba.aba}`;
+      return (
+        <details
+          key={abaKey}
+          open={keyPrefix === 'ativos' ? abaDetalheAberta === grupoAba.aba : undefined}
+          onToggle={(e) => {
+            if (keyPrefix !== 'ativos') return;
+            const opened = (e.currentTarget as HTMLDetailsElement).open;
+            if (opened) {
+              setAbaDetalheAberta(grupoAba.aba);
+              if (nMods === 1) {
+                setModalidadesAbertasPorAba((prev) => ({ ...prev, [grupoAba.aba]: modalidadeAuto }));
+              }
+            } else if (abaDetalheAberta === grupoAba.aba) {
+              setAbaDetalheAberta(null);
+            }
+          }}
+          className="group rounded-2xl border border-slate-200/90 border-l-[6px] bg-white/90 shadow-sm open:shadow-md dark:border-slate-700 dark:bg-slate-900/80 [&_summary::-webkit-details-marker]:hidden"
+          style={{ borderLeftColor: chromeAba.tab }}
+        >
+          <summary className="flex cursor-pointer list-none items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50/80 dark:text-slate-100 dark:hover:bg-slate-800/80">
+            <span
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-sm text-slate-500 transition-transform duration-200 group-open:rotate-90 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300"
+              aria-hidden
+            >
+              ›
+            </span>
+            <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+              <span className="inline-flex h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: chromeAba.tab }} aria-hidden />
+              <span className="truncate">
+                Aba: <span style={{ color: chromeAba.tab }}>{grupoAba.aba}</span>
+              </span>
+            </span>
+            <span className="shrink-0 text-xs font-normal text-slate-500 dark:text-slate-400">
+              <strong className="font-semibold text-slate-700 dark:text-slate-200">{nAlunosAba}</strong> aluno(s) ·{' '}
+              <strong className="font-semibold text-slate-700 dark:text-slate-200">{nMods}</strong> modalidade(s)
+            </span>
+          </summary>
+          <div className="space-y-2 border-t border-slate-100 px-2 pb-3 pt-2 dark:border-slate-700 sm:px-3">
+            {grupoAba.modalidades.map((grupoMod) => {
+              const chromeMod = getFluxoModalidadeTabStyle(grupoAba.aba, grupoMod.modalidade);
+              const nAlunosMod = contarAlunosUnicos(grupoMod.linhas);
+              return (
+                <details
+                  key={`${abaKey}\0${grupoMod.modalidade}`}
+                  open={keyPrefix === 'ativos' ? modalidadeAberta === grupoMod.modalidade : undefined}
+                  onToggle={(e) => {
+                    if (keyPrefix !== 'ativos') return;
+                    const opened = (e.currentTarget as HTMLDetailsElement).open;
+                    setModalidadesAbertasPorAba((prev) => ({
+                      ...prev,
+                      [grupoAba.aba]: opened ? grupoMod.modalidade : null,
+                    }));
+                  }}
+                  className="group/mod rounded-xl border border-slate-100 border-l-[5px] bg-slate-50/50 dark:border-slate-700 dark:bg-slate-950/40 [&_summary::-webkit-details-marker]:hidden"
+                  style={{ borderLeftColor: chromeMod.tab }}
+                >
+                  <summary className="flex cursor-pointer list-none items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-white/80 dark:text-slate-200 dark:hover:bg-slate-800/60">
+                    <span
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-slate-200 bg-white text-xs text-slate-500 transition-transform duration-200 group-open/mod:rotate-90 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                      aria-hidden
+                    >
+                      ›
+                    </span>
+                    <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                      <span className="inline-flex h-2 w-2 shrink-0 rounded-sm" style={{ backgroundColor: chromeMod.tab }} aria-hidden />
+                      <span className="truncate">
+                        Modalidade: <span style={{ color: chromeMod.tab }}>{grupoMod.modalidade}</span>
+                      </span>
+                    </span>
+                    <span className="shrink-0 font-normal text-slate-500 dark:text-slate-400">
+                      <strong className="font-semibold text-slate-700 dark:text-slate-200">{nAlunosMod}</strong> aluno(s)
+                    </span>
+                  </summary>
+                  <div className="overflow-x-auto px-1 pb-2">
+                    <table className={`w-full text-sm ${mensalColunasExtras ? 'min-w-[980px]' : 'min-w-0'}`}>
+                      <thead className="bg-slate-100/95 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800/95 dark:text-slate-400">
+                        <tr>
+                          <th className={`px-3 py-2 ${thAlunoSticky}`}>Aluno</th>
+                          {mensalColunasExtras ? <th className="px-3 py-2">Venc. (cad.)</th> : null}
+                          <th className="px-3 py-2">Valor ref.</th>
+                          {mensalColunasExtras ? <th className="px-3 py-2">Competência</th> : null}
+                          <th className="px-3 py-2">Data pagto.</th>
+                          <th className="px-3 py-2">Valor pago</th>
+                          <th className="px-3 py-2">Extrato</th>
+                          {mensalColunasExtras ? (
+                            <>
+                              <th className="px-3 py-2">Forma</th>
+                              <th className="px-3 py-2">Resp.</th>
+                              <th className="px-3 py-2">Pagador</th>
+                              <th className="px-3 py-2">Plano</th>
+                            </>
+                          ) : null}
+                          <th className="px-3 py-2">Pendências</th>
+                          <th className="px-3 py-2">Ações</th>
+                          <th className="px-3 py-2">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-900">
+                        {grupoMod.linhas.map((linha) => renderLinhaFluxo(linha))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              );
+            })}
+          </div>
+        </details>
+      );
+    });
   }
 
   const competenciaChaveAtual = `${monthYear.ano}-${String(monthYear.mes).padStart(2, '0')}`;
@@ -3161,8 +3359,8 @@ export function FluxoCaixaOperacionalPage() {
             <h2 className="text-base font-semibold text-slate-900 dark:text-slate-50">Lista do mês</h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
               {mesReferenciaLegivel(monthYear.mes, monthYear.ano)} · Alunos: <strong>{totalVisivel}</strong> · Ativos:{' '}
-              <strong>{totalAtivos}</strong> · Pagamentos: <strong>{totalPagamentosMes}</strong> · Linhas:{' '}
-              <strong>{linhasParaLista.length}</strong>
+              <strong>{totalAtivos}</strong> · Inativos: <strong>{totalInativos}</strong> · Pagamentos:{' '}
+              <strong>{totalPagamentosMes}</strong> · Linhas ativas: <strong>{linhasAtivas.length}</strong>
             </p>
             <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
               Modo compacto padrão: Aluno, valor e pagamento visíveis em 1366px. Use os presets acima ou{' '}
@@ -3198,146 +3396,40 @@ export function FluxoCaixaOperacionalPage() {
             {!listagemCarregando && linhasParaLista.length > 0 && (
               <div className="space-y-3">
                 <p className="text-xs text-slate-500 dark:text-slate-400 md:hidden">Deslize horizontalmente em cada tabela.</p>
-                {gruposFluxo.map((grupoAba) => {
-                  const chromeAba = getFluxoAbaTabStyle(grupoAba.aba);
-                  const todasLinhasAba = grupoAba.modalidades.flatMap((m) => m.linhas);
-                  const nAlunosAba = contarAlunosUnicos(todasLinhasAba);
-                  const nMods = grupoAba.modalidades.length;
-                  const modalidadeAuto = nMods === 1 ? grupoAba.modalidades[0].modalidade : null;
-                  const modalidadeAberta = modalidadesAbertasPorAba[grupoAba.aba] ?? modalidadeAuto;
-                  return (
-                  <details
-                    key={grupoAba.aba}
-                    open={abaDetalheAberta === grupoAba.aba}
-                    onToggle={(e) => {
-                      const opened = (e.currentTarget as HTMLDetailsElement).open;
-                      if (opened) {
-                        setAbaDetalheAberta(grupoAba.aba);
-                        if (nMods === 1) {
-                          setModalidadesAbertasPorAba((prev) => ({ ...prev, [grupoAba.aba]: modalidadeAuto }));
-                        }
-                      } else if (abaDetalheAberta === grupoAba.aba) {
-                        setAbaDetalheAberta(null);
-                      }
-                    }}
-                    className="group rounded-2xl border border-slate-200/90 border-l-[6px] bg-white/90 shadow-sm open:shadow-md dark:border-slate-700 dark:bg-slate-900/80 [&_summary::-webkit-details-marker]:hidden"
-                    style={{ borderLeftColor: chromeAba.tab }}
-                  >
-                    <summary className="flex cursor-pointer list-none items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50/80 dark:text-slate-100 dark:hover:bg-slate-800/80">
+                {ativoFiltro !== 'inativos' && (
+                  <>
+                    {ativoFiltro === 'todos' && gruposFluxoAtivos.length > 0 ? (
+                      <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">Ativos</p>
+                    ) : null}
+                    {renderGruposFluxoLista(gruposFluxoAtivos, 'ativos')}
+                  </>
+                )}
+                {ativoFiltro === 'inativos' && renderGruposFluxoLista(gruposFluxoInativos, 'inativos')}
+                {ativoFiltro === 'todos' && gruposFluxoInativos.length > 0 ? (
+                  <div className="space-y-2 pt-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Inativos</p>
+                    {renderGruposFluxoLista(gruposFluxoInativos, 'inativos')}
+                  </div>
+                ) : null}
+                {ativoFiltro === 'ativos' && gruposFluxoInativos.length > 0 ? (
+                  <details className="group rounded-2xl border border-slate-200/90 bg-slate-50/80 dark:border-slate-700 dark:bg-slate-900/60 [&_summary::-webkit-details-marker]:hidden">
+                    <summary className="flex cursor-pointer list-none items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100/80 dark:text-slate-200 dark:hover:bg-slate-800/80">
                       <span
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-sm text-slate-500 transition-transform duration-200 group-open:rotate-90 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-sm text-slate-500 transition-transform duration-200 group-open:rotate-90 dark:border-slate-600 dark:bg-slate-800"
                         aria-hidden
                       >
                         ›
                       </span>
-                      <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                        <span
-                          className="inline-flex h-2.5 w-2.5 shrink-0 rounded-sm"
-                          style={{ backgroundColor: chromeAba.tab }}
-                          aria-hidden
-                        />
-                        <span className="truncate">
-                          Aba: <span style={{ color: chromeAba.tab }}>{grupoAba.aba}</span>
-                        </span>
+                      <span className="flex-1">
+                        Alunos inativos ({totalInativos} cadastro · {linhasInativas.length} linha(s) neste mês)
                       </span>
-                      <span className="shrink-0 text-xs font-normal text-slate-500 dark:text-slate-400">
-                        <strong className="font-semibold text-slate-700 dark:text-slate-200">{nAlunosAba}</strong> aluno(s) ·{' '}
-                        <strong className="font-semibold text-slate-700 dark:text-slate-200">{nMods}</strong> modalidade(s)
-                      </span>
+                      <span className="text-xs font-normal text-slate-500">histórico preservado</span>
                     </summary>
-                    <div className="space-y-2 border-t border-slate-100 px-2 pb-3 pt-2 dark:border-slate-700 sm:px-3">
-                      {grupoAba.modalidades.map((grupoMod) => {
-                        const chromeMod = getFluxoModalidadeTabStyle(grupoAba.aba, grupoMod.modalidade);
-                        const nAlunosMod = contarAlunosUnicos(grupoMod.linhas);
-                        return (
-                        <details
-                          key={`${grupoAba.aba}\0${grupoMod.modalidade}`}
-                          open={modalidadeAberta === grupoMod.modalidade}
-                          onToggle={(e) => {
-                            const opened = (e.currentTarget as HTMLDetailsElement).open;
-                            setModalidadesAbertasPorAba((prev) => ({
-                              ...prev,
-                              [grupoAba.aba]: opened ? grupoMod.modalidade : null,
-                            }));
-                          }}
-                          className="group/mod rounded-xl border border-slate-100 border-l-[5px] bg-slate-50/50 dark:border-slate-700 dark:bg-slate-950/40 [&_summary::-webkit-details-marker]:hidden"
-                          style={{ borderLeftColor: chromeMod.tab }}
-                        >
-                          <summary className="flex cursor-pointer list-none items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-white/80 dark:text-slate-200 dark:hover:bg-slate-800/60">
-                            <span
-                              className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-slate-200 bg-white text-xs text-slate-500 transition-transform duration-200 group-open/mod:rotate-90 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300"
-                              aria-hidden
-                            >
-                              ›
-                            </span>
-                            <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                              <span
-                                className="inline-flex h-2 w-2 shrink-0 rounded-sm"
-                                style={{ backgroundColor: chromeMod.tab }}
-                                aria-hidden
-                              />
-                              <span className="truncate">
-                                Modalidade: <span style={{ color: chromeMod.tab }}>{grupoMod.modalidade}</span>
-                              </span>
-                            </span>
-                            <span className="shrink-0 font-normal text-slate-500 dark:text-slate-400">
-                              <strong className="font-semibold text-slate-700 dark:text-slate-200">{nAlunosMod}</strong> aluno(s)
-                            </span>
-                          </summary>
-                          <div className="overflow-x-auto px-1 pb-2">
-                            <table className={`w-full text-sm ${mensalColunasExtras ? 'min-w-[980px]' : 'min-w-0'}`}>
-                              <thead className="bg-slate-100/95 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800/95 dark:text-slate-400">
-                                <tr>
-                                  <th className={`px-3 py-2 ${thAlunoSticky}`}>
-                                    <button
-                                      type="button"
-                                      onClick={alternarOrdenacaoAluno}
-                                      className="inline-flex items-center gap-1 hover:text-indigo-700 dark:hover:text-indigo-300"
-                                      title={
-                                        ordemCampo === 'aluno'
-                                          ? `Ordenar alunos ${ordemDirecao === 'asc' ? 'decrescente' : 'crescente'}`
-                                          : 'Ordenar por aluno'
-                                      }
-                                    >
-                                      Aluno
-                                      {ordemCampo === 'aluno' ? (
-                                        <span className="text-indigo-600 dark:text-indigo-400">
-                                          {ordemDirecao === 'asc' ? '▲' : '▼'}
-                                        </span>
-                                      ) : null}
-                                    </button>
-                                  </th>
-                                  {mensalColunasExtras ? <th className="px-3 py-2">Venc. (cad.)</th> : null}
-                                  <th className="px-3 py-2">Valor ref.</th>
-                                  {mensalColunasExtras ? <th className="px-3 py-2">Competência</th> : null}
-                                  <th className="px-3 py-2">Data pagto.</th>
-                                  <th className="px-3 py-2">Valor pago</th>
-                                  <th className="px-3 py-2">Extrato</th>
-                                  {mensalColunasExtras ? (
-                                    <>
-                                      <th className="px-3 py-2">Forma</th>
-                                      <th className="px-3 py-2">Resp.</th>
-                                      <th className="px-3 py-2">Pagador</th>
-                                      <th className="px-3 py-2">Plano</th>
-                                    </>
-                                  ) : null}
-                                  <th className="px-3 py-2">Pendências</th>
-                                  <th className="px-3 py-2">Ações</th>
-                                  <th className="px-3 py-2">Status</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-900">
-                                {grupoMod.linhas.map((linha) => renderLinhaFluxo(linha))}
-                              </tbody>
-                            </table>
-                          </div>
-                        </details>
-                        );
-                      })}
+                    <div className="space-y-3 border-t border-slate-200 px-2 pb-3 pt-2 dark:border-slate-700 sm:px-3">
+                      {renderGruposFluxoLista(gruposFluxoInativos, 'inativos')}
                     </div>
                   </details>
-                  );
-                })}
+                ) : null}
               </div>
             )}
           </div>
@@ -3798,9 +3890,17 @@ export function FluxoCaixaOperacionalPage() {
                   onChange={(e) => setForm((p) => ({ ...p, observacoes: e.target.value }))}
                 />
               </label>
-              <label className="flex items-center gap-2 text-sm text-slate-700 sm:col-span-3">
-                <input type="checkbox" checked={form.ativo} onChange={(e) => setForm((p) => ({ ...p, ativo: e.target.checked }))} />
-                Ativo
+              <label className="flex items-start gap-2 text-sm text-slate-700 sm:col-span-3">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={form.ativo}
+                  onChange={(e) => setForm((p) => ({ ...p, ativo: e.target.checked }))}
+                />
+                <span>
+                  <strong>Ativo</strong> — desmarque para inativar: sai da lista principal, mas{' '}
+                  <strong>pagamentos anteriores permanecem</strong> no histórico.
+                </span>
               </label>
             </div>
             <div className="mt-5 flex flex-wrap gap-2 justify-end border-t border-slate-100 pt-4">

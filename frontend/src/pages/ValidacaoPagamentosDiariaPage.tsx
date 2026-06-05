@@ -114,6 +114,15 @@ function chaveGrupoPossivel(row: PossivelMatchRow): string {
   return `${d}::${ids}`;
 }
 
+function somaBateComBanco(somaFluxo: number, valorBanco: number): boolean {
+  return Math.abs(somaFluxo - valorBanco) <= VALOR_EPS;
+}
+
+function candidatosValidosParaGrupo(grupo: PossivelMatchRow[]): ValidacaoDiariaBancoItem[] {
+  const sum = grupo.reduce((s, r) => s + Number(r.planilha.valor || 0), 0);
+  return grupo[0].candidatos.filter((c) => somaBateComBanco(sum, Number(c.valor || 0)));
+}
+
 function agruparPossivelMatch(rows: PossivelMatchRow[]): PossivelMatchRow[][] {
   const map = new Map<string, PossivelMatchRow[]>();
   for (const x of rows) {
@@ -122,7 +131,18 @@ function agruparPossivelMatch(rows: PossivelMatchRow[]): PossivelMatchRow[][] {
     arr.push(x);
     map.set(k, arr);
   }
-  return Array.from(map.values());
+  const result: PossivelMatchRow[][] = [];
+  for (const grupo of map.values()) {
+    if (grupo.length === 1) {
+      result.push(grupo);
+      continue;
+    }
+    const sum = grupo.reduce((s, r) => s + Number(r.planilha.valor || 0), 0);
+    const somaValida = grupo[0].candidatos.some((c) => somaBateComBanco(sum, Number(c.valor || 0)));
+    if (somaValida) result.push(grupo);
+    else for (const r of grupo) result.push([r]);
+  }
+  return result;
 }
 
 function badgesGrupoPossivel(items: PossivelMatchRow[]): Array<{ label: string; title: string }> {
@@ -139,18 +159,17 @@ function badgesGrupoPossivel(items: PossivelMatchRow[]): Array<{ label: string; 
   const badges: Array<{ label: string; title: string }> = [];
   const cand = items[0].candidatos;
 
-  if (cand.length === 1 && Math.abs(Number(cand[0].valor) - sum) <= VALOR_EPS) {
+  if (cand.length === 1 && somaBateComBanco(sum, Number(cand[0].valor))) {
     badges.push({
       label: 'Soma → 1 no banco',
       title: `${n} linhas no fluxo somam ${formatCurrency(sum)} e batem com uma única entrada de ${formatCurrency(
         Number(cand[0].valor),
       )} no banco. Confirme após conferir nomes e valores.`,
     });
-  } else {
+  } else if (cand.some((c) => somaBateComBanco(sum, Number(c.valor)))) {
     badges.push({
-      label: 'Mesmo candidato no banco',
-      title:
-        'Várias linhas compartilham o mesmo conjunto de lançamentos possíveis no extrato. Escolha um e confirme; o mesmo vínculo será aplicado a todas.',
+      label: 'Soma → 1 no banco',
+      title: `${n} linhas somam ${formatCurrency(sum)}. Escolha o lançamento do banco com o mesmo valor.`,
     });
   }
 
@@ -1097,7 +1116,7 @@ export function ValidacaoPagamentosDiariaPage() {
 
                   const gk = chaveGrupoPossivel(grupo[0]);
                   const badges = badgesGrupoPossivel(grupo);
-                  const candidatos = grupo[0].candidatos;
+                  const candidatos = candidatosValidosParaGrupo(grupo);
                   const todosMesmoManual =
                     grupo.length > 0 &&
                     grupo.every((r) => manualMatches[r.planilha.id] === manualMatches[grupo[0].planilha.id]) &&
@@ -1105,6 +1124,9 @@ export function ValidacaoPagamentosDiariaPage() {
                   const selectVal = draftGroupMatches[gk] ?? (todosMesmoManual ? manualMatches[grupo[0].planilha.id] ?? '' : '');
 
                   const totalPlan = grupo.reduce((s, r) => s + Number(r.planilha.valor || 0), 0);
+                  const bancoSelecionado = candidatos.find((c) => c.id === selectVal);
+                  const somaConfere =
+                    !!bancoSelecionado && somaBateComBanco(totalPlan, Number(bancoSelecionado.valor || 0));
 
                   return (
                     <div
@@ -1126,8 +1148,8 @@ export function ValidacaoPagamentosDiariaPage() {
                         ))}
                       </div>
                       <p className="text-[11px] text-amber-950/80 mb-3">
-                        Passe o mouse nos selos para ler o contexto. Escolha <b>um</b> lançamento do banco e confirme para
-                        aplicar a todas as linhas abaixo (mesmo PIX / soma).
+                        Várias linhas no fluxo contra <b>um</b> PIX no banco — só confirme se a soma ({formatCurrency(totalPlan)})
+                        bater com o valor do lançamento escolhido.
                       </p>
                       <div className="overflow-x-auto rounded-lg border border-amber-200/80 bg-white/80 mb-3">
                         <table className="w-full text-xs">
@@ -1187,9 +1209,14 @@ export function ValidacaoPagamentosDiariaPage() {
                         <button
                           type="button"
                           className="px-4 py-2 text-xs rounded-lg bg-amber-700 text-white hover:bg-amber-800 disabled:opacity-50 font-medium"
-                          disabled={!selectVal || savingVinculo}
+                          disabled={!selectVal || savingVinculo || !somaConfere}
+                          title={
+                            selectVal && !somaConfere
+                              ? `Soma no fluxo (${formatCurrency(totalPlan)}) não bate com o lançamento do banco.`
+                              : undefined
+                          }
                           onClick={async () => {
-                            if (!selectVal) return;
+                            if (!selectVal || !somaConfere) return;
                             const bancoId = selectVal;
                             for (const r of grupo) {
                               await vincularItem(r.planilha.id, bancoId);
@@ -1204,7 +1231,14 @@ export function ValidacaoPagamentosDiariaPage() {
                           Confirmar para as {grupo.length} linhas
                         </button>
                       </div>
-                      {selectVal && (
+                      {selectVal && !somaConfere && (
+                        <div className="text-[11px] text-red-800 mt-2 font-medium">
+                          Soma no fluxo ({formatCurrency(totalPlan)}) não confere com o banco (
+                          {formatCurrency(Number(bancoSelecionado?.valor || 0))}). Não é possível vincular todas as linhas a
+                          esse lançamento.
+                        </div>
+                      )}
+                      {selectVal && somaConfere && (
                         <div className="text-[11px] text-amber-950 mt-2">
                           Selecionado:{' '}
                           {candidatos.find((c) => c.id === selectVal)?.pessoa || candidatos.find((c) => c.id === selectVal)?.descricao || '—'}

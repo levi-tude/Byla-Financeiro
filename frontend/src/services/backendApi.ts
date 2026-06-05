@@ -411,6 +411,16 @@ export async function patchFluxoOperacionalAlunoPendenciasIgnoradas(
   });
 }
 
+export async function patchFluxoOperacionalAlunoAtivo(
+  id: string,
+  ativo: boolean,
+): Promise<{ item: FluxoOperacionalAluno }> {
+  return requestPatch<{ item: FluxoOperacionalAluno }>(
+    `/api/fluxo-operacional/alunos/${encodeURIComponent(id)}/ativo`,
+    { ativo },
+  );
+}
+
 export async function postFluxoOperacionalAlunoCobrancaTentativa(
   id: string,
   nota: string,

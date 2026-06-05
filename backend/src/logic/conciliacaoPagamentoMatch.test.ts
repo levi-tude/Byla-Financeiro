@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   matchUmPagamentoPlanilhaBanco,
   matchPagamentosAgrupadosPlanilhaBanco,
+  resolverColisoesPossivelMatch,
   type BancoItem,
   type PlanilhaItem,
   type PilatesNomePagadorRow,
@@ -175,5 +176,31 @@ describe('matchUmPagamentoPlanilhaBanco', () => {
     assert.equal(r.status, 'possivel');
     assert.equal(r.candidatos.length, 1);
     assert.equal(r.candidatos[0].id, 'b240');
+  });
+});
+
+describe('resolverColisoesPossivelMatch', () => {
+  it('nao deixa quatro linhas de 250 compartilharem um unico banco de 250', () => {
+    const b250 = banco({ id: 'b250', valor: 250, pessoa: 'X' });
+    const rows = [1, 2, 3, 4].map((n) => ({
+      planilha: plBase({ id: `p${n}`, valor: 250, aluno: `Aluno ${n}` }),
+      candidatos: [b250],
+    }));
+    const { rows: out, demovidos } = resolverColisoesPossivelMatch(rows, 0.01);
+    const comB250 = out.filter((r) => r.candidatos.some((c) => c.id === 'b250'));
+    assert.equal(comB250.length, 1);
+    assert.equal(demovidos.length, 3);
+  });
+
+  it('mantem grupo quando soma bate com valor do banco', () => {
+    const b500 = banco({ id: 'b500', valor: 500, pessoa: 'Luciano' });
+    const rows = [
+      { planilha: plBase({ id: 'p1', valor: 250, aluno: 'Luciano', pagadorPix: 'Luciano Vasconcelos' }), candidatos: [b500] },
+      { planilha: plBase({ id: 'p2', valor: 250, aluno: 'Lilian', pagadorPix: 'Luciano Vasconcelos' }), candidatos: [b500] },
+    ];
+    const { rows: out, demovidos } = resolverColisoesPossivelMatch(rows, 0.01);
+    assert.equal(out.length, 2);
+    assert.equal(demovidos.length, 0);
+    assert.ok(out.every((r) => r.candidatos.some((c) => c.id === 'b500')));
   });
 });
