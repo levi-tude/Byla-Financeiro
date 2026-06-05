@@ -7,6 +7,7 @@ import { normalizeText, shiftISODate } from '../logic/conciliacaoTexto.js';
 import {
   matchUmPagamentoPlanilhaBanco,
   matchPagamentosAgrupadosPlanilhaBanco,
+  resolverColisoesPossivelMatch,
   type PlanilhaItem,
   type BancoItem,
   type PilatesNomePagadorRow,
@@ -186,8 +187,18 @@ router.get('/validacao-pagamentos-diaria', async (req: Request, res: Response) =
         existente.candidatos = Array.from(byId.values());
       }
     }
-    const itensPossivelMatchFinais = Array.from(possiveisPorPlanilhaId.values());
-    const itensNaoConfirmadosFinais = itensNaoConfirmados.filter((p) => !idsConvertidosParaPossivel.has(p.id) && !possiveisPorPlanilhaId.has(p.id));
+    const itensPossivelMatchFinaisRaw = Array.from(possiveisPorPlanilhaId.values());
+    const colisoes = resolverColisoesPossivelMatch(
+      itensPossivelMatchFinaisRaw,
+      businessRules.conciliacao.valorTolerancia,
+    );
+    const itensPossivelMatchFinais = colisoes.rows;
+    const itensNaoConfirmadosFinais = [
+      ...itensNaoConfirmados.filter(
+        (p) => !idsConvertidosParaPossivel.has(p.id) && !possiveisPorPlanilhaId.has(p.id),
+      ),
+      ...colisoes.demovidos,
+    ];
 
     const itensBancoSemCorrespondencia = bancoItens.filter((b) => !usadosBanco.has(b.id));
     const totalPlanilha = planilhaItens.reduce((s, x) => s + Number(x.valor || 0), 0);

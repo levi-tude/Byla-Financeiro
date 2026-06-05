@@ -67,6 +67,10 @@ const pendenciasIgnoradasPatchSchema = z.object({
   pendenciaCamposIgnorados: z.array(pendenciaCampoIgnoravelZod).max(12),
 });
 
+const alunoAtivoPatchSchema = z.object({
+  ativo: z.boolean(),
+});
+
 const cobrancaTentativaBodySchema = z.object({
   nota: z.string().trim().min(1).max(500),
 });
@@ -540,6 +544,45 @@ export default function createFluxoOperacionalRouter(): Router {
       alunoNome: String(data.aluno_nome ?? ''),
       beforeData: beforeData ?? null,
       afterData: data,
+    });
+    return res.json({ item: data });
+  });
+
+  router.patch('/fluxo-operacional/alunos/:id/ativo', async (req: Request, res: Response) => {
+    const id = String(req.params.id ?? '').trim();
+    if (!id) return res.status(400).json({ error: 'ID inválido.' });
+    const b = parseBody(alunoAtivoPatchSchema, req.body);
+    if (!b.ok) return res.status(400).json({ error: b.message });
+    const supabase = getSupabase();
+    if (!supabase) return res.status(500).json({ error: 'Supabase não configurado no backend.' });
+
+    const { data: beforeRow, error: beforeErr } = await supabase
+      .from('fluxo_alunos_operacionais')
+      .select('id, aba, modalidade, aluno_nome, ativo')
+      .eq('id', id)
+      .maybeSingle();
+    if (beforeErr) return res.status(500).json({ error: beforeErr.message });
+    if (!beforeRow) return res.status(404).json({ error: 'Registro de aluno não encontrado.' });
+
+    const { data, error } = await supabase
+      .from('fluxo_alunos_operacionais')
+      .update({ ativo: b.data.ativo })
+      .eq('id', id)
+      .select(
+        'id, aba, modalidade, linha_planilha, aluno_nome, wpp, responsaveis, plano, matricula, fim, venc, valor_referencia, pagador_pix, observacoes, ativo'
+      )
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+
+    await logAuditoria(req, {
+      entidade: 'aluno',
+      acao: 'update',
+      registroId: id,
+      aba: String(beforeRow.aba ?? ''),
+      modalidade: String(beforeRow.modalidade ?? ''),
+      alunoNome: String(beforeRow.aluno_nome ?? ''),
+      beforeData: { ativo: beforeRow.ativo },
+      afterData: { ativo: data.ativo },
     });
     return res.json({ item: data });
   });
