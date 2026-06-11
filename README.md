@@ -8,8 +8,10 @@ Aplicacao para controle financeiro e operacional da Byla, com:
 
 ## Uso rapido do agente (sempre visivel)
 
-- Guia fixo de prompts: `docs/PROMPTS_USO_CURSOR.md`
-- Dica: abra esse arquivo no inicio do dia e copie os blocos "Abertura do dia" e "Prompt padrao por tarefa".
+- Manual de consulta (modelos, creditos, estrategia): `docs/MANUAL_IA_CURSOR_BYLA.md`
+- Prompt para gerar poster/Canva do manual: `docs/PROMPT_CANVA_MANUAL_IA_CURSOR.md`
+- Guia fixo de prompts copy/paste: `docs/PROMPTS_USO_CURSOR.md`
+- Dica: abra o manual ou `PROMPTS_USO_CURSOR.md` no inicio do dia e copie os blocos "Abertura do dia" e "Prompt padrao por tarefa".
 
 ## Arquitetura resumida
 

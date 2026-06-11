@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ClassificacaoLoadingBlock } from './ClassificacaoLoadingBlock';
 import { formatBrl, formatDate } from './utils';
 import { EmptyState } from '../StateBlocks';
@@ -35,12 +35,14 @@ function CategoriaTransacoesLista({
   templateKey,
   loadTransacoes,
   valorTone,
+  renderTransacaoExtra,
 }: {
   mes: number;
   ano: number;
   templateKey: string;
   loadTransacoes: (templateKey: string) => Promise<CategoriaTransacaoItem[]>;
   valorTone: 'entrada' | 'saida';
+  renderTransacaoExtra?: (t: CategoriaTransacaoItem, templateKey: string) => ReactNode;
 }) {
   const query = useQuery({
     queryKey: ['categoria-transacoes', valorTone, mes, ano, templateKey],
@@ -87,16 +89,19 @@ function CategoriaTransacoesLista({
         return (
           <li
             key={t.id}
-            className="flex items-start justify-between gap-3 border-b border-slate-50 px-4 py-2.5 last:border-b-0 dark:border-slate-800/80"
+            className="border-b border-slate-50 px-4 py-2.5 last:border-b-0 dark:border-slate-800/80"
           >
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{formatDate(t.data)}</p>
-              <p className="truncate text-xs text-slate-500">{detalhe}</p>
-              {t.descricao ? <p className="truncate text-xs text-slate-400">{t.descricao}</p> : null}
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{formatDate(t.data)}</p>
+                <p className="truncate text-xs text-slate-500">{detalhe}</p>
+                {t.descricao ? <p className="truncate text-xs text-slate-400">{t.descricao}</p> : null}
+              </div>
+              <p className={`shrink-0 text-sm font-semibold tabular-nums ${valorClass}`}>
+                {formatBrl(Math.abs(t.valor))}
+              </p>
             </div>
-            <p className={`shrink-0 text-sm font-semibold tabular-nums ${valorClass}`}>
-              {formatBrl(Math.abs(t.valor))}
-            </p>
+            {renderTransacaoExtra ? renderTransacaoExtra(t, templateKey) : null}
           </li>
         );
       })}
@@ -112,6 +117,7 @@ function CategoriaRow({
   ano,
   loadTransacoes,
   valorTone,
+  renderTransacaoExtra,
 }: {
   row: PorCategoriaLinha;
   expanded: boolean;
@@ -120,6 +126,7 @@ function CategoriaRow({
   ano: number;
   loadTransacoes: (templateKey: string) => Promise<CategoriaTransacaoItem[]>;
   valorTone: 'entrada' | 'saida';
+  renderTransacaoExtra?: (t: CategoriaTransacaoItem, templateKey: string) => ReactNode;
 }) {
   const valorClass =
     valorTone === 'entrada'
@@ -172,6 +179,7 @@ function CategoriaRow({
           templateKey={row.template_key}
           loadTransacoes={loadTransacoes}
           valorTone={valorTone}
+          renderTransacaoExtra={renderTransacaoExtra}
         />
       ) : null}
     </div>
@@ -188,6 +196,7 @@ export function PorCategoriaSection({
   mes,
   ano,
   loadTransacoes,
+  renderTransacaoExtra,
 }: {
   isLoading: boolean;
   blocos: PorCategoriaBloco[];
@@ -198,6 +207,7 @@ export function PorCategoriaSection({
   mes: number;
   ano: number;
   loadTransacoes: (templateKey: string) => Promise<CategoriaTransacaoItem[]>;
+  renderTransacaoExtra?: (t: CategoriaTransacaoItem, templateKey: string) => ReactNode;
 }) {
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
@@ -230,6 +240,7 @@ export function PorCategoriaSection({
                 ano={ano}
                 loadTransacoes={loadTransacoes}
                 valorTone={valorTone}
+                renderTransacaoExtra={renderTransacaoExtra}
               />
             ))}
           </div>
@@ -251,6 +262,7 @@ export function PorCategoriaSection({
             ano={ano}
             loadTransacoes={loadTransacoes}
             valorTone={valorTone}
+            renderTransacaoExtra={renderTransacaoExtra}
           />
         </div>
       )}

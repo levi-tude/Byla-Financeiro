@@ -9,10 +9,14 @@ import {
 } from '../services/transacoesFiltro.js';
 import { parseQuery, transacoesQuerySchema } from '../validation/apiQuery.js';
 import {
+  listarTransacoesPorCompetencia,
   mapClassificacaoPorId,
-  parseCategoriaControleFiltro,
-  transacaoPassaFiltroCategoriaControle,
+  parseCategoriasControleFiltro,
+  transacaoPassaFiltroCategorias,
+  type ClassificacaoTransacao,
 } from '../services/transacoesClassificacaoMap.js';
+import { loadCompetenciasMap } from '../services/transacaoCompetenciaService.js';
+import { competenciaFromDataIso } from '../domain/competencia/competenciaTransacao.js';
 
 const router = Router();
 
@@ -25,6 +29,14 @@ type TransacaoComMetodo = {
   tipo: 'entrada' | 'saida';
   metodo: MetodoPagamento;
   metodoRaw: string | null;
+  mes_competencia?: number;
+  ano_competencia?: number;
+  competencia_confirmada?: boolean;
+  competencia_origem?: string;
+  competencia_sugerida_mes?: number;
+  competencia_sugerida_ano?: number;
+  competencia_alinha_data?: boolean;
+  alerta_duplicata_competencia?: boolean;
 };
 
 type ResumoDiaLinha = {
@@ -64,60 +76,82 @@ router.get('/transacoes', async (req: Request, res: Response) => {
     if (!parsed.ok) {
       return res.status(400).json({ error: parsed.message, itens: [] });
     }
-    const { mes, ano, tipo, metodo, q, dia, dia_fim, limit, offset, categoria } = parsed.data;
-    const categoriaFiltro = parseCategoriaControleFiltro(categoria);
-    if (categoria && !categoriaFiltro) {
+    const { mes, ano, tipo, metodo, q, dia, dia_fim, limit, offset, categoria, categorias, categorias_modo, visao } = parsed.data;
+    const parsedCats = parseCategoriasControleFiltro(categorias, categoria, categorias_modo);
+    if (!parsedCats.ok) {
       return res.status(400).json({
-        error: 'categoria inválida. Use _pendente, entrada::<template_key> ou saida::<template_key>.',
+        error: 'categorias inválidas. Use _pendente, entrada::<template_key> ou saida::<template_key>, separados por vírgula.',
         itens: [],
       });
     }
+    const categoriasFiltro = parsedCats.filtro;
     const supabase = getSupabase();
     if (!supabase) return res.status(503).json({ error: 'Supabase não configurado.', itens: [] });
 
-    const inicioMes = `${ano}-${String(mes).padStart(2, '0')}-01`;
-    const ultimoDia = new Date(ano, mes, 0).getDate();
-    const fimMes = `${ano}-${String(mes).padStart(2, '0')}-${String(ultimoDia).padStart(2, '0')}`;
-    const inicioRange = dia && dia_fim ? (dia <= dia_fim ? dia : dia_fim) : dia ?? inicioMes;
-    const fimRange = dia && dia_fim ? (dia <= dia_fim ? dia_fim : dia) : dia ?? fimMes;
+    let comMetodo: TransacaoComMetodo[];
+    let classificacaoMap: Map<string, ClassificacaoTransacao> | null = null;
 
-    const { data, error } = await supabase
-      .from('transacoes')
-      .select('id, data, pessoa, valor, descricao, tipo')
-      .gte('data', inicioRange)
-      .lte('data', fimRange)
-      .order('data', { ascending: false })
-      .order('id', { ascending: false })
-      .limit(5000);
+    if (visao === 'competencia') {
+      const { itens, classificacao } = await listarTransacoesPorCompetencia(supabase, mes, ano);
+      classificacaoMap = classificacao;
+      const baseComp = tipo === 'todos' ? itens : itens.filter((t) => t.tipo === tipo);
+      comMetodo = baseComp.map((t) => {
+        const metodoRaw = inferirMetodoRaw(t.pessoa, t.descricao);
+        return {
+          ...t,
+          valor: Number(t.valor || 0),
+          metodo: metodoPagamentoFinal(metodoRaw, t.tipo),
+          metodoRaw: metodoRaw || null,
+        };
+      });
+      if (dia) {
+        const ini = dia_fim ? (dia <= dia_fim ? dia : dia_fim) : dia;
+        const fim = dia_fim ? (dia <= dia_fim ? dia_fim : dia) : dia;
+        comMetodo = comMetodo.filter((t) => t.data >= ini && t.data <= fim);
+      }
+    } else {
+      const inicioMes = `${ano}-${String(mes).padStart(2, '0')}-01`;
+      const ultimoDia = new Date(ano, mes, 0).getDate();
+      const fimMes = `${ano}-${String(mes).padStart(2, '0')}-${String(ultimoDia).padStart(2, '0')}`;
+      const inicioRange = dia && dia_fim ? (dia <= dia_fim ? dia : dia_fim) : dia ?? inicioMes;
+      const fimRange = dia && dia_fim ? (dia <= dia_fim ? dia_fim : dia) : dia ?? fimMes;
 
-    if (error) return res.status(502).json({ error: error.message, itens: [] });
+      const { data, error } = await supabase
+        .from('transacoes')
+        .select('id, data, pessoa, valor, descricao, tipo')
+        .gte('data', inicioRange)
+        .lte('data', fimRange)
+        .order('data', { ascending: false })
+        .order('id', { ascending: false })
+        .limit(5000);
 
-    const todas = (data ?? []) as { id: string; data: string; pessoa: string; valor: number; descricao: string | null; tipo: string }[];
+      if (error) return res.status(502).json({ error: error.message, itens: [] });
 
-    const oficiais = filtrarTransacoesOficiais(todas);
-    const base = tipo === 'entrada' ? oficiais.entradas : tipo === 'saida' ? oficiais.saidas : [...oficiais.entradas, ...oficiais.saidas];
+      const todas = (data ?? []) as { id: string; data: string; pessoa: string; valor: number; descricao: string | null; tipo: string }[];
 
-    const comMetodo: TransacaoComMetodo[] = base.map((t) => {
-      const metodoRaw = inferirMetodoRaw(t.pessoa, t.descricao);
-      const tipoN = normalizarTipoTransacao(t.tipo);
-      return {
-        id: t.id,
-        data: t.data,
-        pessoa: t.pessoa,
-        valor: Number(t.valor || 0),
-        descricao: t.descricao,
-        tipo: tipoN,
-        metodo: metodoPagamentoFinal(metodoRaw, tipoN),
-        metodoRaw: metodoRaw || null,
-      };
-    });
+      const oficiais = filtrarTransacoesOficiais(todas);
+      const base = tipo === 'entrada' ? oficiais.entradas : tipo === 'saida' ? oficiais.saidas : [...oficiais.entradas, ...oficiais.saidas];
+
+      comMetodo = base.map((t) => {
+        const metodoRaw = inferirMetodoRaw(t.pessoa, t.descricao);
+        const tipoN = normalizarTipoTransacao(t.tipo);
+        return {
+          id: t.id,
+          data: t.data,
+          pessoa: t.pessoa,
+          valor: Number(t.valor || 0),
+          descricao: t.descricao,
+          tipo: tipoN,
+          metodo: metodoPagamentoFinal(metodoRaw, tipoN),
+          metodoRaw: metodoRaw || null,
+        };
+      });
+
+      classificacaoMap = categoriasFiltro ? await mapClassificacaoPorId(supabase, mes, ano) : null;
+    }
 
     const qNorm = (q ?? '').trim().toLowerCase();
     const metodoNorm = metodo ? normalizarMetodoPagamento(metodo) : null;
-
-    const classificacaoMap = categoriaFiltro
-      ? await mapClassificacaoPorId(supabase, mes, ano)
-      : null;
 
     const filtradas = comMetodo.filter((t) => {
       if (metodoNorm && t.metodo !== metodoNorm) return false;
@@ -125,8 +159,8 @@ router.get('/transacoes', async (req: Request, res: Response) => {
         const hay = `${t.pessoa ?? ''} ${t.descricao ?? ''}`.toLowerCase();
         if (!hay.includes(qNorm)) return false;
       }
-      if (classificacaoMap && categoriaFiltro) {
-        if (!transacaoPassaFiltroCategoriaControle(t, categoriaFiltro, classificacaoMap)) return false;
+      if (classificacaoMap && categoriasFiltro) {
+        if (!transacaoPassaFiltroCategorias(t, categoriasFiltro, classificacaoMap)) return false;
       }
       return true;
     });
@@ -137,10 +171,14 @@ router.get('/transacoes', async (req: Request, res: Response) => {
       return String(b.id).localeCompare(String(a.id));
     });
 
-    const paginadas = filtradas.slice(offset, offset + limit).map((t) => {
+    const qtdSemCategoria = classificacaoMap
+      ? filtradas.filter((t) => !(classificacaoMap!.get(t.id)?.classificado)).length
+      : null;
+
+    let paginadas = filtradas.slice(offset, offset + limit).map((t) => {
       if (!classificacaoMap) return t;
       const info = classificacaoMap.get(t.id);
-      if (!info) return t;
+      if (!info) return { ...t, classificado: false };
       return {
         ...t,
         categoria_label: info.categoria_label,
@@ -148,6 +186,26 @@ router.get('/transacoes', async (req: Request, res: Response) => {
         classificado: info.classificado,
       };
     });
+
+    if (visao === 'caixa') {
+      // Enriquecimento leve: competência armazenada ou, na ausência, o próprio mês da data.
+      const compStored = await loadCompetenciasMap(supabase, paginadas.map((t) => t.id));
+      paginadas = paginadas.map((t) => {
+        const stored = compStored.get(t.id);
+        const sug = competenciaFromDataIso(t.data);
+        const mesComp = stored?.mes_competencia ?? sug.mes;
+        const anoComp = stored?.ano_competencia ?? sug.ano;
+        return {
+          ...t,
+          mes_competencia: mesComp,
+          ano_competencia: anoComp,
+          competencia_confirmada: stored?.confirmada ?? false,
+          competencia_sugerida_mes: sug.mes,
+          competencia_sugerida_ano: sug.ano,
+          competencia_alinha_data: mesComp === sug.mes && anoComp === sug.ano,
+        };
+      });
+    }
 
     const resumoGeral = filtradas.reduce(
       (acc, t) => {
@@ -213,6 +271,8 @@ router.get('/transacoes', async (req: Request, res: Response) => {
       resumo_por_dia: resumoPorDia,
       resumo_por_metodo: resumoPorMetodo,
       total_filtrado: filtradas.length,
+      qtd_sem_categoria: qtdSemCategoria,
+      visao,
       filtros_aplicados: {
         mes,
         ano,
@@ -221,7 +281,8 @@ router.get('/transacoes', async (req: Request, res: Response) => {
         q: q ?? null,
         dia: dia ?? null,
         dia_fim: dia_fim ?? null,
-        categoria: categoriaFiltro,
+        categorias: categoriasFiltro,
+        visao,
         limit,
         offset,
       },

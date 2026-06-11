@@ -702,6 +702,14 @@ export interface TransacaoItem {
   categoria_label?: string | null;
   template_key?: string | null;
   classificado?: boolean;
+  mes_competencia?: number;
+  ano_competencia?: number;
+  competencia_confirmada?: boolean;
+  competencia_origem?: string;
+  competencia_sugerida_mes?: number;
+  competencia_sugerida_ano?: number;
+  competencia_alinha_data?: boolean;
+  alerta_duplicata_competencia?: boolean;
 }
 
 export interface TransacoesPorMesResponse {
@@ -739,6 +747,8 @@ export interface TransacoesPorMesResponse {
     total_qtd: number;
   }[];
   total_filtrado?: number;
+  qtd_sem_categoria?: number | null;
+  visao?: 'caixa' | 'competencia';
 }
 
 export async function getTransacoesPorMes(
@@ -751,6 +761,9 @@ export async function getTransacoesPorMes(
     dia?: string;
     dia_fim?: string;
     categoria?: string;
+    categorias?: string[];
+    categorias_modo?: 'incluir' | 'excluir';
+    visao?: 'caixa' | 'competencia';
     limit?: number;
     offset?: number;
   },
@@ -761,6 +774,11 @@ export async function getTransacoesPorMes(
   if (extra?.dia) params.set('dia', extra.dia);
   if (extra?.dia_fim) params.set('dia_fim', extra.dia_fim);
   if (extra?.categoria) params.set('categoria', extra.categoria);
+  if (extra?.categorias && extra.categorias.length > 0) {
+    params.set('categorias', extra.categorias.join(','));
+    params.set('categorias_modo', extra.categorias_modo ?? 'incluir');
+  }
+  if (extra?.visao) params.set('visao', extra.visao);
   if (extra?.limit != null) params.set('limit', String(extra.limit));
   if (extra?.offset != null) params.set('offset', String(extra.offset));
   return request<TransacoesPorMesResponse>(`/api/transacoes?${params.toString()}`);

@@ -56,6 +56,21 @@ export const transacoesQuerySchema = mesAnoQuerySchema.extend({
     (v) => (v === '' || v == null ? undefined : v),
     z.string().trim().min(1).max(120).optional(),
   ),
+  /** Lista separada por vírgula de valores no mesmo formato de `categoria`. Tem precedência sobre `categoria`. */
+  categorias: z.preprocess(
+    (v) => (v === '' || v == null ? undefined : v),
+    z.string().trim().min(1).max(2000).optional(),
+  ),
+  /** `incluir` mostra só as categorias listadas; `excluir` mostra tudo menos elas. */
+  categorias_modo: z.preprocess(
+    (v) => (v === '' || v == null ? undefined : v),
+    z.enum(['incluir', 'excluir']).optional().default('incluir'),
+  ),
+  /** `caixa` filtra pelo mês da data de pagamento; `competencia` pelo mês de competência. */
+  visao: z.preprocess(
+    (v) => (v === '' || v == null ? undefined : v),
+    z.enum(['caixa', 'competencia']).optional().default('caixa'),
+  ),
 })
   .refine((q) => !q.dia_fim || !!q.dia, {
     message: 'Informe dia (início) quando usar dia_fim.',

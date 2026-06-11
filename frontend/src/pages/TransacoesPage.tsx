@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PeriodoMesCalendarioPopover } from '../components/transacoes/PeriodoMesCalendarioPopover';
 import { ResumoDiaValorHover, type ResumoDiaLinhaDetalhe } from '../components/transacoes/ResumoDiaValorHover';
 import { TransacoesDailyFlowChart } from '../components/charts/TransacoesDailyFlowChart';
 import { Topbar } from '../app/Topbar';
 import { useMonthYear } from '../context/MonthYearContext';
+import { useToast } from '../context/ToastContext';
 import {
   getDespesasCategorias,
   getEntradasCategorias,
   getTransacoesPorMes,
+  patchDespesasTransacaoCompetencia,
+  patchEntradasTransacaoCompetencia,
   type TransacaoItem,
 } from '../services/backendApi';
 import { FilterBar } from '../components/finance/FilterBar';
@@ -17,13 +20,15 @@ import { DataTable } from '../components/finance/DataTable';
 import { StatusBadge } from '../components/finance/StatusBadge';
 import { EmptyState, ErrorPanel, LoadingRow } from '../components/finance/StateBlocks';
 import {
-  FiltroCategoriaControleSelect,
-  filtroCategoriaCompativelComTipo,
-} from '../components/finance/classificacao/FiltroCategoriaControleSelect';
+  FiltroCategoriasMulti,
+  categoriasCompativeisComTipo,
+  labelCategoriaFiltro,
+  type CategoriasFiltroModo,
+} from '../components/finance/classificacao/FiltroCategoriasMulti';
+import { CompetenciaTransacaoEditor } from '../components/finance/classificacao/CompetenciaTransacaoEditor';
+import { labelCompetenciaMesAno } from '../utils/competenciaPagamento';
 import {
-  agruparPorBlocoChave,
   FILTRO_TIPO_PENDENTE,
-  FILTRO_TIPO_TODAS,
   type CategoriaOpcao,
 } from '../components/finance/classificacao/utils';
 
@@ -64,86 +69,68 @@ function ordenarDatasIso(a: string, b: string): { min: string; max: string } {
   return a <= b ? { min: a, max: b } : { min: b, max: a };
 }
 
-function labelCategoriaControleFiltro(
-  filtro: string,
-  entradas: CategoriaOpcao[],
-  saidas: CategoriaOpcao[],
-): string {
-  if (!filtro || filtro === FILTRO_TIPO_TODAS) return '';
-  if (filtro === FILTRO_TIPO_PENDENTE) return 'Sem categoria (pendente)';
-  const match = filtro.match(/^(entrada|saida)::(.+)$/);
-  if (!match) return filtro;
-  const familia = match[1] as 'entrada' | 'saida';
-  const rest = match[2];
-  const cats = familia === 'entrada' ? entradas : saidas;
-  if (rest.startsWith('bloco:')) {
-    const blocoKey = rest.slice('bloco:'.length);
-    const bloco = agruparPorBlocoChave(cats).find((b) => b.blocoTemplateKey === blocoKey);
-    return bloco ? `Bloco inteiro — ${bloco.blocoTitulo}` : rest;
-  }
-  return cats.find((c) => c.templateKey === rest)?.label ?? rest;
-}
+type VisaoTransacoes = 'caixa' | 'competencia';
+
+type SavedViewFiltros = {
+  tipo: 'todos' | 'entrada' | 'saida';
+  metodo: string;
+  busca: string;
+  categorias: string[];
+  categoriasModo: CategoriasFiltroModo;
+  visao: VisaoTransacoes;
+  periodoModo: 'mes' | 'periodo';
+  periodoInicio: string;
+  periodoFim: string;
+};
 
 type SavedView = {
   id: string;
   nome: string;
   fixa?: boolean;
-  filtros: {
-    tipo: 'todos' | 'entrada' | 'saida';
-    metodo: string;
-    busca: string;
-    categoriaControle: string;
-    periodoModo: 'mes' | 'periodo';
-    periodoInicio: string;
-    periodoFim: string;
-  };
+  filtros: SavedViewFiltros;
 };
 
-const SAVED_VIEWS_KEY = 'byla.transacoes.savedViews.v1';
+const SAVED_VIEWS_KEY = 'byla.transacoes.savedViews.v2';
+const SAVED_VIEWS_KEY_V1 = 'byla.transacoes.savedViews.v1';
+
+const FILTROS_VAZIOS: SavedViewFiltros = {
+  tipo: 'todos',
+  metodo: '',
+  busca: '',
+  categorias: [],
+  categoriasModo: 'incluir',
+  visao: 'caixa',
+  periodoModo: 'mes',
+  periodoInicio: '',
+  periodoFim: '',
+};
+
 const DEFAULT_SAVED_VIEWS: SavedView[] = [
-  {
-    id: 'view-mes-completo',
-    nome: 'Mês completo',
-    fixa: true,
-    filtros: {
-      tipo: 'todos',
-      metodo: '',
-      busca: '',
-      categoriaControle: '',
-      periodoModo: 'mes',
-      periodoInicio: '',
-      periodoFim: '',
-    },
-  },
-  {
-    id: 'view-entradas-pix',
-    nome: 'Entradas PIX',
-    fixa: true,
-    filtros: {
-      tipo: 'entrada',
-      metodo: 'PIX',
-      busca: '',
-      categoriaControle: '',
-      periodoModo: 'mes',
-      periodoInicio: '',
-      periodoFim: '',
-    },
-  },
-  {
-    id: 'view-saidas',
-    nome: 'Saídas do mês',
-    fixa: true,
-    filtros: {
-      tipo: 'saida',
-      metodo: '',
-      busca: '',
-      categoriaControle: '',
-      periodoModo: 'mes',
-      periodoInicio: '',
-      periodoFim: '',
-    },
-  },
+  { id: 'view-mes-completo', nome: 'Mês completo', fixa: true, filtros: { ...FILTROS_VAZIOS } },
+  { id: 'view-entradas-pix', nome: 'Entradas PIX', fixa: true, filtros: { ...FILTROS_VAZIOS, tipo: 'entrada', metodo: 'PIX' } },
+  { id: 'view-saidas', nome: 'Saídas do mês', fixa: true, filtros: { ...FILTROS_VAZIOS, tipo: 'saida' } },
 ];
+
+/** Normaliza filtros vindos do storage (v1 ou v2) preenchendo campos ausentes. */
+function normalizarFiltrosView(raw: unknown): SavedViewFiltros {
+  const f = (raw ?? {}) as Partial<SavedViewFiltros> & { categoriaControle?: string };
+  const categorias = Array.isArray(f.categorias)
+    ? f.categorias.filter((v): v is string => typeof v === 'string')
+    : f.categoriaControle
+      ? [f.categoriaControle]
+      : [];
+  return {
+    tipo: f.tipo === 'entrada' || f.tipo === 'saida' ? f.tipo : 'todos',
+    metodo: typeof f.metodo === 'string' ? f.metodo : '',
+    busca: typeof f.busca === 'string' ? f.busca : '',
+    categorias,
+    categoriasModo: f.categoriasModo === 'excluir' ? 'excluir' : 'incluir',
+    visao: f.visao === 'competencia' ? 'competencia' : 'caixa',
+    periodoModo: f.periodoModo === 'periodo' ? 'periodo' : 'mes',
+    periodoInicio: typeof f.periodoInicio === 'string' ? f.periodoInicio : '',
+    periodoFim: typeof f.periodoFim === 'string' ? f.periodoFim : '',
+  };
+}
 
 function garantirViewsPadrao(views: SavedView[]): SavedView[] {
   const map = new Map(views.map((v) => [v.id, v] as const));
@@ -161,12 +148,42 @@ function garantirViewsPadrao(views: SavedView[]): SavedView[] {
   return [...fixas, ...custom];
 }
 
+/** Lê views do storage v2, migrando do v1 se necessário. */
+function carregarViewsStorage(): SavedView[] {
+  const lerLista = (raw: string | null): SavedView[] | null => {
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as Array<{ id?: unknown; nome?: unknown; fixa?: unknown; filtros?: unknown }>;
+      if (!Array.isArray(parsed) || parsed.length === 0) return null;
+      return parsed
+        .filter((v) => typeof v?.id === 'string' && typeof v?.nome === 'string')
+        .map((v) => ({
+          id: v.id as string,
+          nome: v.nome as string,
+          fixa: Boolean(v.fixa),
+          filtros: normalizarFiltrosView(v.filtros),
+        }));
+    } catch {
+      return null;
+    }
+  };
+  const v2 = lerLista(window.localStorage.getItem(SAVED_VIEWS_KEY));
+  if (v2) return garantirViewsPadrao(v2);
+  const v1 = lerLista(window.localStorage.getItem(SAVED_VIEWS_KEY_V1));
+  if (v1) return garantirViewsPadrao(v1);
+  return garantirViewsPadrao(DEFAULT_SAVED_VIEWS);
+}
+
 export function TransacoesPage() {
   const { monthYear } = useMonthYear();
+  const { showToast } = useToast();
+  const qc = useQueryClient();
   const [tipo, setTipo] = useState<'todos' | 'entrada' | 'saida'>('todos');
   const [metodo, setMetodo] = useState<string>('');
   const [busca, setBusca] = useState('');
-  const [categoriaControle, setCategoriaControle] = useState('');
+  const [categorias, setCategorias] = useState<string[]>([]);
+  const [categoriasModo, setCategoriasModo] = useState<CategoriasFiltroModo>('incluir');
+  const [visao, setVisao] = useState<VisaoTransacoes>('caixa');
   const [periodoModo, setPeriodoModo] = useState<'mes' | 'periodo'>('mes');
   /** Intervalo inclusivo (yyyy-mm-dd); dois cliques no calendário dos filtros. */
   const [periodoInicio, setPeriodoInicio] = useState('');
@@ -176,6 +193,9 @@ export function TransacoesPage() {
   const [calendarioAberto, setCalendarioAberto] = useState(false);
   const [savedViews, setSavedViews] = useState<SavedView[]>([]);
   const [novaViewNome, setNovaViewNome] = useState('');
+  const [editCompetenciaId, setEditCompetenciaId] = useState<string | null>(null);
+  /** Evita persistir antes de carregar do storage (não sobrescrever com lista vazia). */
+  const viewsCarregadasRef = useRef(false);
   const calendarioPopoverRef = useRef<HTMLDivElement>(null);
   const calendarioTriggerRef = useRef<HTMLDivElement>(null);
 
@@ -185,14 +205,17 @@ export function TransacoesPage() {
     setPeriodoCliquePendente(null);
     setCalendarioAberto(false);
     setPeriodoModo('mes');
-    setCategoriaControle('');
+    setCategorias([]);
+    setCategoriasModo('incluir');
+    setEditCompetenciaId(null);
   }, [monthYear.mes, monthYear.ano]);
 
   useEffect(() => {
-    if (!filtroCategoriaCompativelComTipo(categoriaControle, tipo)) {
-      setCategoriaControle('');
+    const compativeis = categoriasCompativeisComTipo(categorias, tipo);
+    if (compativeis.length !== categorias.length) {
+      setCategorias(compativeis);
     }
-  }, [tipo, categoriaControle]);
+  }, [tipo, categorias]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -221,31 +244,23 @@ export function TransacoesPage() {
   }, [calendarioAberto]);
 
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(SAVED_VIEWS_KEY);
-      if (!raw) {
-        setSavedViews(garantirViewsPadrao(DEFAULT_SAVED_VIEWS));
-        return;
-      }
-      const parsed = JSON.parse(raw) as SavedView[];
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        setSavedViews(garantirViewsPadrao(parsed));
-      } else {
-        setSavedViews(garantirViewsPadrao(DEFAULT_SAVED_VIEWS));
-      }
-    } catch {
-      setSavedViews(garantirViewsPadrao(DEFAULT_SAVED_VIEWS));
-    }
+    setSavedViews(carregarViewsStorage());
+    viewsCarregadasRef.current = true;
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(savedViews));
+    if (!viewsCarregadasRef.current) return;
+    try {
+      window.localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(savedViews));
+    } catch {
+      // storage indisponível (modo privado/quota); views seguem só em memória
+    }
   }, [savedViews]);
 
   const apiExtra = useMemo(() => {
     let dia: string | undefined;
     let dia_fim: string | undefined;
-    if (periodoModo === 'periodo' && periodoInicio && periodoFim) {
+    if (visao === 'caixa' && periodoModo === 'periodo' && periodoInicio && periodoFim) {
       const { min, max } = ordenarDatasIso(periodoInicio, periodoFim);
       if (min === max) {
         dia = min;
@@ -257,13 +272,15 @@ export function TransacoesPage() {
     return {
       metodo: metodo || undefined,
       q: busca.trim() || undefined,
-      categoria: categoriaControle || undefined,
+      categorias: categorias.length > 0 ? categorias : undefined,
+      categorias_modo: categorias.length > 0 ? categoriasModo : undefined,
+      visao,
       dia,
       dia_fim,
       limit: 300,
       offset: 0,
     };
-  }, [metodo, busca, categoriaControle, periodoModo, periodoInicio, periodoFim]);
+  }, [metodo, busca, categorias, categoriasModo, visao, periodoModo, periodoInicio, periodoFim]);
 
   const periodoLegivel = useMemo(() => {
     if (!periodoInicio || !periodoFim) return null;
@@ -363,8 +380,40 @@ export function TransacoesPage() {
     queryFn: () => getTransacoesPorMes(monthYear.mes, monthYear.ano, tipo, apiExtra),
   });
 
+  const competenciaMut = useMutation({
+    mutationFn: ({ transacao, patch }: {
+      transacao: TransacaoItem;
+      patch: { mes_competencia: number; ano_competencia: number; confirmada: boolean };
+    }) => {
+      // O endpoint valida a transação no contexto do mês de PAGAMENTO dela.
+      const mesPgto = Number(transacao.data.slice(5, 7));
+      const anoPgto = Number(transacao.data.slice(0, 4));
+      return transacao.tipo === 'entrada'
+        ? patchEntradasTransacaoCompetencia(mesPgto, anoPgto, transacao.id, patch)
+        : patchDespesasTransacaoCompetencia(mesPgto, anoPgto, transacao.id, patch);
+    },
+    onSuccess: () => {
+      showToast('Competência atualizada.', 'success');
+      setEditCompetenciaId(null);
+      void qc.invalidateQueries({ queryKey: ['transacoes-unificadas'] });
+      void qc.invalidateQueries({ queryKey: ['entradas-resumo'] });
+      void qc.invalidateQueries({ queryKey: ['entradas-grupos'] });
+      void qc.invalidateQueries({ queryKey: ['despesas-resumo'] });
+      void qc.invalidateQueries({ queryKey: ['despesas-grupos'] });
+      void qc.invalidateQueries({ queryKey: ['categoria-transacoes'] });
+      void qc.invalidateQueries({ queryKey: ['controle-caixa'] });
+    },
+    onError: (e) => {
+      showToast(e instanceof Error ? e.message : 'Não foi possível atualizar a competência.', 'error');
+    },
+  });
+
   const data = query.data;
   const itens = data?.itens ?? [];
+  const transacaoEmEdicao = useMemo(
+    () => (editCompetenciaId ? itens.find((t) => t.id === editCompetenciaId) ?? null : null),
+    [editCompetenciaId, itens],
+  );
   const resumoGeral = data?.resumo_geral ?? {
     total_entradas: 0,
     total_saidas: 0,
@@ -425,7 +474,8 @@ export function TransacoesPage() {
     setTipo('todos');
     setMetodo('');
     setBusca('');
-    setCategoriaControle('');
+    setCategorias([]);
+    setCategoriasModo('incluir');
     setPeriodoModo('mes');
     limparPeriodoDias();
   };
@@ -434,28 +484,37 @@ export function TransacoesPage() {
     const nome = novaViewNome.trim();
     if (!nome) return;
     const nova: SavedView = {
-      id: `${Date.now()}`,
+      id: `view-${Date.now()}`,
       nome,
       filtros: {
         tipo,
         metodo,
         busca: busca.trim(),
-        categoriaControle,
+        categorias,
+        categoriasModo,
+        visao,
         periodoModo,
         periodoInicio,
         periodoFim,
       },
     };
-    setSavedViews((prev) => [nova, ...prev.filter((v) => v.nome.toLowerCase() !== nome.toLowerCase())]);
+    setSavedViews((prev) => [
+      ...prev.filter((v) => v.fixa),
+      nova,
+      ...prev.filter((v) => !v.fixa && v.nome.toLowerCase() !== nome.toLowerCase()),
+    ]);
     setNovaViewNome('');
-  }, [novaViewNome, tipo, metodo, busca, categoriaControle, periodoModo, periodoInicio, periodoFim]);
+    showToast(`View "${nome}" salva.`, 'success');
+  }, [novaViewNome, tipo, metodo, busca, categorias, categoriasModo, visao, periodoModo, periodoInicio, periodoFim, showToast]);
 
   const aplicarView = useCallback(
     (view: SavedView) => {
       setTipo(view.filtros.tipo);
       setMetodo(view.filtros.metodo);
       setBusca(view.filtros.busca);
-      setCategoriaControle(view.filtros.categoriaControle ?? '');
+      setCategorias(view.filtros.categorias ?? []);
+      setCategoriasModo(view.filtros.categoriasModo ?? 'incluir');
+      setVisao(view.filtros.visao ?? 'caixa');
       setPeriodoModo(view.filtros.periodoModo);
       setPeriodoInicio(view.filtros.periodoInicio);
       setPeriodoFim(view.filtros.periodoFim);
@@ -466,26 +525,29 @@ export function TransacoesPage() {
   );
 
   const excluirView = useCallback((id: string) => {
-    setSavedViews((prev) => prev.filter((v) => !(v.id === id && v.fixa)));
+    setSavedViews((prev) => prev.filter((v) => v.id !== id || v.fixa));
   }, []);
 
   const filtrosAtivos = useMemo(() => {
     const chips: Array<{ id: string; label: string; onRemove?: () => void }> = [];
+    if (visao === 'competencia') {
+      chips.push({ id: 'visao', label: 'Visão: Competência', onRemove: () => setVisao('caixa') });
+    }
     if (tipo !== 'todos') chips.push({ id: 'tipo', label: `Tipo: ${tipo}`, onRemove: () => setTipo('todos') });
     if (metodo) chips.push({ id: 'metodo', label: `Método: ${metodo}`, onRemove: () => setMetodo('') });
-    if (categoriaControle) {
+    for (const valor of categorias) {
       chips.push({
-        id: 'categoria',
-        label: `Controle: ${labelCategoriaControleFiltro(categoriaControle, categoriasEntrada, categoriasSaida)}`,
-        onRemove: () => setCategoriaControle(''),
+        id: `categoria:${valor}`,
+        label: `${categoriasModo === 'excluir' ? 'Excluir' : 'Só'}: ${labelCategoriaFiltro(valor, categoriasEntrada, categoriasSaida)}`,
+        onRemove: () => setCategorias((prev) => prev.filter((v) => v !== valor)),
       });
     }
     if (busca.trim()) chips.push({ id: 'busca', label: `Busca: ${busca.trim()}`, onRemove: () => setBusca('') });
-    if (periodoModo === 'periodo' && periodoLegivel) {
+    if (visao === 'caixa' && periodoModo === 'periodo' && periodoLegivel) {
       chips.push({ id: 'periodo', label: `Período: ${periodoLegivel}`, onRemove: limparPeriodoDias });
     }
     return chips;
-  }, [tipo, metodo, categoriaControle, categoriasEntrada, categoriasSaida, busca, periodoModo, periodoLegivel, limparPeriodoDias]);
+  }, [visao, tipo, metodo, categorias, categoriasModo, categoriasEntrada, categoriasSaida, busca, periodoModo, periodoLegivel, limparPeriodoDias]);
 
   const kpiItems = useMemo(
     () => [
@@ -607,6 +669,39 @@ export function TransacoesPage() {
           </div>
 
           <div className="space-y-4 border-t border-slate-100 pt-4 dark:border-slate-800">
+          <div>
+            <span className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Visão do mês</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setVisao('caixa')}
+                className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold ${
+                  visao === 'caixa'
+                    ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
+                    : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200'
+                }`}
+              >
+                Caixa (data de pagamento)
+              </button>
+              <button
+                type="button"
+                onClick={() => setVisao('competencia')}
+                className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold ${
+                  visao === 'competencia'
+                    ? 'bg-indigo-600 text-white'
+                    : 'border border-indigo-300 text-indigo-700 dark:border-indigo-700 dark:text-indigo-300'
+                }`}
+              >
+                Competência (mês de referência)
+              </button>
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                {visao === 'competencia'
+                  ? 'Mostrando o que pertence a este mês, mesmo que tenha sido pago em outro.'
+                  : 'Mostrando o que foi pago dentro deste mês.'}
+              </span>
+            </div>
+          </div>
+
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-12">
             <div className="lg:col-span-2">
               <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Tipo</label>
@@ -635,26 +730,7 @@ export function TransacoesPage() {
                 ))}
               </select>
             </div>
-            {(categoriasEntrada.length > 0 || categoriasSaida.length > 0) && (
-              <div className="sm:col-span-2 lg:col-span-4">
-                <FiltroCategoriaControleSelect
-                  value={categoriaControle}
-                  onChange={setCategoriaControle}
-                  entradas={categoriasEntrada}
-                  saidas={categoriasSaida}
-                  tipoTransacao={tipo}
-                  label="Categoria"
-                  layout="stacked"
-                />
-              </div>
-            )}
-            <div
-              className={
-                categoriasEntrada.length > 0 || categoriasSaida.length > 0
-                  ? 'sm:col-span-2 lg:col-span-4'
-                  : 'sm:col-span-2 lg:col-span-8'
-              }
-            >
+            <div className="sm:col-span-2 lg:col-span-8">
               <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Pesquisa</label>
               <input
                 type="search"
@@ -666,6 +742,32 @@ export function TransacoesPage() {
             </div>
           </div>
 
+          {(categoriasEntrada.length > 0 || categoriasSaida.length > 0) && (
+            <div>
+              <FiltroCategoriasMulti
+                selecionadas={categorias}
+                modo={categoriasModo}
+                onChange={(sel, m) => {
+                  setCategorias(sel);
+                  setCategoriasModo(m);
+                }}
+                entradas={categoriasEntrada}
+                saidas={categoriasSaida}
+                tipoTransacao={tipo}
+              />
+              {categoriasModo === 'excluir' &&
+                categorias.length > 0 &&
+                !categorias.includes(FILTRO_TIPO_PENDENTE) &&
+                (data?.qtd_sem_categoria ?? 0) > 0 && (
+                  <p className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                    O resultado inclui {data?.qtd_sem_categoria} lançamento(s) ainda sem categoria. Para
+                    escondê-los, marque também “Sem categoria (pendente)” na lista de exclusão.
+                  </p>
+                )}
+            </div>
+          )}
+
+          {visao === 'caixa' ? (
           <div className="relative border-t border-slate-100 pt-4 dark:border-slate-800" ref={calendarioTriggerRef}>
             <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Período no mês</label>
             <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -730,12 +832,24 @@ export function TransacoesPage() {
               />
             ) : null}
           </div>
+          ) : null}
           </div>
         </div>
       </FilterBar>
 
       <KpiStrip items={kpiItems} />
 
+      {visao === 'competencia' && (
+        <section className="rounded-xl border border-indigo-200 bg-indigo-50/60 px-4 py-3 text-sm text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/30 dark:text-indigo-200">
+          <strong className="font-semibold">Visão por competência:</strong> a lista mostra tudo que pertence a{' '}
+          <strong className="font-semibold capitalize">{competenciaTitulo}</strong>, incluindo pagamentos feitos em
+          outros meses. O resumo por dia fica oculto nesta visão (os dias de pagamento podem ser de meses
+          diferentes). Use a coluna <strong className="font-semibold">Competência</strong> da tabela para conferir e
+          editar o mês de referência de cada lançamento.
+        </section>
+      )}
+
+      {visao === 'caixa' && (
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <div className="mb-2">
@@ -873,6 +987,7 @@ export function TransacoesPage() {
           />
         </div>
       </section>
+      )}
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="mb-2">
@@ -943,6 +1058,48 @@ export function TransacoesPage() {
             optional: true,
             render: (t) => t.categoria_label || '—',
           },
+          {
+            id: 'competencia',
+            header: 'Competência',
+            render: (t) => {
+              const temComp = t.mes_competencia != null && t.ano_competencia != null;
+              const compLabel = temComp
+                ? `${String(t.mes_competencia).padStart(2, '0')}/${t.ano_competencia}`
+                : '—';
+              const foraDoMesPgto = temComp && t.competencia_alinha_data === false;
+              return (
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className={`tabular-nums ${
+                      foraDoMesPgto
+                        ? 'font-semibold text-amber-700 dark:text-amber-300'
+                        : 'text-slate-700 dark:text-slate-300'
+                    }`}
+                    title={
+                      foraDoMesPgto
+                        ? 'Competência diferente do mês da data de pagamento.'
+                        : undefined
+                    }
+                  >
+                    {compLabel}
+                  </span>
+                  {temComp && !t.competencia_confirmada ? (
+                    <span className="rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+                      sugestão
+                    </span>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => setEditCompetenciaId(t.id)}
+                    className="rounded px-1 py-0.5 text-xs font-medium text-indigo-700 hover:bg-indigo-50 hover:underline dark:text-indigo-300 dark:hover:bg-indigo-950/50"
+                    title="Editar competência desta transação"
+                  >
+                    editar
+                  </button>
+                </div>
+              );
+            },
+          },
           { id: 'metodo', header: 'Método', optional: true, render: (t) => ('metodo' in t && t.metodo ? t.metodo : '—') },
           {
             id: 'valor',
@@ -955,11 +1112,68 @@ export function TransacoesPage() {
             ),
           },
         ]}
-        loadingRows={query.isLoading ? <LoadingRow colSpan={6} rows={5} /> : undefined}
+        loadingRows={query.isLoading ? <LoadingRow colSpan={7} rows={5} /> : undefined}
         emptyBlock={<EmptyState message="Sem transações para os filtros selecionados." />}
       />
       {query.error ? (
         <ErrorPanel message={query.error instanceof Error ? query.error.message : 'Erro ao carregar transações.'} />
+      ) : null}
+
+      {transacaoEmEdicao ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Editar competência"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setEditCompetenciaId(null);
+          }}
+        >
+          <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+            <div className="mb-1 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Editar competência</h3>
+                <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                  {transacaoEmEdicao.pessoa || transacaoEmEdicao.descricao || transacaoEmEdicao.id} ·{' '}
+                  {formatDate(transacaoEmEdicao.data)} · {formatCurrency(Math.abs(Number(transacaoEmEdicao.valor || 0)))}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditCompetenciaId(null)}
+                className="rounded-md px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                aria-label="Fechar"
+              >
+                ×
+              </button>
+            </div>
+            <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+              A competência define em qual mês este lançamento conta nas visões por competência (Transações,
+              Entradas, Despesas e Controle). Hoje:{' '}
+              {transacaoEmEdicao.mes_competencia != null && transacaoEmEdicao.ano_competencia != null
+                ? labelCompetenciaMesAno(transacaoEmEdicao.mes_competencia, transacaoEmEdicao.ano_competencia)
+                : '—'}
+              .
+            </p>
+            <CompetenciaTransacaoEditor
+              key={transacaoEmEdicao.id}
+              transacao={transacaoEmEdicao}
+              mesRef={monthYear.mes}
+              anoRef={monthYear.ano}
+              saving={competenciaMut.isPending}
+              onSave={(patch) =>
+                competenciaMut.mutate({
+                  transacao: transacaoEmEdicao,
+                  patch: {
+                    mes_competencia: patch.mes_competencia,
+                    ano_competencia: patch.ano_competencia,
+                    confirmada: patch.confirmada,
+                  },
+                })
+              }
+            />
+          </div>
+        </div>
       ) : null}
     </div>
   );

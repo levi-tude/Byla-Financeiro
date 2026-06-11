@@ -11,7 +11,10 @@ import { ClassificacaoLoadingBlock } from '../components/finance/classificacao/C
 import { ClassificacaoModal } from '../components/finance/classificacao/ClassificacaoModal';
 import { ClassificacaoTabBar } from '../components/finance/classificacao/ClassificacaoTabBar';
 import { ControleCaixaMesLink } from '../components/finance/classificacao/ControleCaixaMesLink';
-import { PorCategoriaSection } from '../components/finance/classificacao/PorCategoriaSection';
+import {
+  CATEGORIA_PENDENTE_KEY,
+  PorCategoriaSection,
+} from '../components/finance/classificacao/PorCategoriaSection';
 import { FiltroTipoCategoria } from '../components/finance/classificacao/FiltroTipoCategoria';
 import { CompetenciaTransacaoEditor } from '../components/finance/classificacao/CompetenciaTransacaoEditor';
 import {
@@ -211,11 +214,11 @@ export function EntradasPage() {
     queryFn: () => getEntradasCategorias(mes, ano),
   });
 
+  // Na aba "Por categoria" carrega os grupos classificados para permitir reclassificar dali.
   const gruposQuery = useQuery({
-    queryKey: ['entradas-grupos', mes, ano, tab === 'categorias' ? 'pendentes' : tab],
+    queryKey: ['entradas-grupos', mes, ano, tab === 'pendentes' ? 'pendentes' : 'classificados'],
     queryFn: () =>
-      getEntradasGrupos(mes, ano, tab === 'classificados' ? 'classificado' : 'pendente', 0, 100),
-    enabled: tab !== 'categorias',
+      getEntradasGrupos(mes, ano, tab === 'pendentes' ? 'pendente' : 'classificado', 0, 100),
   });
 
   const desativarMut = useMutation({
@@ -260,6 +263,32 @@ export function EntradasPage() {
       showToast('Não foi possível confirmar a sugestão.', 'error');
     },
   });
+
+  const competenciaCategoriaMut = useMutation({
+    mutationFn: (args: {
+      id: string;
+      patch: { mes_competencia: number; ano_competencia: number; confirmada: boolean };
+    }) => patchEntradasTransacaoCompetencia(mes, ano, args.id, args.patch),
+    onSuccess: () => {
+      showToast('Competência atualizada.', 'success');
+      invalidate();
+      void qc.invalidateQueries({ queryKey: ['categoria-transacoes'] });
+      void qc.invalidateQueries({ queryKey: ['transacoes-unificadas'] });
+    },
+    onError: () => showToast('Não foi possível salvar a competência.', 'error'),
+  });
+
+  const reclassificarPorPessoa = (pessoaNormalizada: string) => {
+    const grupo = (gruposQuery.data?.grupos ?? []).find(
+      (g) => g.pessoa_normalizada === pessoaNormalizada,
+    );
+    if (grupo) {
+      setSegmento(grupo.segmento ?? 'mensalidades');
+      setModalGrupo(grupo);
+    } else {
+      showToast('Grupo deste pagador não encontrado neste mês. Use a aba Classificados.', 'error');
+    }
+  };
 
   const kpis = resumoQuery.data?.kpis;
   const kpiItems = [
@@ -435,6 +464,40 @@ export function EntradasPage() {
           loadTransacoes={async (templateKey) => {
             const res = await getEntradasCategoriaTransacoes(templateKey, mes, ano);
             return res.transacoes;
+          }}
+          renderTransacaoExtra={(t, templateKey) => {
+            const full = t as EntradaTransacaoClassificada;
+            const pendente = templateKey === CATEGORIA_PENDENTE_KEY;
+            return (
+              <div className="mt-1">
+                <CompetenciaTransacaoEditor
+                  transacao={full}
+                  mesRef={mes}
+                  anoRef={ano}
+                  saving={competenciaCategoriaMut.isPending && competenciaCategoriaMut.variables?.id === t.id}
+                  onSave={(patch) => competenciaCategoriaMut.mutate({ id: t.id, patch })}
+                />
+                <div className="mt-1.5">
+                  {pendente ? (
+                    <button
+                      type="button"
+                      onClick={() => setTab('pendentes')}
+                      className="rounded-lg border border-indigo-300 px-2.5 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50 dark:border-indigo-700 dark:text-indigo-300 dark:hover:bg-indigo-950/50"
+                    >
+                      Classificar na aba Pendentes
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => reclassificarPorPessoa(full.pessoa_normalizada)}
+                      className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                    >
+                      Reclassificar categoria…
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
           }}
         />
       )}
