@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getSupabase } from '../services/supabaseClient.js';
 import {
-  findCategoriaInCatalog,
+  resolveCategoriaInCatalog,
   loadCatalogoSaidasControleMes,
 } from '../domain/despesas/categoriasSaida.js';
 import {
@@ -212,7 +212,7 @@ export function createDespesasClassificacaoRouter(): Router {
       if (!parsed.ok) return res.status(400).json({ error: parsed.message });
 
       const catalog = await loadCatalogoSaidasControleMes(qMesAno.data.mes, qMesAno.data.ano);
-      const cat = findCategoriaInCatalog(catalog, parsed.data.template_key);
+      const cat = resolveCategoriaInCatalog(catalog, parsed.data.template_key);
       if (!cat) {
         return res.status(400).json({
           error: 'template_key inválido: a linha deve existir no Controle de Caixa deste mês.',
@@ -271,7 +271,7 @@ export function createDespesasClassificacaoRouter(): Router {
       if (parsed.data.ativo !== undefined) patch.ativo = parsed.data.ativo;
       if (parsed.data.template_key) {
         const catalog = await loadCatalogoSaidasControleMes(qMesAno.data.mes, qMesAno.data.ano);
-        const cat = findCategoriaInCatalog(catalog, parsed.data.template_key);
+        const cat = resolveCategoriaInCatalog(catalog, parsed.data.template_key);
         if (!cat) {
           return res.status(400).json({ error: 'template_key inválido para o Controle de Caixa deste mês.' });
         }

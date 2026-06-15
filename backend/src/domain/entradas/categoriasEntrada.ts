@@ -84,6 +84,45 @@ export function findCategoriaEntradaInCatalog(
   return catalog.find((c) => c.templateKey === templateKey) ?? null;
 }
 
+/** Chaves estáveis usadas em sugestões, repasse e migrações antigas. */
+export const LEGACY_ENTRADA_TEMPLATE_KEY_LABELS: Record<string, string> = {
+  ent_parc_danca: 'Dança',
+  ent_parc_yoga: 'Yoga',
+  ent_parc_pilates_mari: 'Pilates Mari',
+  ent_parc_pilates: 'Pilates Mari',
+  ent_parc_teatro: 'Teatro',
+  ent_parc_teatro_infantil: 'Teatro Infantil',
+  ent_parc_bruna_gr: 'Bruna GR',
+};
+
+/**
+ * Aceita chave do Controle (`linha:uuid`), chave estável (`ent_parc_danca`) ou rótulo legado.
+ * Evita erro ao salvar classificação quando o mês no banco usa IDs diferentes das sugestões.
+ */
+export function resolveCategoriaEntradaInCatalog(
+  catalog: CategoriaEntradaLinha[],
+  templateKey: string,
+): CategoriaEntradaLinha | null {
+  const key = templateKey.trim();
+  if (!key) return null;
+
+  const direct = findCategoriaEntradaInCatalog(catalog, key);
+  if (direct) return direct;
+
+  const legacyLabel = LEGACY_ENTRADA_TEMPLATE_KEY_LABELS[key];
+  if (legacyLabel) {
+    const byLabel = findCategoriaEntradaByLabel(catalog, legacyLabel);
+    if (byLabel) return byLabel;
+  }
+
+  if (key.startsWith('legado:')) {
+    const labelGuess = key.slice('legado:'.length).replace(/_/g, ' ');
+    return findCategoriaEntradaByLabel(catalog, labelGuess);
+  }
+
+  return null;
+}
+
 export function findCategoriaEntradaByLabel(
   catalog: CategoriaEntradaLinha[],
   label: string,

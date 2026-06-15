@@ -120,6 +120,34 @@ export function grupoPassaFiltroTipo(
   return templateKeyEfetivo === filtro;
 }
 
+/** Chaves legadas (sugestão/repasse) → rótulo no Controle de Caixa. */
+const LEGACY_ENTRADA_TEMPLATE_LABELS: Record<string, string> = {
+  ent_parc_danca: 'Dança',
+  ent_parc_yoga: 'Yoga',
+  ent_parc_pilates_mari: 'Pilates Mari',
+  ent_parc_pilates: 'Pilates Mari',
+  ent_parc_teatro: 'Teatro',
+  ent_parc_teatro_infantil: 'Teatro Infantil',
+  ent_parc_bruna_gr: 'Bruna GR',
+};
+
+/** Alinha chave da sugestão com o catálogo real do mês (ex.: ent_parc_danca → linha:uuid). */
+export function resolveTemplateKeyInCategorias(
+  rawKey: string | null | undefined,
+  categorias: CategoriaOpcao[],
+  labelHint?: string | null,
+): string {
+  const key = (rawKey ?? '').trim();
+  if (key && categorias.some((c) => c.templateKey === key)) return key;
+
+  const legacyLabel = key ? LEGACY_ENTRADA_TEMPLATE_LABELS[key] : undefined;
+  const label = (legacyLabel ?? labelHint ?? '').trim();
+  if (!label) return key;
+
+  const hit = categorias.find((c) => c.label.trim().toLowerCase() === label.toLowerCase());
+  return hit?.templateKey ?? key;
+}
+
 export type PorCategoriaBlocoFiltravel = {
   bloco_titulo: string;
   bloco_template_key?: string;

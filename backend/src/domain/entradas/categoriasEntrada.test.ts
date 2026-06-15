@@ -6,6 +6,7 @@ import {
   catalogoEntradasParceirosFromControleData,
   isCategoriaEntradaAluguelCoworking,
   isCategoriaEntradaParceiros,
+  resolveCategoriaEntradaInCatalog,
 } from './categoriasEntrada.js';
 import { linhaTemplateKey } from '../despesas/categoriasSaida.js';
 import type { ControleCaixaReadDto } from '../../services/controleCaixaRead.js';
@@ -59,7 +60,20 @@ describe('catalogoEntradasFromControleData', () => {
     assert.equal(aluguel.length, 5);
     assert.ok(parceiros.some((c) => c.label === 'Dança'));
     assert.ok(aluguel.some((c) => c.label === 'Neto (SBA)'));
-    assert.ok(parceiros.some((c) => c.templateKey === linhaTemplateKey(null, 'l-0-0')));
+    assert.ok(parceiros.some((c) => c.templateKey === 'ent_parc_danca'));
+  });
+
+  it('resolveCategoriaEntradaInCatalog aceita chave legada ent_parc_* com linha:uuid no catálogo', () => {
+    const catalog = catalogoEntradasFromControleData(fakeControleFromTemplate());
+    const danca = catalog.find((c) => c.label === 'Dança');
+    assert.ok(danca);
+    const withUuid = catalog.map((c) =>
+      c.label === 'Dança' ? { ...c, templateKey: linhaTemplateKey(null, c.linhaId) } : c,
+    );
+    const resolved = resolveCategoriaEntradaInCatalog(withUuid, 'ent_parc_danca');
+    assert.ok(resolved);
+    assert.equal(resolved?.label, 'Dança');
+    assert.equal(resolved?.templateKey, `linha:${danca!.linhaId}`);
   });
 
   it('catalogoEntradasParceirosFromControleData filtra só parceiros', () => {
