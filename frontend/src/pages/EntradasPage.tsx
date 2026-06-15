@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Topbar } from '../app/Topbar';
 import { useMonthYear } from '../context/MonthYearContext';
@@ -25,6 +25,7 @@ import {
   grupoPassaFiltroTipo,
   resolveGrupoTemplateKey,
   resolveGrupoBlocoTemplateKey,
+  resolveTemplateKeyInCategorias,
   type CategoriaOpcao,
 } from '../components/finance/classificacao/utils';
 import {
@@ -77,13 +78,32 @@ function EntradasClassificarModal({
   onSaved: () => void;
 }) {
   const { showToast } = useToast();
-  const [templateKey, setTemplateKey] = useState(
-    grupo.template_key ??
-      grupo.sugestao_fluxo?.template_key ??
-      grupo.match_aluguel?.template_key ??
-      grupo.sugestao?.template_key ??
-      '',
+  const categoriasSegmento = useMemo(
+    () => categorias.filter((c) => categoriaNoSegmento(c, segmento)),
+    [categorias, segmento],
   );
+  const initialTemplateKey = useMemo(
+    () =>
+      resolveTemplateKeyInCategorias(
+        grupo.template_key ??
+          grupo.sugestao_fluxo?.template_key ??
+          grupo.match_aluguel?.template_key ??
+          grupo.sugestao?.template_key,
+        categoriasSegmento.map((c) => ({
+          templateKey: c.templateKey,
+          label: c.label,
+          blocoTitulo: c.blocoTitulo,
+          blocoTemplateKey: c.blocoTemplateKey,
+        })),
+        grupo.sugestao_fluxo?.label ?? grupo.match_aluguel?.label ?? grupo.sugestao?.label,
+      ),
+    [grupo, categoriasSegmento],
+  );
+  const [templateKey, setTemplateKey] = useState(initialTemplateKey);
+
+  useEffect(() => {
+    setTemplateKey(initialTemplateKey);
+  }, [initialTemplateKey, grupo.grupo_key]);
   const detalheQuery = useQuery({
     queryKey: ['entradas-grupo-transacoes', grupo.grupo_key, mes, ano],
     queryFn: () => getEntradasGrupoTransacoes(grupo.grupo_key, mes, ano),
@@ -118,11 +138,6 @@ function EntradasClassificarModal({
       onClose();
     },
   });
-
-  const categoriasSegmento = useMemo(
-    () => categorias.filter((c) => categoriaNoSegmento(c, segmento)),
-    [categorias, segmento],
-  );
 
   const segmentoLabel =
     segmento === 'mensalidades' ? 'Entradas Parceiros (mensalidades)' : 'Entradas Aluguel / Coworking';

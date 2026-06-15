@@ -1,6 +1,6 @@
 import {
   findCategoriaEntradaByLabel,
-  findCategoriaEntradaInCatalog,
+  resolveCategoriaEntradaInCatalog,
   type CategoriaEntradaLinha,
 } from '../domain/entradas/categoriasEntrada.js';
 import {
@@ -23,7 +23,7 @@ export function resolveCategoriaEntradaFromMapeamento(
   catalog: CategoriaEntradaLinha[],
 ): CategoriaEntradaLinha | null {
   if (mapeamento.template_key) {
-    const byKey = findCategoriaEntradaInCatalog(catalog, mapeamento.template_key);
+    const byKey = resolveCategoriaEntradaInCatalog(catalog, mapeamento.template_key);
     if (byKey) return byKey;
   }
   return findCategoriaEntradaByLabel(catalog, mapeamento.categoria);

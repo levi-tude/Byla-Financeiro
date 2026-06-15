@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import {
-  findCategoriaEntradaInCatalog,
+  resolveCategoriaEntradaInCatalog,
   loadCatalogoEntradasParceirosMes,
 } from '../domain/entradas/categoriasEntrada.js';
 import {
@@ -226,7 +226,7 @@ export function createEntradasClassificacaoRouter(): Router {
       if (!parsed.ok) return res.status(400).json({ error: parsed.message });
 
       const catalog = await loadCatalogoEntradasParceirosMes(qMesAno.data.mes, qMesAno.data.ano);
-      const cat = findCategoriaEntradaInCatalog(catalog, parsed.data.template_key);
+      const cat = resolveCategoriaEntradaInCatalog(catalog, parsed.data.template_key);
       if (!cat) {
         return res.status(400).json({
           error: 'template_key inválido: a linha deve existir em um bloco de entrada do Controle deste mês.',
@@ -295,7 +295,7 @@ export function createEntradasClassificacaoRouter(): Router {
       if (parsed.data.confirmado !== undefined) patch.confirmado = parsed.data.confirmado;
       if (parsed.data.template_key) {
         const catalog = await loadCatalogoEntradasParceirosMes(qMesAno.data.mes, qMesAno.data.ano);
-        const cat = findCategoriaEntradaInCatalog(catalog, parsed.data.template_key);
+        const cat = resolveCategoriaEntradaInCatalog(catalog, parsed.data.template_key);
         if (!cat) {
           return res.status(400).json({ error: 'template_key inválido para o Controle deste mês.' });
         }

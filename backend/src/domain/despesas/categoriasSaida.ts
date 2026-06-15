@@ -113,6 +113,38 @@ export function findCategoriaInCatalog(
   return catalog.find((c) => c.templateKey === templateKey) ?? null;
 }
 
+const LEGACY_SAIDA_TEMPLATE_KEY_LABELS: Record<string, string> = {
+  sai_parc_danca: 'Dança',
+  sai_parc_yoga: 'Yoga',
+  sai_parc_pilates_mari: 'Pilates Mari',
+  sai_parc_teatro: 'Teatro',
+  sai_parc_teatro_infantil: 'Teatro Infantil',
+  sai_parc_bruna_gr: 'Bruna GR',
+};
+
+export function resolveCategoriaInCatalog(
+  catalog: CategoriaSaidaLinha[],
+  templateKey: string,
+): CategoriaSaidaLinha | null {
+  const key = templateKey.trim();
+  if (!key) return null;
+
+  const direct = findCategoriaInCatalog(catalog, key);
+  if (direct) return direct;
+
+  const legacyLabel = LEGACY_SAIDA_TEMPLATE_KEY_LABELS[key];
+  if (legacyLabel) {
+    return findCategoriaInCatalogByLabel(catalog, legacyLabel);
+  }
+
+  if (key.startsWith('legado:')) {
+    const labelGuess = key.slice('legado:'.length).replace(/_/g, ' ');
+    return findCategoriaInCatalogByLabel(catalog, labelGuess);
+  }
+
+  return null;
+}
+
 export function findCategoriaInCatalogByLabel(
   catalog: CategoriaSaidaLinha[],
   label: string,
