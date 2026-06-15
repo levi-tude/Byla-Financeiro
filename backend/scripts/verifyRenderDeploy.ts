@@ -42,4 +42,4 @@ for (const k of keys) {
   console.log(`  • ${k}`);
 }
 console.log('\n[verify:render-deploy] OK — próximo passo humano: git push do render.yaml e Apply no Blueprint.');
-console.log('  Link: https://dashboard.render.com/blueprint/new?repo=https://github.com/levi-tude/Byla-Landingpage\n');
+console.log('  Link: https://dashboard.render.com/blueprint/new?repo=https://github.com/levi-tude/Byla-Financeiro\n');

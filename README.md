@@ -1,4 +1,6 @@
-# Byla - Painel Financeiro e Operacional
+# Byla Financeiro
+
+Painel financeiro e operacional do Espaço Byla.
 
 Aplicacao para controle financeiro e operacional da Byla, com:
 
