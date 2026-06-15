@@ -12,7 +12,7 @@ Prompt mestre para **auditar, padronizar e melhorar** as páginas **Entradas** (
 
 | Item | Valor |
 |------|--------|
-| **Quem executa** | Agente Cursor / designer-dev no repo `Byla-Landingpage` |
+| **Quem executa** | Agente Cursor / designer-dev no repo `Byla-Financeiro` |
 | **Modo sugerido** | Plan (auditoria + proposta) → Agent (implementação após **ok** do gestor |
 | **Quando** | Sessão dedicada; colar o bloco **Prompt para o agente** abaixo |
 | **Não fazer sem ok** | Refatoração grande, mudança de fluxo de negócio, alteração de schema SQL |
@@ -67,7 +67,7 @@ ORDER BY b.ordem, l.ordem;
 ## Prompt para o agente (copiar e colar)
 
 ````
-Você é UX engineer + front-end no repositório Byla-Landingpage. Revise, padronize e proponha melhorias nas páginas **Entradas** e **Despesas** para ficarem consistentes com o sistema. Trabalhe no código e na documentação de UX quando necessário.
+Você é UX engineer + front-end no repositório Byla-Financeiro. Revise, padronize e proponha melhorias nas páginas **Entradas** e **Despesas** para ficarem consistentes com o sistema. Trabalhe no código e na documentação de UX quando necessário.
 
 ---
 

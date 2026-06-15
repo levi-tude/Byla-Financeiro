@@ -58,7 +58,7 @@ Você tem **duas opções** (escolha uma):
 2. No menu do workflow (três pontinhos ou "Workflow" no topo), clique em **Import from File** (ou equivalente).
 3. Escolha **um** destes arquivos (os dois já têm a correção):
    - **`c:\Users\55719\Downloads\My workflow.json`**, ou  
-   - **`c:\Users\55719\Byla-Landingpage\n8n-workflows\My-workflow.json`**
+   - **`c:\Users\55719\Byla-Financeiro\n8n-workflows\My-workflow.json`**
 4. Confirme a importação. Isso pode **substituir** o workflow atual; se quiser manter o atual, antes duplique o workflow no n8n e importe na cópia.
 
 Pronto. O node "Code in JavaScript1" já estará com o fallback. Siga para a seção **4. Como testar**.

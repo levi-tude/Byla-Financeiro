@@ -115,7 +115,7 @@ Quer só conversar antes de codar? → Fable 5 (Ask/Plan)
 ### Abertura do dia
 
 ```txt
-Projeto: Byla-Landingpage. Mês no sistema: [MM/AAAA].
+Projeto: Byla-Financeiro. Mês no sistema: [MM/AAAA].
 
 Prioridade #1: [resultado]
 Prioridade #2: [resultado]
@@ -233,4 +233,4 @@ Orçamento mental: **100 unidades = mês**
 
 ---
 
-*Última revisão: jun/2026 — alinhado ao repositório Byla-Landingpage.*
+*Última revisão: jun/2026 — alinhado ao repositório Byla-Financeiro.*

@@ -71,7 +71,7 @@ Agendar → Últimos 7 dias → PagBank → Mapear → Só novos → Inserir
 
 1. Abra o n8n.
 2. Menu: **Workflows** → **Import from File** (ou arraste o arquivo).
-3. Selecione o arquivo: **`n8n-workflows/workflow-pagbank-edi-para-supabase.json`** (do seu projeto Byla-Landingpage).
+3. Selecione o arquivo: **`n8n-workflows/workflow-pagbank-edi-para-supabase.json`** (do seu projeto Byla-Financeiro).
 4. O workflow "BYLA - PagBank EDI para Supabase" aparecerá no editor.
 
 ---

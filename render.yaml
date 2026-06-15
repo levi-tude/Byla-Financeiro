@@ -1,6 +1,6 @@
 # Blueprint Render — API BYLA (backend Express em /backend)
 # Plano passo a passo: docs/PLANO_DEPLOY_RENDER_BYLA.md
-# Depois de dar push: https://dashboard.render.com/blueprint/new?repo=https://github.com/levi-tude/Byla-Landingpage
+# Depois de dar push: https://dashboard.render.com/blueprint/new?repo=https://github.com/levi-tude/Byla-Financeiro
 #
 # No painel, preencha as variáveis marcadas (secretas). Não commite valores reais aqui.
 

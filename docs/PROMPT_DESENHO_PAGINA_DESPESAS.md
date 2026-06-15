@@ -7,7 +7,7 @@ Use este prompt em **modo Plan** ou em uma sessão dedicada **antes de implement
 ## Prompt (copiar e colar)
 
 ```
-Você é arquiteto de produto + engenheiro full-stack no repositório Byla-Landingpage.
+Você é arquiteto de produto + engenheiro full-stack no repositório Byla-Financeiro.
 
 ## Objetivo
 

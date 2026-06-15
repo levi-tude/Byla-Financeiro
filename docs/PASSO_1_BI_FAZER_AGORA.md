@@ -19,7 +19,7 @@ Na pasta do projeto já existe **`metabase\metabase.jar`** (Metabase v0.47.8). P
 - **Recomendado:** Duplo clique em **`metabase\iniciar-metabase.bat`**
 - Ou no PowerShell:
 ```powershell
-cd c:\Users\55719\Byla-Landingpage\metabase
+cd c:\Users\55719\Byla-Financeiro\metabase
 java -Xmx1g -jar metabase.jar
 ```
 

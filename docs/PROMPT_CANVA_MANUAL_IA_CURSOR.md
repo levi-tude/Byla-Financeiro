@@ -26,7 +26,7 @@ Mesmo prompt abaixo. Peça saída **página por página** com título, bullets c
 Você é designer de documentação técnica e redator de playbooks operacionais para o projeto **Espaço Byla** — painel financeiro React + Node usado em estágio de desenvolvimento. Seu público é um desenvolvedor iniciante/intermediário que usa Cursor Pro (~US$ 20/mês) e precisa consultar o manual em 30 segundos.
 
 ## CONTEXT
-- Repositório: Byla-Landingpage
+- Repositório: Byla-Financeiro
 - Stack: React/Vite/Tailwind (frontend), Express/TypeScript/Zod (backend), Supabase, Google Sheets, Vercel + Render
 - Páginas críticas: TransacoesPage, EntradasPage, DespesasPage, FluxoCaixaOperacionalPage (~208KB — evitar contexto gigante)
 - Perfis: admin e secretaria

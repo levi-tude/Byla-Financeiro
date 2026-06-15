@@ -35,7 +35,7 @@ Você é o desenvolvedor do projeto Byla (espaço cultural). Sua tarefa é imple
 
 CONTEXT
 
-- Repositório: Byla-Landingpage. Frontend do painel em `frontend/` (React + TypeScript + Vite + Supabase client). Hoje não existe backend; o front chama o Supabase direto do navegador.
+- Repositório: Byla-Financeiro. Frontend do painel em `frontend/` (React + TypeScript + Vite + Supabase client). Hoje não existe backend; o front chama o Supabase direto do navegador.
 - Plano a seguir: `docs/PLANO_BACKEND_E_PLANILHAS_COMPLEMENTO.md`. Arquitetura: backend Node.js lê Supabase + Google Sheets (2–3 planilhas do Espaço Byla); aplica lógica de merge/prioridade; expõe API REST; o front, nas telas que precisarem de “dados completos”, chama o backend em vez de só o Supabase.
 - Diretrizes de software (obrigatórias): `docs/ENGENHARIA_DE_PROMPT_E_SW_BYLA.md` – modularidade, single source of truth por domínio, documentação, configuração externa (credenciais em env), evolução incremental.
 - Referência de prompt versionado: `docs/PROMPT_RELATORIO_IA_BYLA.md` (estrutura Role / Context / Instruction / Output).

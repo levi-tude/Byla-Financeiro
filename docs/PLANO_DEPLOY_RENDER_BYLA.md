@@ -21,7 +21,7 @@ Este documento é o **roteiro único** para publicar o backend e ligar o n8n. Ca
 | A3 | **`render.yaml` commitado** e **push** para `origin/main`. | GitHub mostra `render.yaml` na web no último commit. |
 
 **Link Blueprint (após A3):**  
-[Abrir Blueprint no Render](https://dashboard.render.com/blueprint/new?repo=https://github.com/levi-tude/Byla-Landingpage)
+[Abrir Blueprint no Render](https://dashboard.render.com/blueprint/new?repo=https://github.com/levi-tude/Byla-Financeiro)
 
 ---
 
@@ -46,7 +46,7 @@ Se falhar, **não** abra o Blueprint no Render até corrigir o build.
 
 1. Login em [dashboard.render.com](https://dashboard.render.com).
 2. **New → Blueprint** (ou link da Fase A).
-3. Autorizar **GitHub** e selecionar repo **`levi-tude/Byla-Landingpage`**.
+3. Autorizar **GitHub** e selecionar repo **`levi-tude/Byla-Financeiro`**.
 4. Revisar serviço **`byla-backend`**.
 5. Preencher **todas** as variáveis com `sync: false` (segredos):
 

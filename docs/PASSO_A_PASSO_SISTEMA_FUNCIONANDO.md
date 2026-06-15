@@ -34,7 +34,7 @@ Se você já recebeu o e-mail da PagBank com **Usuário** e **Token** (ativaçã
 ## 3. Importar o workflow no n8n
 
 1. No n8n: **Workflows** → **Import from File** (ou **Add workflow** → **Import from File**).  
-2. Escolha o arquivo: **`n8n-workflows/workflow-pagbank-edi-para-supabase.json`** (pasta do projeto Byla-Landingpage).  
+2. Escolha o arquivo: **`n8n-workflows/workflow-pagbank-edi-para-supabase.json`** (pasta do projeto Byla-Financeiro).  
 3. O workflow **"BYLA - PagBank EDI para Supabase"** vai aparecer.
 
 ---
@@ -56,7 +56,7 @@ Se você já recebeu o e-mail da PagBank com **Usuário** e **Token** (ativaçã
 1. Ainda em **Credentials** → **Add Credential** → **Supabase**.  
 2. Preencha:
    - **Host:** `https://flbimmwxxsvixhghmmfu.supabase.co` (sem barra no final).  
-   - **Service Role Key** ou **anon key:** abra o arquivo **`supabase-keys.local`** na raiz do projeto Byla-Landingpage e copie o valor de **SUPABASE_ANON_KEY**. Cole aqui.  
+   - **Service Role Key** ou **anon key:** abra o arquivo **`supabase-keys.local`** na raiz do projeto Byla-Financeiro e copie o valor de **SUPABASE_ANON_KEY**. Cole aqui.  
 3. Salve.
 
 *(Se não tiver o arquivo `supabase-keys.local`, pegue em: Supabase → seu projeto → **Project Settings** → **API** → **anon public** → Copy.)*

@@ -10,7 +10,7 @@ Prompt mestre para **implementar** a Página Despesas após desenho aprovado. Ba
 
 | Item | Valor |
 |------|--------|
-| **Quem executa** | Agente Cursor / dev no repo `Byla-Landingpage` |
+| **Quem executa** | Agente Cursor / dev no repo `Byla-Financeiro` |
 | **Modo** | Agent (implementação) — **não** Plan-only |
 | **Quando** | Sessão dedicada; colar o bloco **Prompt para o agente** abaixo |
 | **Parar se** | Migração SQL falhar no Supabase remoto sem credencial — documentar e pedir apply manual |
@@ -56,7 +56,7 @@ Prompt mestre para **implementar** a Página Despesas após desenho aprovado. Ba
 ## Prompt para o agente (copiar e colar)
 
 ````
-Você é engenheiro full-stack no repositório Byla-Landingpage. Implemente a Página Despesas conforme desenho aprovado. Trabalhe no código real; não produza só documentação.
+Você é engenheiro full-stack no repositório Byla-Financeiro. Implemente a Página Despesas conforme desenho aprovado. Trabalhe no código real; não produza só documentação.
 
 ---
 
