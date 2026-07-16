@@ -44,12 +44,14 @@ if (!install.includes('frontend')) {
 const painelHtml = path.join(root, 'frontend', 'index.html');
 const landingHtml = path.join(root, 'index.html');
 if (!fs.existsSync(painelHtml)) fail('frontend/index.html não encontrado.');
-if (!fs.readFileSync(painelHtml, 'utf8').includes('Byla – Painel Financeiro')) {
-  fail('frontend/index.html deve ter título "Byla – Painel Financeiro".');
+const painelTitleOk = (html) =>
+  html.includes('Byla Financeiro') || html.includes('Byla – Painel Financeiro');
+if (!painelTitleOk(fs.readFileSync(painelHtml, 'utf8'))) {
+  fail('frontend/index.html deve ter título "Byla Financeiro" (ou legado "Byla – Painel Financeiro").');
 }
 if (fs.existsSync(landingHtml)) {
   const landing = fs.readFileSync(landingHtml, 'utf8');
-  if (landing.includes('Salas para locação') && !landing.includes('Painel Financeiro')) {
+  if (landing.includes('Salas para locação') && !landing.includes('Painel Financeiro') && !landing.includes('Byla Financeiro')) {
     console.log('[verify-vercel-config] OK: landing de marketing isolada na raiz (não será o output do painel).');
   }
 }
@@ -57,7 +59,7 @@ if (fs.existsSync(landingHtml)) {
 const distIndex = path.join(root, 'frontend', 'dist', 'index.html');
 if (fs.existsSync(distIndex)) {
   const built = fs.readFileSync(distIndex, 'utf8');
-  if (!built.includes('Byla – Painel Financeiro')) {
+  if (!painelTitleOk(built)) {
     fail('frontend/dist/index.html não é o painel — rode npm run build --prefix frontend antes do deploy.');
   }
   if (built.includes('Salas para locação')) {
