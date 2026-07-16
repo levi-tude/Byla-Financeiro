@@ -38,6 +38,17 @@ function normalizarNumeroWhatsApp(input: string): string {
   return digits;
 }
 
+/** Exibe número: 5571992750807 → 71 99275-0807 */
+function formatarNumeroExibicao(numero: string): string {
+  const d = numero.replace(/\D/g, '');
+  if (d.length >= 12 && d.startsWith('55')) {
+    const ddd = d.slice(2, 4);
+    const rest = d.slice(4);
+    return rest.length === 9 ? `${ddd} ${rest.slice(0, 5)}-${rest.slice(5)}` : `${ddd} ${rest}`;
+  }
+  return numero;
+}
+
 function loadWhatsAppNumeros(): string[] {
   try {
     const raw = localStorage.getItem(WHATSAPP_STORAGE_KEY);
@@ -48,6 +59,10 @@ function loadWhatsAppNumeros(): string[] {
   } catch {
     return [NUMERO_PADRAO];
   }
+}
+
+function saveWhatsAppNumeros(numeros: string[]): void {
+  localStorage.setItem(WHATSAPP_STORAGE_KEY, JSON.stringify(numeros));
 }
 
 type DaySlot = { data: string; day: number } | null;
@@ -103,8 +118,12 @@ export function AluguelSalasPage() {
   const [showSalasAdmin, setShowSalasAdmin] = useState(false);
   const [novaSalaNome, setNovaSalaNome] = useState('');
   const [novaSalaClass, setNovaSalaClass] = useState<AluguelClassificacao>('outro');
-  const [whatsappNumeros] = useState(loadWhatsAppNumeros);
-  const [whatsappIdx, setWhatsappIdx] = useState(0);
+  const [whatsappNumeros, setWhatsappNumeros] = useState(loadWhatsAppNumeros);
+  const [whatsappSelecionado, setWhatsappSelecionado] = useState(
+    () => loadWhatsAppNumeros()[0] ?? NUMERO_PADRAO,
+  );
+  const [novoNumeroWhatsApp, setNovoNumeroWhatsApp] = useState('');
+  const [mostrarAddNumero, setMostrarAddNumero] = useState(false);
   const [resumoBusy, setResumoBusy] = useState(false);
 
   const loadSalas = useCallback(async () => {
@@ -306,6 +325,29 @@ export function AluguelSalasPage() {
     }
   };
 
+  const adicionarNumeroWhatsApp = () => {
+    const norm = normalizarNumeroWhatsApp(novoNumeroWhatsApp);
+    if (norm.length < 12) {
+      setError('Número inválido. Use DDD + número (ex.: 71 99275-0807).');
+      return;
+    }
+    if (whatsappNumeros.includes(norm)) {
+      setWhatsappSelecionado(norm);
+      setNovoNumeroWhatsApp('');
+      setMostrarAddNumero(false);
+      setNotice('Número já estava na lista; selecionado.');
+      return;
+    }
+    const novaLista = [...whatsappNumeros, norm];
+    setWhatsappNumeros(novaLista);
+    saveWhatsAppNumeros(novaLista);
+    setWhatsappSelecionado(norm);
+    setNovoNumeroWhatsApp('');
+    setMostrarAddNumero(false);
+    setError(null);
+    setNotice(`Número ${formatarNumeroExibicao(norm)} adicionado.`);
+  };
+
   const handleWhatsApp = async (mode: 'copy' | 'open') => {
     setResumoBusy(true);
     setError(null);
@@ -315,7 +357,7 @@ export function AluguelSalasPage() {
         await navigator.clipboard.writeText(resumo.texto);
         setNotice('Texto do resumo copiado.');
       } else {
-        const num = normalizarNumeroWhatsApp(whatsappNumeros[whatsappIdx] ?? NUMERO_PADRAO);
+        const num = normalizarNumeroWhatsApp(whatsappSelecionado || NUMERO_PADRAO);
         const url = `https://wa.me/${num}?text=${encodeURIComponent(resumo.texto)}`;
         window.open(url, '_blank', 'noopener,noreferrer');
       }
@@ -368,43 +410,77 @@ export function AluguelSalasPage() {
           </select>
         </label>
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <select
-            className="select-with-chevron rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-800"
-            value={whatsappIdx}
-            onChange={(e) => setWhatsappIdx(Number(e.target.value))}
-            title="Número WhatsApp (mesmos dos Relatórios IA)"
-          >
-            {whatsappNumeros.map((n, i) => (
-              <option key={n} value={i}>
-                {n}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            disabled={resumoBusy}
-            onClick={() => void handleWhatsApp('copy')}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800"
-          >
-            Copiar texto
-          </button>
-          <button
-            type="button"
-            disabled={resumoBusy}
-            onClick={() => void handleWhatsApp('open')}
-            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
-          >
-            Abrir WhatsApp
-          </button>
-          {isAdmin ? (
+        <div className="ml-auto flex flex-col items-stretch gap-2 sm:items-end">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <span className="text-xs text-slate-500 dark:text-slate-400">Enviar para:</span>
+            <select
+              className="select-with-chevron rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-800"
+              value={whatsappSelecionado}
+              onChange={(e) => setWhatsappSelecionado(e.target.value)}
+              title="Número WhatsApp (compartilhado com Relatórios IA)"
+            >
+              {whatsappNumeros.map((n) => (
+                <option key={n} value={n}>
+                  {formatarNumeroExibicao(n)}
+                </option>
+              ))}
+            </select>
             <button
               type="button"
-              onClick={() => setShowSalasAdmin((v) => !v)}
-              className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-sm text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-100"
+              onClick={() => setMostrarAddNumero((v) => !v)}
+              className="text-xs text-slate-500 underline hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
             >
-              {showSalasAdmin ? 'Fechar salas' : 'Gerenciar salas'}
+              {mostrarAddNumero ? 'Cancelar' : '+ Adicionar número'}
             </button>
+            <button
+              type="button"
+              disabled={resumoBusy}
+              onClick={() => void handleWhatsApp('copy')}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800"
+            >
+              Copiar texto
+            </button>
+            <button
+              type="button"
+              disabled={resumoBusy}
+              onClick={() => void handleWhatsApp('open')}
+              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
+            >
+              Abrir WhatsApp
+            </button>
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={() => setShowSalasAdmin((v) => !v)}
+                className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-sm text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-100"
+              >
+                {showSalasAdmin ? 'Fechar salas' : 'Gerenciar salas'}
+              </button>
+            ) : null}
+          </div>
+          {mostrarAddNumero ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-900/50">
+              <input
+                type="tel"
+                placeholder="Ex.: 71 99275-0807 ou 71992750807"
+                value={novoNumeroWhatsApp}
+                onChange={(e) => setNovoNumeroWhatsApp(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    adicionarNumeroWhatsApp();
+                  }
+                }}
+                className="w-52 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800"
+              />
+              <button
+                type="button"
+                onClick={adicionarNumeroWhatsApp}
+                className="rounded bg-slate-700 px-3 py-1.5 text-sm text-white hover:bg-slate-800"
+              >
+                Salvar número
+              </button>
+            </div>
           ) : null}
         </div>
       </div>
