@@ -51,7 +51,10 @@ for (const f of tracked) {
 const frontEnvExample = path.join(root, 'frontend', '.env.example');
 if (fs.existsSync(frontEnvExample)) {
   const ex = fs.readFileSync(frontEnvExample, 'utf8');
-  if (/service.?role/i.test(ex)) fail('frontend/.env.example não deve mencionar service_role.');
+  // Só bloqueia atribuição real de chave; comentários de aviso (NUNCA use service_role) são OK.
+  if (/^\s*(?:VITE_)?SUPABASE_SERVICE_ROLE(?:_KEY)?\s*=/im.test(ex)) {
+    fail('frontend/.env.example não deve definir SUPABASE_SERVICE_ROLE_KEY.');
+  }
 }
 
 for (const f of ['frontend/src', 'src']) {
