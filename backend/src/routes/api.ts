@@ -32,14 +32,38 @@ import { lerPagamentosPorAbaEAno } from '../services/planilhaPagamentos.js';
 import createControleCaixaRouter from './controleCaixa.js';
 import createFluxoOperacionalRouter from './fluxoOperacional.js';
 import { createAiAssistantRouter } from './aiAssistant.js';
+import {
+  createAluguelSalasAutomaticoRouter,
+  createAluguelSalasRouter,
+} from './aluguelSalas.js';
 
 const router = Router();
 
 router.use(attachAuthUser);
 
+const planilhaRange = new PlanilhaRangeAdapter();
+const alunosUseCase = new GetAlunosCompletoUseCase(
+  new SupabaseAlunosAdapter(),
+  new PlanilhaAlunosAdapter()
+);
+const modalidadesUseCase = new GetModalidadesCompletoUseCase(
+  new SupabaseAtividadesAdapter(),
+  planilhaRange
+);
+const pendenciasUseCase = new GetPendenciasCompletoUseCase(
+  new SupabasePendenciasAdapter(),
+  planilhaRange
+);
+const fluxoUseCase = new GetFluxoCompletoUseCase(
+  new SupabaseFluxoAdapter(new CacheFluxoPlanilhaAdapter(new PlanilhaFluxoAdapter()))
+);
+
+// n8n (sync secret) — antes do guard JWT em /aluguel
+router.use(createAluguelSalasAutomaticoRouter());
+
 // Rotas operacionais (secretária e admin)
 router.use(
-  ['/fluxo-operacional', '/ai/assistant'],
+  ['/fluxo-operacional', '/ai/assistant', '/aluguel'],
   requireRoles(['secretaria', 'admin'])
 );
 
@@ -85,23 +109,7 @@ router.use(
 
 router.use(calendarioRoutes);
 router.use(conciliacaoRoutes);
-
-const planilhaRange = new PlanilhaRangeAdapter();
-const alunosUseCase = new GetAlunosCompletoUseCase(
-  new SupabaseAlunosAdapter(),
-  new PlanilhaAlunosAdapter()
-);
-const modalidadesUseCase = new GetModalidadesCompletoUseCase(
-  new SupabaseAtividadesAdapter(),
-  planilhaRange
-);
-const pendenciasUseCase = new GetPendenciasCompletoUseCase(
-  new SupabasePendenciasAdapter(),
-  planilhaRange
-);
-const fluxoUseCase = new GetFluxoCompletoUseCase(
-  new SupabaseFluxoAdapter(new CacheFluxoPlanilhaAdapter(new PlanilhaFluxoAdapter()))
-);
+router.use(createAluguelSalasRouter());
 
 function norm(s: unknown): string {
   return String(s ?? '')

@@ -1500,6 +1500,18 @@ export interface RelatorioAnualPayload {
   fontes: { resumo_oficial_origem: string; planilha_origem: string };
 }
 
+/** Status de frescor do extrato PagBank (ingestão automática via n8n). */
+export interface ExtratoSyncStatus {
+  fonte: 'pagbank_edi_n8n';
+  ultima_data_movimento: string | null;
+  ultima_insercao_em: string | null;
+  dias_desde_ultima_insercao: number | null;
+  dias_desde_ultima_data_movimento: number | null;
+  alerta_extrato_desatualizado: boolean;
+  total_linhas_extrato: number;
+  criterio_filtro: string;
+}
+
 /** R2 — Mensal operacional (espaço / modalidades). */
 export interface RelatorioMensalOperacionalPayload {
   tipo: 'mensal_operacional';
@@ -1507,6 +1519,7 @@ export interface RelatorioMensalOperacionalPayload {
   ano: number;
   periodo_label: string;
   controle_caixa_leitura_gestao?: ControleCaixaLeituraGestao;
+  extrato_sync_status?: ExtratoSyncStatus;
   resumo_financeiro_oficial: { entradas: number; saidas: number; saldo: number; fonte: string };
   planilha_controle_caixa?: {
     entrada_total: number | null;
@@ -1882,5 +1895,155 @@ export async function deleteValidacaoVinculo(planilha_id: string): Promise<{ ok:
   const text = await res.text();
   if (!res.ok) throw new Error(await parseBackendError(res, text));
   return text ? (JSON.parse(text) as { ok: boolean; persisted?: string }) : { ok: true };
+}
+
+/* ——— Aluguel de salas ——— */
+
+export type AluguelClassificacao = 'teatro' | 'ensaio' | 'coworking' | 'outro';
+
+export type AluguelSala = {
+  id: string;
+  nome: string;
+  slug: string;
+  classificacao: AluguelClassificacao;
+  ativa: boolean;
+  cor: string | null;
+  created_at: string;
+};
+
+export type AluguelReserva = {
+  id: string;
+  sala_id: string;
+  titulo: string;
+  data: string;
+  hora_inicio: string;
+  hora_fim: string;
+  observacao: string | null;
+  criado_por: string | null;
+  created_at: string;
+  updated_at: string;
+  sala?: Pick<AluguelSala, 'id' | 'nome' | 'slug' | 'classificacao' | 'cor'>;
+};
+
+export type AluguelResumoWhatsApp = {
+  mes: number;
+  ano: number;
+  periodo_label: string;
+  total_dias: number;
+  total_reservas: number;
+  por_sala: Array<{
+    sala_id: string;
+    sala_nome: string;
+    total_dias: number;
+    total_reservas: number;
+    itens: Array<{ data: string; hora_inicio: string; hora_fim: string; titulo: string }>;
+  }>;
+  texto: string;
+  gerado_em: string;
+};
+
+export async function listAluguelSalas(opts?: { todas?: boolean }): Promise<AluguelSala[]> {
+  const q = opts?.todas ? '?todas=1' : '';
+  const r = await request<{ salas: AluguelSala[] }>(`/api/aluguel/salas${q}`);
+  return r.salas;
+}
+
+export async function createAluguelSala(body: {
+  nome: string;
+  slug?: string;
+  classificacao?: AluguelClassificacao;
+  ativa?: boolean;
+  cor?: string | null;
+}): Promise<AluguelSala> {
+  const res = await apiFetch('/api/aluguel/salas', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(await parseBackendError(res, text));
+  return (JSON.parse(text) as { sala: AluguelSala }).sala;
+}
+
+export async function patchAluguelSala(
+  id: string,
+  body: Partial<{ nome: string; classificacao: AluguelClassificacao; ativa: boolean; cor: string | null }>,
+): Promise<AluguelSala> {
+  const res = await apiFetch(`/api/aluguel/salas/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(await parseBackendError(res, text));
+  return (JSON.parse(text) as { sala: AluguelSala }).sala;
+}
+
+export async function listAluguelReservas(
+  mes: number,
+  ano: number,
+  salaId?: string,
+): Promise<AluguelReserva[]> {
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  if (salaId) params.set('sala_id', salaId);
+  const r = await request<{ reservas: AluguelReserva[] }>(`/api/aluguel/reservas?${params}`);
+  return r.reservas;
+}
+
+export async function createAluguelReserva(body: {
+  sala_id: string;
+  titulo: string;
+  data: string;
+  hora_inicio: string;
+  hora_fim: string;
+  observacao?: string | null;
+}): Promise<AluguelReserva> {
+  const res = await apiFetch('/api/aluguel/reservas', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(await parseBackendError(res, text));
+  return (JSON.parse(text) as { reserva: AluguelReserva }).reserva;
+}
+
+export async function patchAluguelReserva(
+  id: string,
+  body: Partial<{
+    sala_id: string;
+    titulo: string;
+    data: string;
+    hora_inicio: string;
+    hora_fim: string;
+    observacao: string | null;
+  }>,
+): Promise<AluguelReserva> {
+  const res = await apiFetch(`/api/aluguel/reservas/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(await parseBackendError(res, text));
+  return (JSON.parse(text) as { reserva: AluguelReserva }).reserva;
+}
+
+export async function deleteAluguelReserva(id: string): Promise<void> {
+  const res = await apiFetch(`/api/aluguel/reservas/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(await parseBackendError(res, text));
+  }
+}
+
+export async function getAluguelResumoWhatsApp(
+  mes: number,
+  ano: number,
+  salaId?: string,
+): Promise<AluguelResumoWhatsApp> {
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  if (salaId) params.set('sala_id', salaId);
+  return request<AluguelResumoWhatsApp>(`/api/aluguel/resumo-whatsapp?${params}`);
 }
 

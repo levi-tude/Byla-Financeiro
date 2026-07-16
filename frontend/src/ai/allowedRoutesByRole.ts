@@ -1,7 +1,7 @@
 import type { AppRole } from '../auth/types';
 
 /** Rotas que o assistente e a navegação podem usar por perfil secretária. */
-const secretariaRoutes = new Set(['/', '/fluxo-caixa', '/perfil']);
+const secretariaRoutes = new Set(['/', '/fluxo-caixa', '/aluguel-salas', '/perfil']);
 
 const adminRoutes = new Set<string>([
   ...secretariaRoutes,
