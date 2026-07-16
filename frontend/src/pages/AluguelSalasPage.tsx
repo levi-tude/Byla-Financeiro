@@ -132,12 +132,21 @@ export function AluguelSalasPage() {
   const [resumoBusy, setResumoBusy] = useState(false);
 
   const loadSalas = useCallback(async () => {
-    const [salasList, classList] = await Promise.all([
-      listAluguelSalas({ todas: isAdmin }),
-      listAluguelClassificacoes(),
-    ]);
+    const salasList = await listAluguelSalas({ todas: isAdmin });
     setSalas(salasList);
-    setClassificacoes(classList);
+    try {
+      const classList = await listAluguelClassificacoes();
+      setClassificacoes(classList);
+    } catch {
+      // Backend antigo ou cold start: segue com rótulos padrão
+      setClassificacoes(
+        Object.entries(CLASSIFICACAO_FALLBACK).map(([slug, label]) => ({
+          slug,
+          label,
+          created_at: '',
+        })),
+      );
+    }
     const ativas = salasList.filter((s) => s.ativa);
     const defaultSala =
       ativas.find((s) => s.slug === 'sala-teatro')?.id ?? ativas[0]?.id ?? '';
