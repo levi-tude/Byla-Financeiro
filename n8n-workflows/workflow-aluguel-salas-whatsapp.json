@@ -60,7 +60,7 @@
           "conditions": [
             {
               "id": "enviar-wpp",
-              "leftValue": "={{ $env.BYLA_ALUGUEL_WPP_ENVIAR }}",
+              "leftValue": "false",
               "rightValue": "true",
               "operator": {
                 "type": "string",
@@ -76,11 +76,13 @@
       "typeVersion": 2,
       "position": [720, 340],
       "id": "aluguel-if-enviar",
-      "name": "Enviar WhatsApp?"
+      "name": "Enviar WhatsApp?",
+      "notesInFlow": true,
+      "notes": "Deixe 'false' para só Log. Mude para 'true' só quando Evolution estiver configurado (sem $env — bloqueado neste n8n)."
     },
     {
       "parameters": {
-        "jsCode": "const j = $input.first().json;\nreturn [{\n  json: {\n    periodo_label: j.periodo_label,\n    total_dias: j.total_dias,\n    total_reservas: j.total_reservas,\n    texto_preview: String(j.texto || '').slice(0, 500),\n    gerado_em: j.gerado_em,\n    enviado: false\n  }\n}];"
+        "jsCode": "const j = $input.first().json;\nreturn [{\n  json: {\n    periodo_label: j.periodo_label,\n    total_dias: j.total_dias,\n    total_reservas: j.total_reservas,\n    texto_preview: String(j.texto || '').slice(0, 500),\n    texto: j.texto,\n    gerado_em: j.gerado_em,\n    enviado: false\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -91,19 +93,19 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ ($env.BYLA_EVOLUTION_BASE_URL || 'https://SEU-EVOLUTION').replace(/\\/$/, '') + '/message/sendText/' + ($env.BYLA_EVOLUTION_INSTANCE || 'instance') }}",
+        "url": "https://SEU-EVOLUTION/message/sendText/INSTANCE",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "apikey",
-              "value": "={{ $env.BYLA_EVOLUTION_API_KEY }}"
+              "value": "COLE_A_API_KEY_AQUI"
             }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"number\": \"{{ $env.BYLA_ALUGUEL_WPP_TO }}\",\n  \"text\": {{ JSON.stringify($json.texto) }}\n}",
+        "jsonBody": "={\n  \"number\": \"5571999999999\",\n  \"text\": {{ JSON.stringify($json.texto) }}\n}",
         "options": {
           "timeout": 60000
         }
@@ -114,7 +116,7 @@
       "id": "aluguel-http-evolution",
       "name": "POST Evolution sendText",
       "notesInFlow": true,
-      "notes": "Troque URL/body se usar Z-API. Defina BYLA_ALUGUEL_WPP_TO e Evolution env vars."
+      "notes": "Preencha URL/apikey/número fixos (sem $env). Só roda se o IF estiver com leftValue 'true'."
     }
   ],
   "connections": {
