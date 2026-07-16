@@ -1899,7 +1899,13 @@ export async function deleteValidacaoVinculo(planilha_id: string): Promise<{ ok:
 
 /* ——— Aluguel de salas ——— */
 
-export type AluguelClassificacao = 'teatro' | 'ensaio' | 'coworking' | 'outro';
+export type AluguelClassificacao = string;
+
+export type AluguelClassificacaoRow = {
+  slug: string;
+  label: string;
+  created_at: string;
+};
 
 export type AluguelSala = {
   id: string;
@@ -1946,6 +1952,25 @@ export async function listAluguelSalas(opts?: { todas?: boolean }): Promise<Alug
   const q = opts?.todas ? '?todas=1' : '';
   const r = await request<{ salas: AluguelSala[] }>(`/api/aluguel/salas${q}`);
   return r.salas;
+}
+
+export async function listAluguelClassificacoes(): Promise<AluguelClassificacaoRow[]> {
+  const r = await request<{ classificacoes: AluguelClassificacaoRow[] }>('/api/aluguel/classificacoes');
+  return r.classificacoes;
+}
+
+export async function createAluguelClassificacao(body: {
+  label: string;
+  slug?: string;
+}): Promise<AluguelClassificacaoRow> {
+  const res = await apiFetch('/api/aluguel/classificacoes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(await parseBackendError(res, text));
+  return (JSON.parse(text) as { classificacao: AluguelClassificacaoRow }).classificacao;
 }
 
 export async function createAluguelSala(body: {

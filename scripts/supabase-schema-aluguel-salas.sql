@@ -1,16 +1,34 @@
 -- BYLA — Aluguel de salas (calendário operacional)
 -- Teatro seedado; multi-sala preparado (admin cadastra/classifica).
 
+CREATE TABLE IF NOT EXISTS public.aluguel_classificacoes (
+  slug text PRIMARY KEY,
+  label text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.aluguel_classificacoes ENABLE ROW LEVEL SECURITY;
+
+INSERT INTO public.aluguel_classificacoes (slug, label) VALUES
+  ('teatro', 'Teatro'),
+  ('ensaio', 'Ensaio'),
+  ('coworking', 'Coworking'),
+  ('outro', 'Outro')
+ON CONFLICT (slug) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS public.aluguel_salas (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   nome text NOT NULL,
   slug text NOT NULL UNIQUE,
-  classificacao text NOT NULL DEFAULT 'outro'
-    CHECK (classificacao IN ('teatro', 'ensaio', 'coworking', 'outro')),
+  classificacao text NOT NULL DEFAULT 'outro',
   ativa boolean NOT NULL DEFAULT true,
   cor text,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Ambientes que ainda têm o CHECK legado:
+ALTER TABLE public.aluguel_salas
+  DROP CONSTRAINT IF EXISTS aluguel_salas_classificacao_check;
 
 CREATE INDEX IF NOT EXISTS idx_aluguel_salas_ativa
   ON public.aluguel_salas(ativa);

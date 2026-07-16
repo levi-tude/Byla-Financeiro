@@ -4,9 +4,12 @@ import { requireRoles } from '../middleware/auth.js';
 import { requireSyncSecret } from '../middleware/syncSecret.js';
 import { mesAnoQuerySchema, parseBody, parseQuery } from '../validation/apiQuery.js';
 import {
+  createClassificacao,
   createReserva,
   createSala,
+  classificacaoCreateSchema,
   deleteReserva,
+  listClassificacoes,
   listReservas,
   listSalas,
   mesAnteriorReferenciaSaoPaulo,
@@ -57,6 +60,26 @@ export function createAluguelSalasRouter(): Router {
       const incluirInativas = req.authUser?.role === 'admin' && String(req.query.todas ?? '') === '1';
       const salas = await listSalas({ incluirInativas });
       res.json({ salas });
+    } catch (e) {
+      httpError(res, e);
+    }
+  });
+
+  router.get('/aluguel/classificacoes', requireRoles(['secretaria', 'admin']), async (_req, res) => {
+    try {
+      const classificacoes = await listClassificacoes();
+      res.json({ classificacoes });
+    } catch (e) {
+      httpError(res, e);
+    }
+  });
+
+  router.post('/aluguel/classificacoes', requireRoles(['admin']), async (req, res) => {
+    try {
+      const body = parseBody(classificacaoCreateSchema, req.body);
+      if (!body.ok) return void res.status(400).json({ error: body.message });
+      const classificacao = await createClassificacao(body.data);
+      res.status(201).json({ classificacao });
     } catch (e) {
       httpError(res, e);
     }
