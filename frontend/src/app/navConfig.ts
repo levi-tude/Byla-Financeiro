@@ -33,6 +33,11 @@ export const navSections: NavSection[] = [
         roles: ['secretaria', 'admin'],
         primary: true,
       },
+      {
+        path: '/aluguel-salas',
+        label: 'Aluguel de salas',
+        roles: ['secretaria', 'admin'],
+      },
     ],
   },
   {

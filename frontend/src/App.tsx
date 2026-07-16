@@ -15,6 +15,7 @@ import { useAuth } from './auth/AuthContext';
 import { TransacoesPage } from './pages/TransacoesPage';
 import { DespesasPage } from './pages/DespesasPage';
 import { EntradasPage } from './pages/EntradasPage';
+import { AluguelSalasPage } from './pages/AluguelSalasPage';
 
 function HomeByRole() {
   const auth = useAuth();
@@ -105,6 +106,14 @@ export default function App() {
             element={
               <RequireAuth roles={['secretaria', 'admin']}>
                 <FluxoCaixaOperacionalPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="aluguel-salas"
+            element={
+              <RequireAuth roles={['secretaria', 'admin']}>
+                <AluguelSalasPage />
               </RequireAuth>
             }
           />
