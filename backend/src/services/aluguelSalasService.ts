@@ -1,8 +1,15 @@
 import { z } from 'zod';
 import { getSupabase } from './supabaseClient.js';
 
-export const CLASSIFICACOES_SALA = ['teatro', 'ensaio', 'coworking', 'outro'] as const;
-export type ClassificacaoSala = (typeof CLASSIFICACOES_SALA)[number];
+export const CLASSIFICACOES_SALA_PADRAO = ['teatro', 'ensaio', 'coworking', 'outro'] as const;
+/** Slug livre (teatro, ensaio, ou custom criado pelo admin). */
+export type ClassificacaoSala = string;
+
+export type AluguelClassificacaoRow = {
+  slug: string;
+  label: string;
+  created_at: string;
+};
 
 export type AluguelSala = {
   id: string;
@@ -77,7 +84,13 @@ export const salaCreateSchema = z.object({
     .max(80)
     .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Slug: só minúsculas, números e hífens.')
     .optional(),
-  classificacao: z.enum(CLASSIFICACOES_SALA).default('outro'),
+  classificacao: z
+    .string()
+    .trim()
+    .min(2)
+    .max(80)
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Classificação: slug minúsculo.')
+    .default('outro'),
   ativa: z.boolean().optional().default(true),
   cor: z
     .string()
@@ -89,13 +102,30 @@ export const salaCreateSchema = z.object({
 
 export const salaPatchSchema = z.object({
   nome: z.string().trim().min(2).max(120).optional(),
-  classificacao: z.enum(CLASSIFICACOES_SALA).optional(),
+  classificacao: z
+    .string()
+    .trim()
+    .min(2)
+    .max(80)
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Classificação: slug minúsculo.')
+    .optional(),
   ativa: z.boolean().optional(),
   cor: z
     .string()
     .trim()
     .regex(/^#[0-9A-Fa-f]{6}$/, 'Cor hex (#RRGGBB).')
     .nullable()
+    .optional(),
+});
+
+export const classificacaoCreateSchema = z.object({
+  label: z.string().trim().min(2).max(80),
+  slug: z
+    .string()
+    .trim()
+    .min(2)
+    .max(80)
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Slug: só minúsculas, números e hífens.')
     .optional(),
 });
 
@@ -195,6 +225,37 @@ function requireDb() {
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase não configurado.');
   return supabase;
+}
+
+export async function listClassificacoes(): Promise<AluguelClassificacaoRow[]> {
+  const supabase = requireDb();
+  const { data, error } = await supabase
+    .from('aluguel_classificacoes')
+    .select('*')
+    .order('label');
+  if (error) throw new Error(error.message);
+  return (data ?? []) as AluguelClassificacaoRow[];
+}
+
+export async function createClassificacao(
+  input: z.infer<typeof classificacaoCreateSchema>,
+): Promise<AluguelClassificacaoRow> {
+  const supabase = requireDb();
+  const label = input.label.trim();
+  const slug = input.slug?.trim() || slugifyNome(label);
+  if (!slug) throw new Error('Não foi possível gerar slug da classificação.');
+  const { data, error } = await supabase
+    .from('aluguel_classificacoes')
+    .insert({ slug, label })
+    .select('*')
+    .single();
+  if (error) {
+    if (/duplicate|unique/i.test(error.message)) {
+      throw new Error(`Já existe classificação com slug "${slug}".`);
+    }
+    throw new Error(error.message);
+  }
+  return data as AluguelClassificacaoRow;
 }
 
 export async function listSalas(opts?: { incluirInativas?: boolean }): Promise<AluguelSala[]> {

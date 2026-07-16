@@ -2,15 +2,18 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Topbar } from '../app/Topbar';
 import { useAuth } from '../auth/AuthContext';
 import {
+  createAluguelClassificacao,
   createAluguelReserva,
   createAluguelSala,
   deleteAluguelReserva,
   getAluguelResumoWhatsApp,
+  listAluguelClassificacoes,
   listAluguelReservas,
   listAluguelSalas,
   patchAluguelReserva,
   patchAluguelSala,
   type AluguelClassificacao,
+  type AluguelClassificacaoRow,
   type AluguelReserva,
   type AluguelSala,
 } from '../services/backendApi';
@@ -19,7 +22,7 @@ const WEEKDAYS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
 const WHATSAPP_STORAGE_KEY = 'byla-whatsapp-numeros';
 const NUMERO_PADRAO = '5571992750807';
 
-const CLASSIFICACAO_LABEL: Record<AluguelClassificacao, string> = {
+const CLASSIFICACAO_FALLBACK: Record<string, string> = {
   teatro: 'Teatro',
   ensaio: 'Ensaio',
   coworking: 'Coworking',
@@ -118,6 +121,8 @@ export function AluguelSalasPage() {
   const [showSalasAdmin, setShowSalasAdmin] = useState(false);
   const [novaSalaNome, setNovaSalaNome] = useState('');
   const [novaSalaClass, setNovaSalaClass] = useState<AluguelClassificacao>('outro');
+  const [classificacoes, setClassificacoes] = useState<AluguelClassificacaoRow[]>([]);
+  const [novaClassLabel, setNovaClassLabel] = useState('');
   const [whatsappNumeros, setWhatsappNumeros] = useState(loadWhatsAppNumeros);
   const [whatsappSelecionado, setWhatsappSelecionado] = useState(
     () => loadWhatsAppNumeros()[0] ?? NUMERO_PADRAO,
@@ -127,8 +132,12 @@ export function AluguelSalasPage() {
   const [resumoBusy, setResumoBusy] = useState(false);
 
   const loadSalas = useCallback(async () => {
-    const salasList = await listAluguelSalas({ todas: isAdmin });
+    const [salasList, classList] = await Promise.all([
+      listAluguelSalas({ todas: isAdmin }),
+      listAluguelClassificacoes(),
+    ]);
     setSalas(salasList);
+    setClassificacoes(classList);
     const ativas = salasList.filter((s) => s.ativa);
     const defaultSala =
       ativas.find((s) => s.slug === 'sala-teatro')?.id ?? ativas[0]?.id ?? '';
@@ -211,6 +220,20 @@ export function AluguelSalasPage() {
   const slots = useMemo(() => buildCalendarSlots(mes, ano), [mes, ano]);
   const salasAtivas = useMemo(() => salas.filter((s) => s.ativa), [salas]);
   const salaDefaultId = salasAtivas.find((s) => s.slug === 'sala-teatro')?.id ?? salasAtivas[0]?.id ?? '';
+
+  const labelClassificacao = useCallback(
+    (slug: string) =>
+      classificacoes.find((c) => c.slug === slug)?.label ?? CLASSIFICACAO_FALLBACK[slug] ?? slug,
+    [classificacoes],
+  );
+
+  const defaultDataNovoEvento = () => {
+    const hoje = new Date();
+    if (hoje.getMonth() + 1 === mes && hoje.getFullYear() === ano) {
+      return `${ano}-${String(mes).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`;
+    }
+    return `${ano}-${String(mes).padStart(2, '0')}-01`;
+  };
 
   const shiftMonth = (delta: number) => {
     let m = mes + delta;
@@ -306,6 +329,25 @@ export function AluguelSalasPage() {
       setNovaSalaNome('');
       await reloadAll();
       setNotice('Sala criada.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const criarClassificacao = async () => {
+    if (!novaClassLabel.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const criada = await createAluguelClassificacao({ label: novaClassLabel.trim() });
+      setNovaClassLabel('');
+      setClassificacoes((prev) =>
+        [...prev, criada].sort((a, b) => a.label.localeCompare(b.label, 'pt-BR')),
+      );
+      setNovaSalaClass(criada.slug);
+      setNotice(`Classificação "${criada.label}" adicionada.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -410,6 +452,15 @@ export function AluguelSalasPage() {
           </select>
         </label>
 
+        <button
+          type="button"
+          onClick={() => openNew(defaultDataNovoEvento())}
+          disabled={!salaDefaultId && salasAtivas.length === 0}
+          className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+        >
+          + Adicionar evento
+        </button>
+
         <div className="ml-auto flex flex-col items-stretch gap-2 sm:items-end">
           <div className="flex flex-wrap items-center justify-end gap-2">
             <span className="text-xs text-slate-500 dark:text-slate-400">Enviar para:</span>
@@ -512,7 +563,7 @@ export function AluguelSalasPage() {
                   />
                   <strong>{s.nome}</strong>
                   <span className="ml-2 text-xs text-slate-500">
-                    {CLASSIFICACAO_LABEL[s.classificacao]} · {s.ativa ? 'ativa' : 'inativa'}
+                    {labelClassificacao(s.classificacao)} · {s.ativa ? 'ativa' : 'inativa'}
                   </span>
                 </span>
                 <button
@@ -540,11 +591,14 @@ export function AluguelSalasPage() {
               <select
                 className="select-with-chevron mt-1 block rounded-lg border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800"
                 value={novaSalaClass}
-                onChange={(e) => setNovaSalaClass(e.target.value as AluguelClassificacao)}
+                onChange={(e) => setNovaSalaClass(e.target.value)}
               >
-                {(Object.keys(CLASSIFICACAO_LABEL) as AluguelClassificacao[]).map((c) => (
-                  <option key={c} value={c}>
-                    {CLASSIFICACAO_LABEL[c]}
+                {(classificacoes.length > 0
+                  ? classificacoes
+                  : Object.entries(CLASSIFICACAO_FALLBACK).map(([slug, label]) => ({ slug, label }))
+                ).map((c) => (
+                  <option key={c.slug} value={c.slug}>
+                    {c.label}
                   </option>
                 ))}
               </select>
@@ -555,7 +609,32 @@ export function AluguelSalasPage() {
               onClick={() => void criarSala()}
               className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
             >
-              Adicionar
+              Adicionar sala
+            </button>
+          </div>
+          <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+            <label className="text-xs text-slate-600 dark:text-slate-300">
+              Nova classificação
+              <input
+                className="mt-1 block w-52 rounded-lg border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800"
+                value={novaClassLabel}
+                onChange={(e) => setNovaClassLabel(e.target.value)}
+                placeholder="Ex.: Workshop, Gravação…"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void criarClassificacao();
+                  }
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              disabled={saving || !novaClassLabel.trim()}
+              onClick={() => void criarClassificacao()}
+              className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-sm text-indigo-800 hover:bg-indigo-100 disabled:opacity-50 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-100"
+            >
+              Adicionar classificação
             </button>
           </div>
         </section>
@@ -629,8 +708,9 @@ export function AluguelSalasPage() {
       )}
 
       <p className="text-xs text-slate-500">
-        Clique em um dia para nova reserva. Clique em um evento para editar. Use Copiar texto / Abrir WhatsApp
-        para enviar o resumo do mês à gerência.
+        Use <strong>+ Adicionar evento</strong> ou clique em um dia do calendário. Clique em um evento para
+        editar. Admin: Gerenciar salas para criar salas e classificações. Copiar texto / Abrir WhatsApp envia o
+        resumo do mês.
       </p>
 
       {form ? (
