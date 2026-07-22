@@ -38,6 +38,11 @@ export const navSections: NavSection[] = [
         label: 'Aluguel de salas',
         roles: ['secretaria', 'admin'],
       },
+      {
+        path: '/conciliacao',
+        label: 'Conciliação',
+        roles: ['secretaria', 'admin'],
+      },
     ],
   },
   {

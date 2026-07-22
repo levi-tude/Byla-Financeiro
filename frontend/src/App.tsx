@@ -16,6 +16,7 @@ import { TransacoesPage } from './pages/TransacoesPage';
 import { DespesasPage } from './pages/DespesasPage';
 import { EntradasPage } from './pages/EntradasPage';
 import { AluguelSalasPage } from './pages/AluguelSalasPage';
+import { ConciliacaoPagamentosPage } from './pages/ConciliacaoPagamentosPage';
 
 function HomeByRole() {
   const auth = useAuth();
@@ -40,7 +41,14 @@ export default function App() {
           }
         >
           <Route index element={<HomeByRole />} />
-          <Route path="conciliacao" element={<Navigate to="/fluxo-caixa" replace />} />
+          <Route
+            path="conciliacao"
+            element={
+              <RequireAuth roles={['secretaria', 'admin']}>
+                <ConciliacaoPagamentosPage />
+              </RequireAuth>
+            }
+          />
           <Route path="alunos" element={<Navigate to="/fluxo-caixa" replace />} />
           <Route path="pagamentos-planilha" element={<Navigate to="/fluxo-caixa" replace />} />
           <Route path="atividades" element={<Navigate to="/performance-atividades" replace />} />
