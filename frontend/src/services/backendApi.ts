@@ -2072,3 +2072,46 @@ export async function getAluguelResumoWhatsApp(
   return request<AluguelResumoWhatsApp>(`/api/aluguel/resumo-whatsapp?${params}`);
 }
 
+export type ConciliacaoPagamentoStatus =
+  | 'em_dia'
+  | 'atrasado'
+  | 'pendente'
+  | 'sem_vencimento'
+  | 'bolsa';
+
+export type ConciliacaoPagamentosResponse = {
+  mes: number;
+  ano: number;
+  totais: {
+    em_dia: number;
+    atrasado: number;
+    pendente: number;
+    sem_vencimento: number;
+    bolsa: number;
+    total: number;
+  };
+  itens: Array<{
+    aluno_id: string;
+    aluno_nome: string;
+    aba: string;
+    modalidade: string;
+    dia_vencimento: number | null;
+    status: ConciliacaoPagamentoStatus;
+    data_credito?: string | null;
+    valor_credito?: number | null;
+    pessoa_banco?: string | null;
+    transacao_id?: string | null;
+    vinculo_id?: string | null;
+    banco_status?: 'vinculo' | 'match' | 'nenhum';
+  }>;
+};
+
+export async function getConciliacaoPagamentos(
+  mes: number,
+  ano: number,
+): Promise<ConciliacaoPagamentosResponse> {
+  return request<ConciliacaoPagamentosResponse>(
+    `/api/conciliacao-pagamentos?mes=${mes}&ano=${ano}`,
+  );
+}
+

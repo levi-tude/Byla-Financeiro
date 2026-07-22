@@ -63,7 +63,7 @@ router.use(createAluguelSalasAutomaticoRouter());
 
 // Rotas operacionais (secretária e admin)
 router.use(
-  ['/fluxo-operacional', '/ai/assistant', '/aluguel'],
+  ['/fluxo-operacional', '/ai/assistant', '/aluguel', '/conciliacao-pagamentos'],
   requireRoles(['secretaria', 'admin'])
 );
 
