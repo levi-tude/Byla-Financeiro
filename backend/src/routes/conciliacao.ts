@@ -17,6 +17,10 @@ import {
   getConciliacaoVencimentosMesData,
   ConciliacaoVencimentosMesError,
 } from '../services/conciliacaoVencimentosMes.js';
+import {
+  getConciliacaoPagamentosMes,
+  stripCamposBancariosConciliacao,
+} from '../services/conciliacaoPagamentosMes.js';
 
 const router = Router();
 
@@ -271,6 +275,25 @@ router.get('/conciliacao-vencimentos', async (req: Request, res: Response) => {
     }
   } catch (e) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+router.get('/conciliacao-pagamentos', async (req: Request, res: Response) => {
+  try {
+    const mq = parseQuery(mesAnoQuerySchema, req.query as Record<string, unknown>);
+    if (!mq.ok) return res.status(400).json({ error: mq.message });
+    const { mes, ano } = mq.data;
+    const role = req.authUser?.role;
+    if (role !== 'admin' && role !== 'secretaria') {
+      return res.status(401).json({ error: 'Autenticação obrigatória.' });
+    }
+    const raw = await getConciliacaoPagamentosMes(mes, ano);
+    const payload = stripCamposBancariosConciliacao(raw, role);
+    return res.json(payload);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes('Supabase')) return res.status(503).json({ error: msg });
+    return res.status(500).json({ error: msg });
   }
 });
 

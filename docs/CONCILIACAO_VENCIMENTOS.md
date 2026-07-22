@@ -1,5 +1,9 @@
 # Conciliação por vencimento
 
+> **Atualização (2026-07-22):** A tela do painel é **Operação → Conciliação** (`/conciliacao`), API `GET /api/conciliacao-pagamentos`.  
+> Regra de “em dia” **sem folga** (crédito ≤ dia do vencimento).  
+> `GET /api/conciliacao-vencimentos` permanece como legado admin (tolerância `graceDias`).
+
 ## Objetivo
 
 Comparar, para cada aluno ativo na planilha **FLUXO DE CAIXA BYLA**:
