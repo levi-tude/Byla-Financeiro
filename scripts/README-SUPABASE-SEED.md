@@ -7,9 +7,8 @@ Scripts para criar/atualizar as tabelas de **atividades**, **planos**, **alunos*
 1. **Schema (só se as tabelas ainda não existirem)**  
    Abra no Supabase: **SQL Editor** → New query → cole o conteúdo de **`supabase-schema-cadastros.sql`** → Run.
 
-2. **Seed (modalidades e alunos)**  
-   - Para o projeto atual (DB com colunas `data_referencia`, `nome_pagador_pix`, `valor` em `aluno_planos`): use **`seed-modalidades-alunos-byla-2026.sql`** (fev/2026, 8 modalidades, 22 alunos da lista atual).
-   - Para referência histórica (schema com `data`, `nome_pagador`): **`seed-modalidades-alunos-byla.sql`** (fev/2025).
+2. **Seed demo (dados fictícios)**  
+   Use **`seed-demo-synthetic.sql`** — modalidades, alunos e despesas 100% fictícios para portfólio/demo. Seeds com nomes reais foram removidos do repositório público.
 
 3. **Views (mensalidades e alunos por atividade)**  
    Nova query → cole o conteúdo de **`views-mensalidades-e-alunos-por-atividade.sql`** → Run.
@@ -59,8 +58,7 @@ Requisito: tabela **planos** com coluna `valor_mensal` e **aluno_planos** com `d
 | Arquivo | Conteúdo |
 |---------|----------|
 | `supabase-schema-cadastros.sql` | Cria `atividades`, `planos`, `alunos`, `aluno_planos` e índices (com `IF NOT EXISTS`). |
-| `seed-modalidades-alunos-byla.sql` | Seed fev/2025: 8 modalidades, plano “Mensalidade” por atividade, 22 alunos e vínculos (schema com `data`, `nome_pagador`). |
-| `seed-modalidades-alunos-byla-2026.sql` | Seed fev/2026: mesmo conteúdo alinhado ao DB atual (`data_referencia`, `nome_pagador_pix`, `valor`); pode ser reexecutado sem duplicar. |
+| `seed-demo-synthetic.sql` | Seed fictício: 3 modalidades demo, 4 alunos exemplo, vínculos e despesa demo; seguro para repositório público. |
 | `views-mensalidades-e-alunos-por-atividade.sql` | Cria as 4 views acima: preços por atividade, alunos por atividade, mensalidades detalhadas e resumo por atividade. |
 
 ## Datas
