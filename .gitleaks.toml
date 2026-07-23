@@ -1,0 +1,11 @@
+title = "Byla Financeiro"
+
+[[rules]]
+id = "pluggy-uuid-pair"
+description = "Possible Pluggy-style UUID client secret"
+regex = '''(?i)clientSecret["'\s:=]+[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'''
+
+[[rules]]
+id = "pagbank-edi-hex"
+description = "Possible PagBank EDI hex token fallback"
+regex = '''(?i)PAGBANK_EDI_TOKEN[^\n]{0,40}\|\|[^\n]{0,10}[0-9a-f]{32}'''
