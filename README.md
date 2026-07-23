@@ -1,51 +1,37 @@
 # Byla Financeiro
 
-Painel financeiro e operacional do Espaço Byla.
+Sistema financeiro e operacional para estúdios de dança, yoga, pilates e teatro — publicado como **portfólio técnico**.
 
-Aplicacao para controle financeiro e operacional da Byla, com:
+> **Aviso:** este repositório usa **dados fictícios** em seeds, exemplos e demonstrações. Não contém dados reais de alunos, parceiros ou transações bancárias. Ambientes de produção usam credenciais configuradas apenas nos painéis de deploy (Render, Vercel, Supabase), nunca no Git.
 
-- frontend em React/TypeScript para operacao diaria;
-- backend em Node/Express para consolidar regras de negocio;
-- integracao de dados com Supabase e Google Sheets.
+## Direitos reservados
 
-## Uso rapido do agente (sempre visivel)
+Consulte [LICENSE](./LICENSE). O código é exibido para revisão de portfólio; **não há licença de uso, cópia ou redistribuição** sem autorização prévia por escrito.
 
-- Manual de consulta (modelos, creditos, estrategia): `docs/MANUAL_IA_CURSOR_BYLA.md`
-- Prompt para gerar poster/Canva do manual: `docs/PROMPT_CANVA_MANUAL_IA_CURSOR.md`
-- Guia fixo de prompts copy/paste: `docs/PROMPTS_USO_CURSOR.md`
-- Dica: abra o manual ou `PROMPTS_USO_CURSOR.md` no inicio do dia e copie os blocos "Abertura do dia" e "Prompt padrao por tarefa".
+## Stack
 
-## Arquitetura resumida
+| Camada | Tecnologia |
+|--------|------------|
+| Frontend | React, TypeScript, Vite, TanStack Query |
+| Backend | Node.js, Express, Zod |
+| Dados | Supabase (Postgres + Auth + RLS) |
+| Legado | Google Sheets (migração gradual) |
+| Automação | n8n (modelos didáticos sanitizados) |
 
-- `frontend/`: painel (visao geral, conciliacao, validacao, relatorios, calendario). Usa TanStack Query em hooks de backend para cache e estado de carregamento.
-- `backend/`: APIs de consolidacao, regras de conciliacao e relatorios, com validacao centralizada (Zod).
-- `docs/`: diretrizes de negocio, arquitetura, operacao, decisoes e historico de mudancas.
+## Como rodar localmente
 
-### Backend — rotas (`backend/src/routes/`)
-
-O arquivo `api.ts` apenas monta os routers; cada area tem seu modulo:
-
-- `calendario.ts` — calendario financeiro
-- `conciliacao.ts` — validacao diaria, conciliacao por vencimento
-- `relatorios.ts` — relatorios + IA (factory com fluxo)
-- `planilhaFluxoByla.ts` — debug e pagamentos por aba
-- `fontes.ts`, `transacoes.ts`, `despesas.ts` — status das fontes e listagens Supabase
-- `cadastroCompleto.ts` — dados-completos, endpoints *-completo e fluxo-completo
-
-## Como rodar
-
-### 1) Backend
+### Backend
 
 ```bash
 cd backend
 npm install
-cp .env.example .env
+cp .env.example .env   # preencha com seus placeholders de demo
 npm run dev
 ```
 
-Backend padrao: `http://localhost:3001`.
+Padrão: `http://localhost:3001`
 
-### 2) Frontend
+### Frontend
 
 ```bash
 cd frontend
@@ -54,27 +40,35 @@ cp .env.example .env
 npm run dev
 ```
 
-Frontend padrao: `http://localhost:5174`.
+Padrão: `http://localhost:5174` (ou a porta indicada no terminal).
 
-## Requisitos de ambiente
+### Testes
 
-- Node.js 18+
-- Credenciais Supabase configuradas no backend e/ou frontend
-- Credenciais Google Sheets para endpoints que leem planilhas
+```bash
+cd backend && npm test
+cd frontend && npx tsc --noEmit
+```
 
-## Documentacao recomendada (ordem)
+## Documentação pública
 
-1. `docs/ARQUITETURA_SISTEMA_BYLA.md`
-2. `docs/CONTRATOS_OPERACAO_QUALIDADE_BYLA.md`
-3. `docs/API_CONTRATOS.md`
-4. `docs/REGRAS_FONTES_SUPABASE_PLANILHAS.md`
-5. `docs/DECISOES_ARQUITETURAIS_ADR.md`
-6. `docs/EVOLUCAO_E_MUDANCAS_BYLA.md`
-7. `docs/INDEX.md`
+| Documento | Conteúdo |
+|-----------|----------|
+| [docs/ARQUITETURA_PUBLICA.md](./docs/ARQUITETURA_PUBLICA.md) | Visão geral do sistema |
+| [docs/SEGURANCA_E_PRIVACIDADE.md](./docs/SEGURANCA_E_PRIVACIDADE.md) | Controles de segurança e privacidade |
+| [docs/DEPLOY_PUBLICO.md](./docs/DEPLOY_PUBLICO.md) | Deploy e variáveis de ambiente |
+| [docs/DECISOES_TECNICAS.md](./docs/DECISOES_TECNICAS.md) | Decisões arquiteturais resumidas |
+| [docs/DEMONSTRACAO.md](./docs/DEMONSTRACAO.md) | Ambiente demo e dados fictícios |
+| [SECURITY.md](./SECURITY.md) | Como reportar vulnerabilidades |
+| [n8n-workflows/README.md](./n8n-workflows/README.md) | Modelos de automação sanitizados |
 
-## Scripts uteis
+## Workflows n8n (modelos)
 
-- Backend typecheck: `cd backend && npx tsc --noEmit`
-- Backend testes: `cd backend && npm test`
-- Frontend typecheck: `cd frontend && npx tsc --noEmit`
-- Frontend build: `cd frontend && npm run build`
+Três templates didáticos, sem credenciais nem IDs de produção:
+
+- Supabase → Google Sheets
+- Google Sheets → Supabase
+- Resumo de aluguel → WhatsApp
+
+## O que não está neste repositório
+
+Documentação operacional, contratos, relatórios de estágio, regras financeiras internas e integrações obsoletas (Pluggy, PagBank EDI) foram arquivadas localmente fora do Git público.
