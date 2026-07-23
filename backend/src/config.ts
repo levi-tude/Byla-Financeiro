@@ -87,6 +87,25 @@ export const config = {
   fluxoPrimaryForValidacao: (env.BYLA_SOURCE_FLUXO_PRIMARY ?? 'true').trim().toLowerCase() !== 'false',
   /** Leitura da planilha para divergências e fallback (padrão true). */
   planilhaReadEnabled: (env.BYLA_PLANILHA_READ ?? 'true').trim().toLowerCase() !== 'false',
+  /**
+   * Minimiza PII (nomes) no payload enviado a Gemini/Groq/OpenAI.
+   * Padrão: true. Desligue com BYLA_IA_MINIMIZE_PII=false se precisar de nomes no texto gerado.
+   */
+  iaMinimizePii: (env.BYLA_IA_MINIMIZE_PII ?? 'true').trim().toLowerCase() !== 'false',
+  /**
+   * Se false, GET mensal-automatico não devolve o payload bruto (só texto + metadados).
+   * n8n atual usa só `texto`. Default false (mais seguro). true = compat/debug.
+   */
+  relatorioAutoIncludePayload:
+    (env.BYLA_RELATORIO_AUTO_INCLUDE_PAYLOAD ?? 'false').trim().toLowerCase() === 'true',
+  /** Rate limit: máximo de pedidos por IP/usuário na janela (IA). */
+  rateLimitIaMax: Math.max(1, Number(env.BYLA_RATE_LIMIT_IA_MAX) || 20),
+  /** Rate limit: janela em ms (IA). Default 15 min. */
+  rateLimitIaWindowMs: Math.max(1000, Number(env.BYLA_RATE_LIMIT_IA_WINDOW_MS) || 15 * 60 * 1000),
+  /** Rate limit: máximo por IP na janela (rotas sync n8n). */
+  rateLimitSyncMax: Math.max(1, Number(env.BYLA_RATE_LIMIT_SYNC_MAX) || 60),
+  /** Rate limit: janela em ms (sync). Default 15 min. */
+  rateLimitSyncWindowMs: Math.max(1000, Number(env.BYLA_RATE_LIMIT_SYNC_WINDOW_MS) || 15 * 60 * 1000),
 } as const;
 
 export function hasSupabase(): boolean {

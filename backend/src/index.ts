@@ -11,13 +11,16 @@ const corsOrigins = config.corsOrigin;
 function corsOriginHandler(origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) {
   if (!origin) return cb(null, true);
   if (corsOrigins.includes(origin)) return cb(null, true);
-  if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) return cb(null, true);
-  if (origin.endsWith('.vercel.app')) return cb(null, true);
+  if (process.env.NODE_ENV !== 'production') {
+    if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+      return cb(null, true);
+    }
+  }
   return cb(null, false);
 }
 app.use(cors({ origin: corsOriginHandler, optionsSuccessStatus: 200 }));
 /** Default Express ~100kb → 413 Payload Too Large no POST montar-linhas (n8n envia muitas linhas). */
-const jsonBodyLimit = (process.env.BYLA_JSON_BODY_LIMIT ?? '32mb').trim() || '32mb';
+const jsonBodyLimit = (process.env.BYLA_JSON_BODY_LIMIT ?? '1mb').trim() || '1mb';
 app.use(express.json({ limit: jsonBodyLimit }));
 app.use((req, res, next) => {
   const startedAt = Date.now();

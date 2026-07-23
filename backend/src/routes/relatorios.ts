@@ -13,6 +13,11 @@ import {
   trimestreAnoQuerySchema,
 } from '../validation/apiQuery.js';
 import { buildUserPromptRelatorio, getSystemPromptForTipo } from '../relatorios/relatoriosPrompts.js';
+import {
+  PII_MINIMIZE_PROMPT_ADDON,
+  sanitizePayloadForIa,
+} from '../relatorios/sanitizePayloadForIa.js';
+import { rateLimit } from '../middleware/rateLimit.js';
 import { montarAlunosPanorama, montarMensalOperacional } from '../services/relatorioMontagem.js';
 import {
   getConciliacaoVencimentosMesData,
@@ -463,6 +468,11 @@ function gerarTextoFallback(payload: Record<string, unknown>, isDiario: boolean)
  */
 export function createRelatoriosRouter(fluxoUseCase: GetFluxoCompletoUseCase): Router {
   const router = Router();
+  const iaLimiter = rateLimit({
+    name: 'relatorios-ia',
+    max: config.rateLimitIaMax,
+    windowMs: config.rateLimitIaWindowMs,
+  });
 
   /** GET /api/relatorios/diario?data=2026-03-10 – Dados estruturados do dia (entradas/saídas) para relatório/IA. */
   router.get('/relatorios/diario', async (req: Request, res: Response) => {
@@ -940,7 +950,7 @@ export function createRelatoriosRouter(fluxoUseCase: GetFluxoCompletoUseCase): R
   });
 
   /** POST /api/relatorios/gerar-texto-ia – Gera texto do relatório. Ordem: Gemini → Groq → OpenAI; se todos falharem, usa relatório em texto (fallback). */
-  router.post('/relatorios/gerar-texto-ia', async (req: Request, res: Response) => {
+  router.post('/relatorios/gerar-texto-ia', iaLimiter, async (req: Request, res: Response) => {
     try {
       const body = parseBody(gerarTextoIaBodySchema, req.body);
       if (!body.ok) {
@@ -950,8 +960,10 @@ export function createRelatoriosRouter(fluxoUseCase: GetFluxoCompletoUseCase): R
       const tipo = (payload.tipo as string) ?? 'mensal';
       const fmt = (raw: string) => formatarTextoRelatorio(raw, tipo);
       const isDiario = tipo === 'diario';
-      const systemPrompt = getSystemPromptForTipo(tipo);
-      const userPrompt = buildUserPromptRelatorio(tipo, payload as Record<string, unknown>);
+      const payloadIa = sanitizePayloadForIa(payload as Record<string, unknown>, config.iaMinimizePii);
+      const systemPrompt =
+        getSystemPromptForTipo(tipo) + (config.iaMinimizePii ? PII_MINIMIZE_PROMPT_ADDON : '');
+      const userPrompt = buildUserPromptRelatorio(tipo, payloadIa);
       const maxTok = maxOutputTokensRelatorio(tipo);
 
       let texto = '';
@@ -963,7 +975,7 @@ export function createRelatoriosRouter(fluxoUseCase: GetFluxoCompletoUseCase): R
         try {
           texto = await gerarTextoComGemini(systemPrompt, userPrompt, geminiKey, maxTok);
           if (texto) {
-            res.json({ texto: fmt(texto) });
+            res.json({ texto: fmt(texto), pii_minimizado: config.iaMinimizePii });
             return;
           }
         } catch {
@@ -975,7 +987,7 @@ export function createRelatoriosRouter(fluxoUseCase: GetFluxoCompletoUseCase): R
         try {
           texto = await gerarTextoComGroq(systemPrompt, userPrompt, groqKey, maxTok);
           if (texto) {
-            res.json({ texto: fmt(texto) });
+            res.json({ texto: fmt(texto), pii_minimizado: config.iaMinimizePii });
             return;
           }
         } catch {
@@ -987,7 +999,7 @@ export function createRelatoriosRouter(fluxoUseCase: GetFluxoCompletoUseCase): R
         try {
           texto = await gerarTextoComOpenAI(systemPrompt, userPrompt, openaiKey, maxTok);
           if (texto) {
-            res.json({ texto: fmt(texto) });
+            res.json({ texto: fmt(texto), pii_minimizado: config.iaMinimizePii });
             return;
           }
         } catch {
@@ -995,8 +1007,8 @@ export function createRelatoriosRouter(fluxoUseCase: GetFluxoCompletoUseCase): R
         }
       }
 
-      texto = gerarTextoFallback(payload as Record<string, unknown>, isDiario);
-      res.json({ texto: fmt(texto) });
+      texto = gerarTextoFallback(payloadIa, isDiario);
+      res.json({ texto: fmt(texto), pii_minimizado: config.iaMinimizePii });
     } catch (e) {
       res.status(500).json({
         error: e instanceof Error ? e.message : String(e),

@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { config } from '../config.js';
+import { requireSyncSecret } from '../middleware/syncSecret.js';
+import { rateLimit } from '../middleware/rateLimit.js';
 import {
   montarLinhaMovimentacoes,
   type ExportRowInput,
@@ -8,19 +10,11 @@ import {
 
 const router = Router();
 
-function requireSyncSecret(req: Request, res: Response): boolean {
-  const secret = (process.env.BYLA_SYNC_SECRET ?? '').trim();
-  if (!secret) {
-    res.status(503).json({ ok: false, error: 'BYLA_SYNC_SECRET não configurado no servidor' });
-    return false;
-  }
-  const sent = (req.header('x-byla-sync-secret') ?? '').trim();
-  if (sent !== secret) {
-    res.status(401).json({ ok: false, error: 'Não autorizado' });
-    return false;
-  }
-  return true;
-}
+const syncLimiter = rateLimit({
+  name: 'planilha-sync',
+  max: config.rateLimitSyncMax,
+  windowMs: config.rateLimitSyncWindowMs,
+});
 
 /**
  * POST /api/planilha-entrada-saida/sync
@@ -35,7 +29,7 @@ function requireSyncSecret(req: Request, res: Response): boolean {
  *
  * Retorna linhas no contrato da aba Movimentações (8 colunas) para o n8n usar sem duplicar regra.
  */
-router.post('/planilha-entrada-saida/montar-linhas', (req: Request, res: Response) => {
+router.post('/planilha-entrada-saida/montar-linhas', syncLimiter, (req: Request, res: Response) => {
   if (!requireSyncSecret(req, res)) return;
 
   const body = req.body as { rows?: unknown };
@@ -48,7 +42,7 @@ router.post('/planilha-entrada-saida/montar-linhas', (req: Request, res: Respons
   return res.json({ ok: true, linhas });
 });
 
-router.post('/planilha-entrada-saida/sync', async (req: Request, res: Response) => {
+router.post('/planilha-entrada-saida/sync', syncLimiter, async (req: Request, res: Response) => {
   if (!requireSyncSecret(req, res)) return;
 
   if (!config.sheets.entradaSaidaSpreadsheetId) {
