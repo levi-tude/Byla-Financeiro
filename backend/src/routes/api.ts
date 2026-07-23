@@ -90,6 +90,7 @@ router.use(
     '/transacoes',
     '/planilha-entrada-saida',
     '/despesas',
+    '/entradas',
     '/saidas',
     '/categorias-banco',
     '/entidades-byla',
