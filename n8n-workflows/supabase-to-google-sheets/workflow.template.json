@@ -1,0 +1,306 @@
+{
+  "name": "Demo - Supabase to Google Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "byla-transacao-export",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -656,
+        112
+      ],
+      "id": "NODE_ID_PLACEHOLDER",
+      "name": "Webhook Supabase"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Database Webhook Supabase: { type, table, record, schema, old_record }\nconst raw = $input.first().json;\nconst body = raw.body ?? raw;\nif (body.type !== 'INSERT' || body.table !== 'transacoes' || !body.record?.id) {\n  return [{ json: { proceed: false, reason: 'not_insert_transacoes' } }];\n}\nreturn [{ json: { id: body.record.id, proceed: true } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        112
+      ],
+      "id": "NODE_ID_PLACEHOLDER",
+      "name": "Validar INSERT transacoes"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "NODE_ID_PLACEHOLDER",
+              "leftValue": "={{ $json.proceed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        112
+      ],
+      "id": "NODE_ID_PLACEHOLDER",
+      "name": "É INSERT válido?"
+    },
+    {
+      "parameters": {
+        "useCustomSchema": false,
+        "resource": "row",
+        "operation": "get",
+        "tableId": "v_transacoes_export",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "keyValue": "={{ $json.id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "NODE_ID_PLACEHOLDER",
+      "name": "GET v_transacoes_export"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nif (!items.length) return [{ json: { ok: false, error: 'empty_response' } }];\nlet row = items[0].json;\nif (Array.isArray(row)) row = row[0];\nif (!row || !row.id) return [{ json: { ok: false, error: 'no_row' } }];\nreturn [{ json: { rows: [row] } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        0
+      ],
+      "id": "NODE_ID_PLACEHOLDER",
+      "name": "Preparar payload montar-linhas"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://example.com",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        340,
+        0
+      ],
+      "id": "NODE_ID_PLACEHOLDER",
+      "name": "HTTP POST montar-linhas (backend)",
+      "notesInFlow": true,
+      "notes": "Credencial n8n deve chamar **BYLA Backend Sync** (Header Auth: header X-Byla-Sync-Secret). Timeout 120s p/ cold start Render. Ver IMPORT_WORKFLOWS_BYLA.md"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json;\nif (!body.ok || !body.linhas?.length) {\n  return [{ json: { ok: false, error: body.error || 'montar_linhas_failed', raw: body } }];\n}\nreturn [{ json: body.linhas[0] }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "id": "NODE_ID_PLACEHOLDER",
+      "name": "Extrair linhas para Sheets"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "DEMO_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Movimentações",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": null
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        640,
+        0
+      ],
+      "id": "NODE_ID_PLACEHOLDER",
+      "name": "Append Movimentações"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { ok: true, exported: true, id: $('Extrair linhas para Sheets').first().json.id } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        0
+      ],
+      "id": "NODE_ID_PLACEHOLDER",
+      "name": "Resposta OK"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { ok: true, skipped: true, reason: $json.reason ?? 'unknown' } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        208
+      ],
+      "id": "NODE_ID_PLACEHOLDER",
+      "name": "Resposta skip (200)"
+    }
+  ],
+  "connections": {
+    "Webhook Supabase": {
+      "main": [
+        [
+          {
+            "node": "Validar INSERT transacoes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar INSERT transacoes": {
+      "main": [
+        [
+          {
+            "node": "É INSERT válido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É INSERT válido?": {
+      "main": [
+        [
+          {
+            "node": "GET v_transacoes_export",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resposta skip (200)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET v_transacoes_export": {
+      "main": [
+        [
+          {
+            "node": "Preparar payload montar-linhas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar payload montar-linhas": {
+      "main": [
+        [
+          {
+            "node": "HTTP POST montar-linhas (backend)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP POST montar-linhas (backend)": {
+      "main": [
+        [
+          {
+            "node": "Extrair linhas para Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extrair linhas para Sheets": {
+      "main": [
+        [
+          {
+            "node": "Append Movimentações",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Movimentações": {
+      "main": [
+        [
+          {
+            "node": "Resposta OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "tags": []
+}

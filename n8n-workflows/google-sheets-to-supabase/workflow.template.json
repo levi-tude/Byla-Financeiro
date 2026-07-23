@@ -1,0 +1,217 @@
+{
+  "name": "Demo - Google Sheets to Supabase",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -656,
+        112
+      ],
+      "id": "NODE_ID_PLACEHOLDER",
+      "name": "Manual (rodar agora)"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -656,
+        192
+      ],
+      "id": "NODE_ID_PLACEHOLDER",
+      "name": "Agendado (todo dia 6h)"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "DEMO_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2023787107,
+          "mode": "list",
+          "cachedResultName": "report",
+          "cachedResultUrl": "https://example.com"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [
+        -448,
+        112
+      ],
+      "id": "NODE_ID_PLACEHOLDER",
+      "name": "Ler aba Importar"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nif (items.length === 0) return [];\nconst out = [];\nfor (const item of items) {\n  const j = item.json || {};\n  // 1) Data\n  let data = String(j.Data ?? j.data ?? j['Data'] ?? j['Data Lancamento'] ?? '').trim();\n  if (!data) {\n    for (const [k, v] of Object.entries(j)) {\n      const s = String(v ?? '').trim();\n      if (s.length === 10 && s[2] === '/' && s[5] === '/') {\n        data = s;\n        break;\n      }\n    }\n  }\n  // 2) Pessoa / descrição principal\n  let pessoa = String(\n    j.Pessoa ??\n    j.pessoa ??\n    j['Pessoa'] ??\n    j.Histórico ??\n    j.Historico ??\n    j.Pagador ??\n    j.Nome ??\n    j.Descrição ??\n    j.Descricao ??\n    j.descricao ??\n    ''\n  ).trim();\n  if (!pessoa) {\n    for (const [k, v] of Object.entries(j)) {\n      const s = String(v ?? '').trim();\n      if (!s) continue;\n      const lower = s.toLowerCase();\n      if (s === data) continue;\n      if (lower === 'data' || lower === 'tipo' || lower === 'saldo do dia') continue;\n      if (lower === 'entradas' || lower === 'saidas' || lower === 'saldo') continue;\n      if (lower.includes('disponivel credito')) continue;\n      pessoa = s;\n      break;\n    }\n  }\n  // 3) Valores (entradas / saídas)\n  let vCr = 0;\n  let vDb = 0;\n  for (const [key, value] of Object.entries(j)) {\n    const keyLower = String(key).toLowerCase();\n    if (keyLower === 'row_number') continue;\n    if (keyLower.includes('saldo')) continue;\n    let num = 0;\n    if (typeof value === 'number') {\n      num = value;\n    } else {\n      const s = String(value ?? '').trim();\n      if (!s) continue;\n      if (s.includes('R$')) continue;\n      if (s.includes('/')) continue;\n      const cleaned = s.split('.').join('').replace(',', '.');\n      const parsed = parseFloat(cleaned);\n      if (!Number.isFinite(parsed) || parsed === 0) continue;\n      num = parsed;\n    }\n    if (num > 0) {\n      if (!vCr) vCr = num;\n    } else if (num < 0) {\n      if (!vDb) vDb = Math.abs(num);\n    }\n  }\n  // 4) Valor final e tipo\n  let valor = 0;\n  const baseValor = j.Valor ?? j.valor ?? j['Valor'];\n  if (baseValor !== undefined && baseValor !== null) {\n    const s = String(baseValor).trim();\n    if (s) {\n      const cleaned = s.split('.').join('').replace(',', '.');\n      const parsed = parseFloat(cleaned);\n      if (Number.isFinite(parsed) && parsed !== 0) {\n        valor = parsed;\n      }\n    }\n  }\n  if (valor === 0 && (vCr > 0 || vDb > 0)) {\n    valor = vCr || vDb;\n    if (vCr > 0) j._tipo = 'entrada';\n    else j._tipo = 'saida';\n  }\n  // 5) Descrição\n  let descricao = String(j.Descrição ?? j.Descricao ?? j.descricao ?? '').trim();\n  if (!descricao && pessoa) descricao = pessoa;\n  // 6) Tipo (entrada/saida)\n  let tipo = String(j._tipo ?? j.Tipo ?? j.tipo ?? j['Tipo'] ?? '').trim().toLowerCase();\n  if (!tipo) {\n    const tipoRaw = String(j.Tipo ?? j.tipo ?? j['Tipo'] ?? '').trim().toLowerCase();\n    if (tipoRaw.includes('receb')) tipo = 'entrada';\n    else if (tipoRaw.includes('venda')) tipo = 'entrada';\n    else if (tipoRaw.includes('enviado')) tipo = 'saida';\n    else if (tipoRaw.includes('pagamento')) tipo = 'saida';\n  }\n  if (tipo !== 'entrada') tipo = 'saida';\n  // 7) Filtros finais\n  if (!data || !pessoa || !valor) continue;\n  if (data.indexOf('/') !== -1) {\n    const p = data.split('/');\n    if (p.length >= 3) data = p[2] + '-' + p[1] + '-' + p[0];\n  } else if (data.indexOf('T') !== -1) {\n    data = data.split('T')[0];\n  }\n  const id_unico = data + '-' + pessoa + '-' + valor;\n  out.push({ json: { data, pessoa, valor, descricao, tipo, id_unico } });\n}\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        112
+      ],
+      "id": "NODE_ID_PLACEHOLDER",
+      "name": "Normalizar linhas"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "transacoes",
+        "limit": 10000
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "NODE_ID_PLACEHOLDER",
+      "name": "Transações já no Supabase"
+    },
+    {
+      "parameters": {
+        "jsCode": "const planilha = ($('Normalizar linhas').all() || []).map(i => i.json);\nconst existentesBrutas = ($('Transações já no Supabase').all() || []).map(i => i.json || {});\nconst makeKey = (r) => {\n  const data = String(r.data || '').trim();\n  const pessoa = String(r.pessoa || '').trim();\n  const valor = Number(r.valor || 0);\n  if (!data || !pessoa || !valor) return '';\n  return data + '-' + pessoa + '-' + valor;\n};\nconst existentes = existentesBrutas.map(makeKey).filter(Boolean);\nconst set = new Set(existentes);\nconst novos = planilha.filter(p => !set.has(makeKey(p)));\nreturn novos.map(p => ({ json: p }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        112
+      ],
+      "id": "NODE_ID_PLACEHOLDER",
+      "name": "Só linhas novas"
+    },
+    {
+      "parameters": {
+        "tableId": "transacoes",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "data",
+              "fieldValue": "={{ $json.data }}"
+            },
+            {
+              "fieldId": "pessoa",
+              "fieldValue": "={{ $json.pessoa ?? '' }}"
+            },
+            {
+              "fieldId": "valor",
+              "fieldValue": "={{ $json.valor }}"
+            },
+            {
+              "fieldId": "descricao",
+              "fieldValue": "={{ $json.descricao ?? '' }}"
+            },
+            {
+              "fieldId": "tipo",
+              "fieldValue": "={{ $json.tipo ?? 'saida' }}"
+            },
+            {
+              "fieldId": "id_unico",
+              "fieldValue": "={{ $json.id_unico }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        448,
+        112
+      ],
+      "id": "NODE_ID_PLACEHOLDER",
+      "name": "Inserir no Supabase",
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Ler aba Importar": {
+      "main": [
+        [
+          {
+            "node": "Normalizar linhas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual (rodar agora)": {
+      "main": [
+        [
+          {
+            "node": "Ler aba Importar",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Transações já no Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agendado (todo dia 6h)": {
+      "main": [
+        [
+          {
+            "node": "Ler aba Importar",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Transações já no Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar linhas": {
+      "main": [
+        [
+          {
+            "node": "Só linhas novas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Só linhas novas": {
+      "main": [
+        [
+          {
+            "node": "Inserir no Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "tags": []
+}
