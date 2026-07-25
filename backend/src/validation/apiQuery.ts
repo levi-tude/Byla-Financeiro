@@ -6,6 +6,28 @@ export const mesAnoQuerySchema = z.object({
   ano: z.coerce.number().int().min(2000).max(2100),
 });
 
+export const meioPagamentoAlunoQuerySchema = z.enum([
+  'pix',
+  'debito',
+  'credito_a_vista',
+  'credito_recorrente',
+  'desconhecido',
+  'todos',
+]);
+
+export const financasAlunosVinculoQuerySchema = z.enum(['todos', 'vinculado', 'sem_vinculo']);
+
+export const financasAlunosQuerySchema = mesAnoQuerySchema.extend({
+  meio: z.preprocess(
+    (v) => (v === '' || v == null ? 'todos' : v),
+    meioPagamentoAlunoQuerySchema.default('todos'),
+  ),
+  vinculo: z.preprocess(
+    (v) => (v === '' || v == null ? 'todos' : v),
+    financasAlunosVinculoQuerySchema.default('todos'),
+  ),
+});
+
 /** Filtro Caixa (data extrato) vs Competência (mês de referência). */
 export const mesAnoVisaoQuerySchema = mesAnoQuerySchema.extend({
   visao: z.preprocess(
@@ -143,10 +165,103 @@ export const validacaoVinculoUpsertBodySchema = z.object({
   banco_id: z.string().min(1),
   planilha_ids: z.array(z.string().min(1)).min(1),
   observacao: z.string().max(400).optional(),
+  /** UI manda explícito; aprender só quando `true`. */
+  lembrar_credito_recorrente: z.boolean().optional(),
+  /** Amarra regra sticky à assinatura PagBank após aprender. */
+  pagbank_subs_id: z.string().trim().min(1).max(120).optional(),
 });
 
 export const validacaoVinculoDeleteBodySchema = z.object({
   planilha_id: z.string().min(1),
+});
+
+export const creditoRecorrenteConfirmarBodySchema = z.object({
+  regra_id: z.string().uuid(),
+  banco_id: z.string().min(1),
+  planilha_ids: z.array(z.string().min(1)).min(1),
+  data_ref: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.'),
+  mes: z.coerce.number().int().min(1).max(12),
+  ano: z.coerce.number().int().min(2000).max(2100),
+  /** Amarra regra sticky à assinatura PagBank. */
+  pagbank_subs_id: z.string().trim().min(1).max(120).optional(),
+});
+
+export const creditoRecorrenteRegraPatchBodySchema = z
+  .object({
+    ativo: z.boolean().optional(),
+    rotulo: z.string().trim().min(1).max(200).optional(),
+  })
+  .refine((b) => b.ativo !== undefined || b.rotulo !== undefined, {
+    message: 'Informe ativo ou rotulo para atualizar.',
+  });
+
+const assinaturaHistoricoItemSchema = z.object({
+  data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.'),
+  status: z.string().trim().min(1).max(80),
+});
+
+const assinaturaStatusPagbankSchema = z.enum(['Ativa', 'Cancelada']);
+const assinaturaStatusBylaSchema = z.enum(['ativa', 'cancelada', 'parou_de_pagar', 'concluida']);
+
+export const assinaturaCreditoRecorrenteUpsertBodySchema = z.object({
+  pagbank_subs_id: z.string().trim().min(1).max(120),
+  pagbank_cust_id: z.string().trim().min(1).max(120).nullable().optional(),
+  nome_exibicao: z.string().trim().min(1).max(200),
+  status_pagbank: assinaturaStatusPagbankSchema,
+  valor_bruto: z.coerce.number().positive().max(1_000_000),
+  plano_rotulo: z.string().trim().max(200).nullable().optional(),
+  dia_cobranca: z.coerce.number().int().min(1).max(31),
+  ciclo_atual: z.coerce.number().int().min(0).max(120),
+  ciclo_total: z.coerce.number().int().min(1).max(120),
+  data_criacao_assinatura: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.')
+    .nullable()
+    .optional(),
+  proxima_cobranca: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.')
+    .nullable()
+    .optional(),
+  historico_cobrancas: z.array(assinaturaHistoricoItemSchema).optional(),
+  offset_dias_extrato: z.coerce.number().int().min(0).max(45).optional(),
+  regra_sticky_id: z.string().uuid().nullable().optional(),
+  ativo: z.boolean().optional(),
+  status_byla: assinaturaStatusBylaSchema.optional(),
+});
+
+export const assinaturaCreditoRecorrentePatchBodySchema = z
+  .object({
+    pagbank_cust_id: z.string().trim().min(1).max(120).nullable().optional(),
+    nome_exibicao: z.string().trim().min(1).max(200).optional(),
+    status_pagbank: assinaturaStatusPagbankSchema.optional(),
+    valor_bruto: z.coerce.number().positive().max(1_000_000).optional(),
+    plano_rotulo: z.string().trim().max(200).nullable().optional(),
+    dia_cobranca: z.coerce.number().int().min(1).max(31).optional(),
+    ciclo_atual: z.coerce.number().int().min(0).max(120).optional(),
+    ciclo_total: z.coerce.number().int().min(1).max(120).optional(),
+    data_criacao_assinatura: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.')
+      .nullable()
+      .optional(),
+    proxima_cobranca: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.')
+      .nullable()
+      .optional(),
+    historico_cobrancas: z.array(assinaturaHistoricoItemSchema).optional(),
+    offset_dias_extrato: z.coerce.number().int().min(0).max(45).optional(),
+    regra_sticky_id: z.string().uuid().nullable().optional(),
+    ativo: z.boolean().optional(),
+    status_byla: assinaturaStatusBylaSchema.optional(),
+  })
+  .refine((b) => Object.keys(b).length > 0, {
+    message: 'Informe ao menos um campo para atualizar.',
+  });
+
+export const assinaturaCreditoRecorrenteClassificarBodySchema = z.object({
+  acao: z.enum(['cancelou', 'parou_de_pagar', 'dispensar']),
 });
 
 /** Categorização banco (v_transacoes_export + despesas). */

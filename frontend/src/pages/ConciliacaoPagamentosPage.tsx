@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useCallback, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { usePersistedPageState } from '../hooks/usePersistedPageState';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Topbar } from '../app/Topbar';
 import { useAuth } from '../auth/AuthContext';
@@ -8,6 +9,9 @@ import { FilterBar, type FilterChip } from '../components/finance/FilterBar';
 import { EmptyState, ErrorPanel, LoadingRow } from '../components/finance/StateBlocks';
 import { formatBrl, formatDate } from '../components/finance/classificacao/utils';
 import {
+  classificarAssinaturaCreditoRecorrente,
+  getAlertasParouDePagar,
+  getAlertasVendasSemVinculo,
   getConciliacaoPagamentos,
   type ConciliacaoPagamentoStatus,
 } from '../services/backendApi';
@@ -55,13 +59,6 @@ function statusBadgeClass(status: ConciliacaoPagamentoStatus): string {
   return 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300';
 }
 
-function modalidadeLabel(aba: string, modalidade: string): string {
-  const a = (aba ?? '').trim();
-  const m = (modalidade ?? '').trim();
-  if (a && m && a.toLowerCase() !== m.toLowerCase()) return `${a} · ${m}`;
-  return m || a || '—';
-}
-
 function rowKey(item: {
   aluno_id: string;
   aba: string;
@@ -71,40 +68,127 @@ function rowKey(item: {
   return `${item.aluno_id}|${item.aba}|${item.modalidade}|${item.status}`;
 }
 
+type ConciliacaoNavPersisted = {
+  statusFiltro: StatusFiltro;
+  busca: string;
+  abaFiltro: string;
+  modalidadeFiltro: string;
+};
+
+const CONCILIACAO_NAV_INITIAL: ConciliacaoNavPersisted = {
+  statusFiltro: 'todos',
+  busca: '',
+  abaFiltro: '',
+  modalidadeFiltro: '',
+};
+
+function patchConciliacaoNav<K extends keyof ConciliacaoNavPersisted>(
+  setNav: Dispatch<SetStateAction<ConciliacaoNavPersisted>>,
+  key: K,
+  value: SetStateAction<ConciliacaoNavPersisted[K]>,
+) {
+  setNav((prev) => ({
+    ...prev,
+    [key]: typeof value === 'function'
+      ? (value as (prev: ConciliacaoNavPersisted[K]) => ConciliacaoNavPersisted[K])(prev[key])
+      : value,
+  }));
+}
+
 export function ConciliacaoPagamentosPage() {
   const { monthYear } = useMonthYear();
   const { mes, ano } = monthYear;
   const auth = useAuth();
   const isAdmin = auth.role === 'admin';
+  const queryClient = useQueryClient();
 
-  const [statusFiltro, setStatusFiltro] = useState<StatusFiltro>('todos');
-  const [busca, setBusca] = useState('');
-  const [modalidadeFiltro, setModalidadeFiltro] = useState('');
+  const [nav, setNav] = usePersistedPageState('conciliacao-pagamentos', CONCILIACAO_NAV_INITIAL);
+  const { statusFiltro, busca, abaFiltro, modalidadeFiltro } = nav;
+
+  const setStatusFiltro = useCallback(
+    (value: SetStateAction<StatusFiltro>) => patchConciliacaoNav(setNav, 'statusFiltro', value),
+    [setNav],
+  );
+  const setBusca = useCallback(
+    (value: SetStateAction<string>) => patchConciliacaoNav(setNav, 'busca', value),
+    [setNav],
+  );
+  const setAbaFiltro = useCallback(
+    (value: SetStateAction<string>) => patchConciliacaoNav(setNav, 'abaFiltro', value),
+    [setNav],
+  );
+  const setModalidadeFiltro = useCallback(
+    (value: SetStateAction<string>) => patchConciliacaoNav(setNav, 'modalidadeFiltro', value),
+    [setNav],
+  );
+
+  const [alertasParouOcultos, setAlertasParouOcultos] = useState<Set<string>>(() => new Set());
+  const [classificandoId, setClassificandoId] = useState<string | null>(null);
 
   const query = useQuery({
     queryKey: ['conciliacao-pagamentos', mes, ano],
     queryFn: () => getConciliacaoPagamentos(mes, ano),
   });
 
+  const alertasVendasQuery = useQuery({
+    queryKey: ['alertas-vendas', mes, ano],
+    queryFn: () => getAlertasVendasSemVinculo(mes, ano),
+  });
+
+  const alertasParouQuery = useQuery({
+    queryKey: ['alertas-parou', mes, ano],
+    queryFn: () => getAlertasParouDePagar(mes, ano),
+  });
+
+  const classificarMutation = useMutation({
+    mutationFn: ({
+      id,
+      acao,
+    }: {
+      id: string;
+      acao: 'cancelou' | 'parou_de_pagar';
+    }) => classificarAssinaturaCreditoRecorrente(id, acao),
+    onMutate: ({ id }) => setClassificandoId(id),
+    onSettled: () => setClassificandoId(null),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['alertas-parou', mes, ano] });
+    },
+  });
+
+  const alertasVendas = alertasVendasQuery.data?.alertas ?? [];
+  const alertasParouVisiveis = (alertasParouQuery.data?.alertas ?? []).filter(
+    (a) => !alertasParouOcultos.has(a.assinatura_id),
+  );
+
   const totais = query.data?.totais;
   const itens = query.data?.itens ?? [];
 
-  const modalidades = useMemo(() => {
+  const abas = useMemo(() => {
     const set = new Set<string>();
     for (const item of itens) {
-      const label = modalidadeLabel(item.aba, item.modalidade);
-      if (label && label !== '—') set.add(label);
+      const a = (item.aba ?? '').trim();
+      if (a) set.add(a);
     }
     return [...set].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   }, [itens]);
+
+  /** Modalidades da aba selecionada (ou todas, se nenhuma aba). */
+  const modalidades = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of itens) {
+      if (abaFiltro && (item.aba ?? '').trim() !== abaFiltro) continue;
+      const m = (item.modalidade ?? '').trim();
+      if (m) set.add(m);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  }, [itens, abaFiltro]);
 
   const itensFiltrados = useMemo(() => {
     const q = normalizeSearch(busca);
     const filtered = itens.filter((item) => {
       if (statusFiltro !== 'todos' && item.status !== statusFiltro) return false;
-      if (modalidadeFiltro) {
-        if (modalidadeLabel(item.aba, item.modalidade) !== modalidadeFiltro) return false;
-      }
+      if (abaFiltro && (item.aba ?? '').trim() !== abaFiltro) return false;
+      if (modalidadeFiltro && (item.modalidade ?? '').trim() !== modalidadeFiltro) return false;
       if (q) {
         const hay = normalizeSearch(
           `${item.aluno_nome} ${item.aba} ${item.modalidade} ${STATUS_LABEL[item.status]}`,
@@ -117,24 +201,30 @@ export function ConciliacaoPagamentosPage() {
     return filtered.sort((a, b) => {
       const byStatus = STATUS_SORT[a.status] - STATUS_SORT[b.status];
       if (byStatus !== 0) return byStatus;
-      const byMod = modalidadeLabel(a.aba, a.modalidade).localeCompare(
-        modalidadeLabel(b.aba, b.modalidade),
-        'pt-BR',
-      );
+      const byAba = (a.aba ?? '').localeCompare(b.aba ?? '', 'pt-BR');
+      if (byAba !== 0) return byAba;
+      const byMod = (a.modalidade ?? '').localeCompare(b.modalidade ?? '', 'pt-BR');
       if (byMod !== 0) return byMod;
       return a.aluno_nome.localeCompare(b.aluno_nome, 'pt-BR');
     });
-  }, [itens, statusFiltro, modalidadeFiltro, busca]);
+  }, [itens, statusFiltro, abaFiltro, modalidadeFiltro, busca]);
 
-  const colCount = isAdmin ? 8 : 4;
+  const colCount = isAdmin ? 9 : 5;
 
   const limparFiltros = () => {
     setStatusFiltro('todos');
     setBusca('');
+    setAbaFiltro('');
     setModalidadeFiltro('');
   };
 
-  const temFiltro = statusFiltro !== 'todos' || Boolean(busca.trim() || modalidadeFiltro);
+  const onChangeAba = (proxima: string) => {
+    setAbaFiltro(proxima);
+    setModalidadeFiltro('');
+  };
+
+  const temFiltro =
+    statusFiltro !== 'todos' || Boolean(busca.trim() || abaFiltro || modalidadeFiltro);
 
   const chips: FilterChip[] = [];
   if (statusFiltro !== 'todos') {
@@ -142,6 +232,16 @@ export function ConciliacaoPagamentosPage() {
       id: 'status',
       label: `Status: ${STATUS_LABEL[statusFiltro]}`,
       onRemove: () => setStatusFiltro('todos'),
+    });
+  }
+  if (abaFiltro) {
+    chips.push({
+      id: 'aba',
+      label: `Aba: ${abaFiltro}`,
+      onRemove: () => {
+        setAbaFiltro('');
+        setModalidadeFiltro('');
+      },
     });
   }
   if (modalidadeFiltro) {
@@ -229,6 +329,142 @@ export function ConciliacaoPagamentosPage() {
         prioriza pendentes e atrasados (ordem de cobrança).
       </div>
 
+      {alertasVendas.length > 0 ? (
+        <div
+          className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100"
+          role="region"
+          aria-label="Alertas de possível nova assinatura"
+        >
+          <p className="font-medium">
+            {alertasVendas.length} possível(is) nova(s) assinatura(s) no mês — crédito recorrente (Vendas) ainda
+            sem vínculo
+          </p>
+          <ul className="mt-2 space-y-2">
+            {alertasVendas.map((alerta) => {
+              const diaFluxo = (alerta.data_fluxo_sugerida ?? alerta.data).slice(0, 10);
+              const mostraHintExtrato =
+                alerta.data_fluxo_sugerida &&
+                alerta.data_fluxo_sugerida.slice(0, 10) !== alerta.data.slice(0, 10);
+              return (
+              <li
+                key={`${alerta.data}-${alerta.valor}-${alerta.banco_id ?? alerta.mensagem}`}
+                className="rounded-lg border border-amber-200/80 bg-white/60 px-3 py-2 dark:border-amber-900/50 dark:bg-slate-900/40"
+              >
+                <p>{alerta.mensagem}</p>
+                <p className="mt-1 text-xs tabular-nums text-amber-900/80 dark:text-amber-200/80">
+                  {mostraHintExtrato ? (
+                    <>
+                      Cobrança no fluxo: {formatDate(diaFluxo)} · liquidação no extrato:{' '}
+                      {formatDate(alerta.data)} · {formatBrl(alerta.valor)}
+                    </>
+                  ) : (
+                    <>
+                      {formatDate(alerta.data)} · {formatBrl(alerta.valor)}
+                      {isAdmin && alerta.pessoa ? ` · ${alerta.pessoa}` : ''}
+                    </>
+                  )}
+                </p>
+                {isAdmin ? (
+                  <Link
+                    to={`/validacao-pagamentos-diaria?data=${encodeURIComponent(diaFluxo)}`}
+                    className="mt-2 inline-flex rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100 dark:border-amber-700 dark:bg-slate-900 dark:text-amber-100 dark:hover:bg-slate-800"
+                  >
+                    Ir ao dia na Validação
+                  </Link>
+                ) : null}
+              </li>
+              );
+            })}
+          </ul>
+          {isAdmin ? (
+            <Link
+              to={`/validacao-pagamentos-diaria${
+                alertasVendas[0]?.data_fluxo_sugerida
+                  ? `?data=${encodeURIComponent(alertasVendas[0].data_fluxo_sugerida.slice(0, 10))}`
+                  : ''
+              }`}
+              className="mt-3 inline-flex rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100 dark:border-amber-700 dark:bg-slate-900 dark:text-amber-100 dark:hover:bg-slate-800"
+            >
+              Ir para Validação →
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
+
+      {alertasParouVisiveis.length > 0 ? (
+        <div
+          className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-950 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-100"
+          role="region"
+          aria-label="Alertas de possível parada de pagamento"
+        >
+          <p className="font-medium">
+            {alertasParouVisiveis.length} assinatura(s) recorrente(s) — possível parada de pagamento
+          </p>
+          <ul className="mt-2 space-y-2">
+            {alertasParouVisiveis.map((alerta) => (
+              <li
+                key={alerta.assinatura_id}
+                className="rounded-lg border border-rose-200/80 bg-white/60 px-3 py-2 dark:border-rose-900/50 dark:bg-slate-900/40"
+              >
+                <p className="font-medium">{alerta.nome_exibicao}</p>
+                <p className="mt-0.5">{alerta.mensagem}</p>
+                {isAdmin && alerta.data_esperada ? (
+                  <p className="mt-1 text-xs tabular-nums text-rose-900/80 dark:text-rose-200/80">
+                    Liquidação esperada no extrato ~{formatDate(alerta.data_esperada)}
+                  </p>
+                ) : null}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={classificandoId === alerta.assinatura_id}
+                    onClick={() =>
+                      classificarMutation.mutate({
+                        id: alerta.assinatura_id,
+                        acao: 'cancelou',
+                      })
+                    }
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+                  >
+                    Cancelou
+                  </button>
+                  <button
+                    type="button"
+                    disabled={classificandoId === alerta.assinatura_id}
+                    onClick={() =>
+                      classificarMutation.mutate({
+                        id: alerta.assinatura_id,
+                        acao: 'parou_de_pagar',
+                      })
+                    }
+                    className="rounded-lg border border-rose-300 bg-white px-3 py-1 text-xs font-semibold text-rose-900 hover:bg-rose-100 disabled:opacity-60 dark:border-rose-700 dark:bg-slate-900 dark:text-rose-100 dark:hover:bg-rose-950/60"
+                  >
+                    Parou de pagar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={classificandoId === alerta.assinatura_id}
+                    onClick={() =>
+                      setAlertasParouOcultos((prev) => new Set(prev).add(alerta.assinatura_id))
+                    }
+                    className="rounded-lg border border-transparent px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                  >
+                    Ver depois
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+          {isAdmin ? (
+            <Link
+              to="/assinaturas-credito-recorrente"
+              className="mt-3 inline-flex rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-900 hover:bg-rose-100 dark:border-rose-700 dark:bg-slate-900 dark:text-rose-100 dark:hover:bg-slate-800"
+            >
+              Ver cadastro de assinaturas →
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
+
       {query.error ? (
         <ErrorPanel
           message={
@@ -294,13 +530,13 @@ export function ConciliacaoPagamentosPage() {
 
       <FilterBar
         title="Filtros"
-        subtitle="Busca por nome, modalidade ou status. Os cartões e pílulas acima filtram por situação."
+        subtitle="Busque pelo nome. Refine por aba e, em seguida, pela modalidade dessa aba."
         chips={chips}
         periodLabel={`${String(mes).padStart(2, '0')}/${ano}`}
         onClear={temFiltro ? limparFiltros : undefined}
       >
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-12">
-          <div className="sm:col-span-2 lg:col-span-7">
+          <div className="sm:col-span-2 lg:col-span-6">
             <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
               Busca
             </label>
@@ -308,21 +544,41 @@ export function ConciliacaoPagamentosPage() {
               type="search"
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              placeholder="Aluno, modalidade ou status…"
+              placeholder="Nome do aluno…"
               autoComplete="off"
               className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
             />
           </div>
-          <div className="lg:col-span-5">
+          <div className="lg:col-span-3">
+            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
+              Aba
+            </label>
+            <select
+              value={abaFiltro}
+              onChange={(e) => onChangeAba(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+            >
+              <option value="">Todas as abas</option>
+              {abas.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="lg:col-span-3">
             <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
               Modalidade
             </label>
             <select
               value={modalidadeFiltro}
               onChange={(e) => setModalidadeFiltro(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+              disabled={modalidades.length === 0}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
             >
-              <option value="">Todas</option>
+              <option value="">
+                {abaFiltro ? 'Todas desta aba' : 'Todas as modalidades'}
+              </option>
               {modalidades.map((m) => (
                 <option key={m} value={m}>
                   {m}
@@ -346,6 +602,7 @@ export function ConciliacaoPagamentosPage() {
           <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
             <tr>
               <th className="px-3 py-2.5 font-medium">Aluno</th>
+              <th className="px-3 py-2.5 font-medium">Aba</th>
               <th className="px-3 py-2.5 font-medium">Modalidade</th>
               <th className="px-3 py-2.5 font-medium">Venc.</th>
               <th className="px-3 py-2.5 font-medium">Status</th>
@@ -395,7 +652,10 @@ export function ConciliacaoPagamentosPage() {
                     {item.aluno_nome}
                   </td>
                   <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300">
-                    {modalidadeLabel(item.aba, item.modalidade)}
+                    {(item.aba ?? '').trim() || '—'}
+                  </td>
+                  <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300">
+                    {(item.modalidade ?? '').trim() || '—'}
                   </td>
                   <td className="px-3 py-2.5 tabular-nums text-slate-600 dark:text-slate-300">
                     {item.dia_vencimento != null ? `Dia ${item.dia_vencimento}` : '—'}
@@ -421,7 +681,11 @@ export function ConciliacaoPagamentosPage() {
                       <td className="px-3 py-2.5">
                         {item.status === 'pendente' || item.status === 'atrasado' ? (
                           <Link
-                            to="/validacao-pagamentos-diaria"
+                            to={
+                              item.data_pagamento_fluxo
+                                ? `/validacao-pagamentos-diaria?data=${encodeURIComponent(item.data_pagamento_fluxo.slice(0, 10))}`
+                                : '/validacao-pagamentos-diaria'
+                            }
                             className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
                           >
                             Conferir na Validação

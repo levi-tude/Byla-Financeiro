@@ -244,6 +244,11 @@ export interface ControleCaixaBloco {
 export interface ControleCaixaResponse {
   mes: number;
   ano: number;
+  /** oficial = migração planilha; sistema = sync/editor */
+  modo?: 'oficial' | 'sistema';
+  modosDisponiveis?: Array<'oficial' | 'sistema'>;
+  somenteLeitura?: boolean;
+  existe?: boolean;
   abaRef: string | null;
   origem: string;
   updatedAt?: string | null;
@@ -258,14 +263,20 @@ export interface ControleCaixaResponse {
   blocos: ControleCaixaBloco[];
 }
 
+export type ControleModo = 'oficial' | 'sistema';
+
 export interface ControleCaixaSavePayload {
   abaRef: string | null;
   totais: ControleCaixaResponse['totais'];
   blocos: ControleCaixaBloco[];
 }
 
-export async function getControleCaixa(mes: number, ano: number): Promise<ControleCaixaResponse> {
-  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+export async function getControleCaixa(
+  mes: number,
+  ano: number,
+  modo: ControleModo = 'sistema',
+): Promise<ControleCaixaResponse> {
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano), modo });
   return request<ControleCaixaResponse>(`/api/controle-caixa?${params.toString()}`);
 }
 
@@ -273,8 +284,9 @@ export async function putControleCaixa(
   mes: number,
   ano: number,
   payload: ControleCaixaSavePayload,
+  modo: ControleModo = 'sistema',
 ): Promise<ControleCaixaResponse> {
-  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano), modo });
   return requestPut<ControleCaixaResponse>(`/api/controle-caixa?${params.toString()}`, payload);
 }
 
@@ -1226,7 +1238,12 @@ export async function getEntradasCategoriaTransacoes(
 export async function putEntradasMapeamento(
   mes: number,
   ano: number,
-  body: { pessoa_normalizada: string; template_key: string; subcategoria?: string },
+  body: {
+    pessoa_normalizada: string;
+    template_key: string;
+    subcategoria?: string;
+    categoria_label?: string;
+  },
 ): Promise<{ id: string; pessoa_normalizada: string; categoria: string; template_key: string | null; ativo: boolean }> {
   const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
   return requestPut(`/api/entradas/mapeamento?${params.toString()}`, { ...body, aplica_tipo: 'entrada' });
@@ -1799,7 +1816,14 @@ export interface ValidacaoPagamentosDiariaResponse {
     delta_total_planilha_menos_banco: number;
     itens_confirmados: { planilha: ValidacaoDiariaPlanilhaItem; banco: ValidacaoDiariaBancoItem }[];
     itens_nao_confirmados: ValidacaoDiariaPlanilhaItem[];
-    itens_possivel_match: { planilha: ValidacaoDiariaPlanilhaItem; candidatos: ValidacaoDiariaBancoItem[] }[];
+    itens_possivel_match: {
+      planilha: ValidacaoDiariaPlanilhaItem;
+      candidatos: ValidacaoDiariaBancoItem[];
+      possivel_rateio_mesmo_aluno?: boolean;
+      grupo_rateio_ids?: string[];
+      rateio_soma?: number;
+      mesmo_pagador_multi_aluno?: boolean;
+    }[];
     itens_banco_sem_correspondencia: ValidacaoDiariaBancoItem[];
   };
 }
@@ -1872,17 +1896,230 @@ export async function createValidacaoVinculo(
   ano: number,
   banco_id: string,
   planilha_ids: string[],
-  observacao?: string,
+  options?: { observacao?: string; lembrarCreditoRecorrente?: boolean },
 ): Promise<{ ok: boolean; persisted?: string }> {
   if (!BASE_URL) throw new Error('VITE_BACKEND_URL não configurado');
+  const body: Record<string, unknown> = { data, mes, ano, banco_id, planilha_ids };
+  if (options?.observacao != null) body.observacao = options.observacao;
+  if (options?.lembrarCreditoRecorrente === true) body.lembrar_credito_recorrente = true;
   const res = await apiFetch('/api/validacao-vinculos', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ data, mes, ano, banco_id, planilha_ids, observacao }),
+    body: JSON.stringify(body),
   });
   const text = await res.text();
   if (!res.ok) throw new Error(await parseBackendError(res, text));
   return text ? (JSON.parse(text) as { ok: boolean; persisted?: string }) : { ok: true };
+}
+
+/** Espelha `SugestaoCreditoRecorrente` do backend. */
+export type SugestaoCreditoRecorrente = {
+  regra_id: string;
+  rotulo: string;
+  /** Dia de cobrança no Fluxo (aba operacional). */
+  data_fluxo: string;
+  data_esperada: string;
+  janela: string[];
+  aviso_valor: boolean;
+  banco: { id: string; data: string; valor: number; pessoa: string } | null;
+  status: 'unico' | 'ambiguidade' | 'nenhum';
+  candidatos: Array<{ id: string; data: string; valor: number; pessoa: string }>;
+  planilha_ids: string[];
+  alunos_exibicao: string[];
+};
+
+export async function getCreditoRecorrenteSugestoes(
+  mes: number,
+  ano: number,
+): Promise<{ mes: number; ano: number; sugestoes: SugestaoCreditoRecorrente[] }> {
+  if (!BASE_URL) throw new Error('VITE_BACKEND_URL não configurado');
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  const res = await apiFetch(`/api/credito-recorrente/sugestoes?${params.toString()}`, { method: 'GET' });
+  const text = await res.text();
+  if (!res.ok) throw new Error(await parseBackendError(res, text));
+  return text
+    ? (JSON.parse(text) as { mes: number; ano: number; sugestoes: SugestaoCreditoRecorrente[] })
+    : { mes, ano, sugestoes: [] };
+}
+
+/** Espelha `AlertaVendasSemVinculo` do backend (campos opcionais para secretária). */
+export type AlertaVendasSemVinculo = {
+  banco_id?: string;
+  data: string;
+  valor: number;
+  pessoa?: string;
+  /** Dia de cobrança sugerido no Fluxo (quando inferível a partir do extrato). */
+  data_fluxo_sugerida?: string;
+  possivel_nova_assinatura: true;
+  mensagem: string;
+};
+
+export async function getAlertasVendasSemVinculo(
+  mes: number,
+  ano: number,
+): Promise<{ mes: number; ano: number; alertas: AlertaVendasSemVinculo[] }> {
+  if (!BASE_URL) throw new Error('VITE_BACKEND_URL não configurado');
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  const res = await apiFetch(`/api/credito-recorrente/alertas-vendas?${params.toString()}`, { method: 'GET' });
+  const text = await res.text();
+  if (!res.ok) throw new Error(await parseBackendError(res, text));
+  return text
+    ? (JSON.parse(text) as { mes: number; ano: number; alertas: AlertaVendasSemVinculo[] })
+    : { mes, ano, alertas: [] };
+}
+
+export type ConfirmarCreditoRecorrenteBody = {
+  regra_id: string;
+  banco_id: string;
+  planilha_ids: string[];
+  data_ref: string;
+  mes: number;
+  ano: number;
+};
+
+export async function confirmarCreditoRecorrenteSugestao(
+  body: ConfirmarCreditoRecorrenteBody,
+): Promise<{ ok: boolean; persisted?: string }> {
+  if (!BASE_URL) throw new Error('VITE_BACKEND_URL não configurado');
+  const res = await apiFetch('/api/credito-recorrente/confirmar', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(await parseBackendError(res, text));
+  return text ? (JSON.parse(text) as { ok: boolean; persisted?: string }) : { ok: true };
+}
+
+/** Espelha `AssinaturaCreditoRecorrente` do backend. */
+export type StatusBylaAssinatura = 'ativa' | 'cancelada' | 'parou_de_pagar' | 'concluida';
+
+export type AssinaturaCreditoRecorrente = {
+  id: string;
+  pagbank_subs_id: string;
+  pagbank_cust_id: string | null;
+  nome_exibicao: string;
+  status_pagbank: 'Ativa' | 'Cancelada';
+  status_byla: StatusBylaAssinatura;
+  valor_bruto: number;
+  plano_rotulo: string | null;
+  dia_cobranca: number;
+  ciclo_atual: number;
+  ciclo_total: number;
+  proxima_cobranca: string | null;
+  historico_cobrancas: Array<{ data: string; status: string }>;
+  offset_dias_extrato: number;
+  regra_sticky_id: string | null;
+  ativo: boolean;
+};
+
+export type UpsertAssinaturaCreditoRecorrenteBody = {
+  pagbank_subs_id: string;
+  pagbank_cust_id?: string | null;
+  nome_exibicao: string;
+  status_pagbank: 'Ativa' | 'Cancelada';
+  valor_bruto: number;
+  plano_rotulo?: string | null;
+  dia_cobranca: number;
+  ciclo_atual: number;
+  ciclo_total: number;
+  data_criacao_assinatura?: string | null;
+  proxima_cobranca?: string | null;
+  historico_cobrancas?: Array<{ data: string; status: string }>;
+  offset_dias_extrato?: number;
+  regra_sticky_id?: string | null;
+  ativo?: boolean;
+  status_byla?: StatusBylaAssinatura;
+};
+
+export type PatchAssinaturaCreditoRecorrenteBody = Partial<
+  Omit<UpsertAssinaturaCreditoRecorrenteBody, 'pagbank_subs_id'>
+>;
+
+export async function listAssinaturasCreditoRecorrente(): Promise<{
+  assinaturas: AssinaturaCreditoRecorrente[];
+}> {
+  if (!BASE_URL) throw new Error('VITE_BACKEND_URL não configurado');
+  const res = await apiFetch('/api/assinaturas-credito-recorrente', { method: 'GET' });
+  const text = await res.text();
+  if (!res.ok) throw new Error(await parseBackendError(res, text));
+  return text
+    ? (JSON.parse(text) as { assinaturas: AssinaturaCreditoRecorrente[] })
+    : { assinaturas: [] };
+}
+
+export async function upsertAssinaturaCreditoRecorrente(
+  body: UpsertAssinaturaCreditoRecorrenteBody,
+): Promise<{ ok: boolean; assinatura: AssinaturaCreditoRecorrente }> {
+  if (!BASE_URL) throw new Error('VITE_BACKEND_URL não configurado');
+  const res = await apiFetch('/api/assinaturas-credito-recorrente', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(await parseBackendError(res, text));
+  return JSON.parse(text) as { ok: boolean; assinatura: AssinaturaCreditoRecorrente };
+}
+
+export async function patchAssinaturaCreditoRecorrente(
+  id: string,
+  body: PatchAssinaturaCreditoRecorrenteBody,
+): Promise<{ ok: boolean; assinatura: AssinaturaCreditoRecorrente }> {
+  if (!BASE_URL) throw new Error('VITE_BACKEND_URL não configurado');
+  const res = await apiFetch(`/api/assinaturas-credito-recorrente/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(await parseBackendError(res, text));
+  return JSON.parse(text) as { ok: boolean; assinatura: AssinaturaCreditoRecorrente };
+}
+
+/** Espelha `AlertaParouDePagar` do backend (campos opcionais para secretária). */
+export type AlertaParouDePagar = {
+  assinatura_id: string;
+  nome_exibicao: string;
+  data_esperada?: string;
+  mensagem: string;
+};
+
+export async function getAlertasParouDePagar(
+  mes: number,
+  ano: number,
+): Promise<{ mes: number; ano: number; alertas: AlertaParouDePagar[] }> {
+  if (!BASE_URL) throw new Error('VITE_BACKEND_URL não configurado');
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  const res = await apiFetch(
+    `/api/assinaturas-credito-recorrente/alertas-parou?${params.toString()}`,
+    { method: 'GET' },
+  );
+  const text = await res.text();
+  if (!res.ok) throw new Error(await parseBackendError(res, text));
+  return text
+    ? (JSON.parse(text) as { mes: number; ano: number; alertas: AlertaParouDePagar[] })
+    : { mes, ano, alertas: [] };
+}
+
+export type ClassificarAssinaturaAcao = 'cancelou' | 'parou_de_pagar';
+
+export async function classificarAssinaturaCreditoRecorrente(
+  id: string,
+  acao: ClassificarAssinaturaAcao,
+): Promise<{ ok: boolean; assinatura: AssinaturaCreditoRecorrente }> {
+  if (!BASE_URL) throw new Error('VITE_BACKEND_URL não configurado');
+  const res = await apiFetch(
+    `/api/assinaturas-credito-recorrente/${encodeURIComponent(id)}/classificar`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ acao }),
+    },
+  );
+  const text = await res.text();
+  if (!res.ok) throw new Error(await parseBackendError(res, text));
+  return JSON.parse(text) as { ok: boolean; assinatura: AssinaturaCreditoRecorrente };
 }
 
 export async function deleteValidacaoVinculo(planilha_id: string): Promise<{ ok: boolean; persisted?: string }> {
@@ -1895,6 +2132,71 @@ export async function deleteValidacaoVinculo(planilha_id: string): Promise<{ ok:
   const text = await res.text();
   if (!res.ok) throw new Error(await parseBackendError(res, text));
   return text ? (JSON.parse(text) as { ok: boolean; persisted?: string }) : { ok: true };
+}
+
+/** Espelha `MeioPagamentoAluno` do backend. */
+export type MeioPagamentoAluno =
+  | 'pix'
+  | 'debito'
+  | 'credito_a_vista'
+  | 'credito_recorrente'
+  | 'desconhecido';
+
+export type MeioPagamentoAlunoFiltro = MeioPagamentoAluno | 'todos';
+
+export type FinancasAlunoBancoStatus = 'vinculo' | 'match' | 'nenhum';
+export type FinancasAlunoConciliacaoStatus =
+  | 'em_dia'
+  | 'atrasado'
+  | 'pendente'
+  | 'sem_vencimento'
+  | 'bolsa';
+export type FinancasAlunoVinculoFiltro = 'todos' | 'vinculado' | 'sem_vinculo';
+
+export type FinancasAlunoPagamento = {
+  data_pagamento: string | null;
+  data_banco: string | null;
+  aba: string;
+  modalidade: string;
+  valor: number;
+  meio: MeioPagamentoAluno;
+  banco_status: FinancasAlunoBancoStatus;
+  status_conciliacao: FinancasAlunoConciliacaoStatus;
+  aviso_competencia?: string | null;
+};
+
+export type FinancasAlunoGrupo = {
+  aluno_exibicao: string;
+  aba: string;
+  modalidade: string;
+  pagamentos: FinancasAlunoPagamento[];
+};
+
+export type FinancasAlunosResponse = {
+  mes: number;
+  ano: number;
+  grupos: FinancasAlunoGrupo[];
+};
+
+export async function getFinancasAlunos(
+  mes: number,
+  ano: number,
+  meio: MeioPagamentoAlunoFiltro = 'todos',
+  vinculo: FinancasAlunoVinculoFiltro = 'todos',
+): Promise<FinancasAlunosResponse> {
+  if (!BASE_URL) throw new Error('VITE_BACKEND_URL não configurado');
+  const params = new URLSearchParams({
+    mes: String(mes),
+    ano: String(ano),
+    meio,
+    vinculo,
+  });
+  const res = await apiFetch(`/api/financas/alunos?${params.toString()}`, { method: 'GET' });
+  const text = await res.text();
+  if (!res.ok) throw new Error(await parseBackendError(res, text));
+  return text
+    ? (JSON.parse(text) as FinancasAlunosResponse)
+    : { mes, ano, grupos: [] };
 }
 
 /* ——— Aluguel de salas ——— */
@@ -2096,6 +2398,8 @@ export type ConciliacaoPagamentosResponse = {
     aba: string;
     modalidade: string;
     dia_vencimento: number | null;
+    /** Dia de cobrança no Fluxo, para abrir a Validação na data certa. */
+    data_pagamento_fluxo?: string | null;
     status: ConciliacaoPagamentoStatus;
     data_credito?: string | null;
     valor_credito?: number | null;

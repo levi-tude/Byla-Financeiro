@@ -76,7 +76,9 @@ for (const f of tracked) {
 
 // 2) Chave privada no conteúdo versionado (git grep: exit 1 = nenhum match)
 try {
-  const matches = sh('git grep -n "BEGIN RSA PRIVATE KEY" -- .');
+  const matches = sh(
+    'git grep -n "BEGIN RSA PRIVATE KEY" -- . ":(exclude)scripts/verify-git-push-safety.mjs" ":(exclude)scripts/verify-security-config.mjs"',
+  );
   if (matches) fail(`Chave privada detectada no repositório:\n${matches.slice(0, 800)}`);
 } catch (e) {
   const code = e?.status ?? e?.code;
@@ -86,7 +88,9 @@ try {
 }
 
 try {
-  const matches = sh('git grep -n "BEGIN OPENSSH PRIVATE KEY" -- .');
+  const matches = sh(
+    'git grep -n "BEGIN OPENSSH PRIVATE KEY" -- . ":(exclude)scripts/verify-git-push-safety.mjs" ":(exclude)scripts/verify-security-config.mjs"',
+  );
   if (matches) fail(`Chave OpenSSH detectada:\n${matches.slice(0, 800)}`);
 } catch (e) {
   const code = e?.status ?? e?.code;

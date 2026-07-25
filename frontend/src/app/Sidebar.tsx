@@ -32,13 +32,13 @@ export function Sidebar({ open = true, isMobile = false, onNavigate }: SidebarPr
 
   const mobileClasses = isMobile
 
-    ? `fixed inset-y-0 left-0 z-40 h-full w-56 ${
+    ? `fixed inset-y-0 left-0 z-40 h-full w-56 overflow-hidden ${
 
         open ? 'translate-x-0' : '-translate-x-full pointer-events-none'
 
       }`
 
-    : `relative shrink-0 ${
+    : `sticky top-0 self-start h-screen max-h-[100dvh] shrink-0 overflow-hidden ${
 
         open
 
@@ -62,7 +62,7 @@ export function Sidebar({ open = true, isMobile = false, onNavigate }: SidebarPr
 
     >
 
-      <div className="p-4 border-b border-byla-navy-border">
+      <div className="shrink-0 p-4 border-b border-byla-navy-border">
 
         <Link
 
@@ -92,7 +92,7 @@ export function Sidebar({ open = true, isMobile = false, onNavigate }: SidebarPr
 
       </div>
 
-      <nav className="flex-1 p-3 space-y-4" aria-label="Menu principal">
+      <nav className="byla-sidebar-nav min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 space-y-4" aria-label="Menu principal">
 
         {sections.map((section) => (
 
@@ -170,7 +170,7 @@ export function Sidebar({ open = true, isMobile = false, onNavigate }: SidebarPr
 
       </nav>
 
-      <div className="p-3 border-t border-byla-navy-border space-y-2">
+      <div className="shrink-0 p-3 border-t border-byla-navy-border space-y-2">
 
         <div className="text-xs text-gray-300">
 

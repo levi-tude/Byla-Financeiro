@@ -3,8 +3,12 @@ import { describe, it } from 'node:test';
 import {
   mesAnoQuerySchema,
   parseQuery,
+  parseBody,
   transacoesQuerySchema,
   fluxoCompletoQuerySchema,
+  validacaoVinculoUpsertBodySchema,
+  creditoRecorrenteConfirmarBodySchema,
+  creditoRecorrenteRegraPatchBodySchema,
 } from './apiQuery.js';
 
 describe('apiQuery', () => {
@@ -53,5 +57,39 @@ describe('apiQuery', () => {
   it('fluxo rejeita so mes sem ano', () => {
     const r = parseQuery(fluxoCompletoQuerySchema, { mes: '3' });
     assert.equal(r.ok, false);
+  });
+
+  it('validacaoVinculo aceita lembrar_credito_recorrente opcional', () => {
+    const base = {
+      data: '2026-03-10',
+      mes: 3,
+      ano: 2026,
+      banco_id: 'b1',
+      planilha_ids: ['fluxo::a'],
+    };
+    const sem = parseBody(validacaoVinculoUpsertBodySchema, base);
+    assert.equal(sem.ok, true);
+    if (sem.ok) assert.equal(sem.data.lembrar_credito_recorrente, undefined);
+    const com = parseBody(validacaoVinculoUpsertBodySchema, { ...base, lembrar_credito_recorrente: true });
+    assert.equal(com.ok, true);
+    if (com.ok) assert.equal(com.data.lembrar_credito_recorrente, true);
+  });
+
+  it('creditoRecorrente confirmar e patch schemas', () => {
+    const bad = parseBody(creditoRecorrenteConfirmarBodySchema, { mes: 3 });
+    assert.equal(bad.ok, false);
+    const ok = parseBody(creditoRecorrenteConfirmarBodySchema, {
+      regra_id: '11111111-1111-4111-8111-111111111111',
+      banco_id: 'b1',
+      planilha_ids: ['fluxo::a'],
+      data_ref: '2026-03-28',
+      mes: 3,
+      ano: 2026,
+    });
+    assert.equal(ok.ok, true);
+    const patchEmpty = parseBody(creditoRecorrenteRegraPatchBodySchema, {});
+    assert.equal(patchEmpty.ok, false);
+    const patchOk = parseBody(creditoRecorrenteRegraPatchBodySchema, { ativo: false });
+    assert.equal(patchOk.ok, true);
   });
 });

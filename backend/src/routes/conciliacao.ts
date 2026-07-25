@@ -3,15 +3,25 @@ import { getSupabase } from '../services/supabaseClient.js';
 import { businessRules } from '../businessRules.js';
 import { carregarItensPlanilhaParaValidacao } from '../services/fluxoValidacaoPlanilhaItens.js';
 import { filtrarTransacoesOficiais } from '../services/transacoesFiltro.js';
-import { normalizeText, shiftISODate } from '../logic/conciliacaoTexto.js';
+import { normalizeText } from '../logic/conciliacaoTexto.js';
 import {
   matchUmPagamentoPlanilhaBanco,
   matchPagamentosAgrupadosPlanilhaBanco,
+  reconciliarAmbiguidadeValorValidacao,
   resolverColisoesPossivelMatch,
+  candidatosVendasCreditoRecorrente,
+  datasCarregamentoBancoValidacaoDiaria,
+  aplicarVinculosEExclusividadeBanco,
   type PlanilhaItem,
   type BancoItem,
+  type MatchValidacaoPreliminar,
   type PilatesNomePagadorRow,
 } from '../logic/conciliacaoPagamentoMatch.js';
+import { enriquecerPlanilhaComPagadoresAprendidos, alunoNormKey } from '../logic/alunoPagadorMatch.js';
+import { familiaPagamentoChave } from '../logic/gruposFamiliaPagamento.js';
+import { listMapeamentoAlunoPagadorAtivos } from '../services/mapeamentoAlunoPagador.js';
+import { carregarGruposFamiliaNoMatch } from '../services/gruposFamiliaPagamento.js';
+import { listVinculosDia } from '../services/validacaoVinculos.js';
 import { mesAnoQuerySchema, parseQuery, validacaoPagamentosDiariaQuerySchema } from '../validation/apiQuery.js';
 import {
   getConciliacaoVencimentosMesData,
@@ -70,8 +80,7 @@ router.get('/validacao-pagamentos-diaria', async (req: Request, res: Response) =
     if (!supabase) return res.status(503).json({ error: 'Supabase não configurado.' });
 
     const flexDays = businessRules.conciliacao.bancoJanelaDias;
-    const bancoDataSet = new Set<string>();
-    for (let d = -flexDays; d <= flexDays; d++) bancoDataSet.add(shiftISODate(dataStr, d));
+    const bancoDataSet = datasCarregamentoBancoValidacaoDiaria(dataStr, flexDays);
 
     const { data: bancoRows, error: bancoError } = await supabase
       .from('transacoes')
@@ -92,9 +101,7 @@ router.get('/validacao-pagamentos-diaria', async (req: Request, res: Response) =
     }));
 
     const usadosBanco = new Set<string>();
-    const itensConfirmados: Array<{ planilha: PlanilhaItem; banco: BancoItem }> = [];
-    const itensNaoConfirmados: PlanilhaItem[] = [];
-    const itensPossivelMatch: Array<{ planilha: PlanilhaItem; candidatos: BancoItem[] }> = [];
+    const preliminares: MatchValidacaoPreliminar[] = [];
 
     const needsPilatesPagador = planilhaItens.some((it) => normalizeText(it.aba).includes('PILATES') || normalizeText(it.modalidade).includes('PILATES'));
     const pilatesNomePagadorRows: PilatesNomePagadorRow[] = [];
@@ -118,17 +125,31 @@ router.get('/validacao-pagamentos-diaria', async (req: Request, res: Response) =
       }
     }
 
-    for (const p of planilhaItens) {
-      const match = matchUmPagamentoPlanilhaBanco(p, bancoItens, usadosBanco, pilatesNomePagadorRows);
+    await carregarGruposFamiliaNoMatch(supabase);
+    const regrasAlunoPagador = await listMapeamentoAlunoPagadorAtivos(supabase).catch(() => []);
+    const planilhaParaMatch = planilhaItens.map((p) =>
+      enriquecerPlanilhaComPagadoresAprendidos(p, regrasAlunoPagador),
+    );
+
+    for (const p of planilhaParaMatch) {
+      const match = matchUmPagamentoPlanilhaBanco(p, bancoItens, new Set<string>(), pilatesNomePagadorRows);
       if (match.status === 'confirmado') {
-        usadosBanco.add(match.banco.id);
-        itensConfirmados.push({ planilha: p, banco: match.banco });
+        preliminares.push({ status: 'confirmado', planilha: p, banco: match.banco });
       } else if (match.status === 'possivel') {
-        itensPossivelMatch.push({ planilha: p, candidatos: match.candidatos });
+        preliminares.push({ status: 'possivel', planilha: p, candidatos: match.candidatos });
       } else {
-        itensNaoConfirmados.push(p);
+        preliminares.push({ status: 'nao', planilha: p });
       }
     }
+
+    const reconciliado = reconciliarAmbiguidadeValorValidacao(
+      preliminares,
+      businessRules.conciliacao.valorTolerancia,
+    );
+    const itensConfirmados = reconciliado.confirmados;
+    for (const c of itensConfirmados) usadosBanco.add(c.banco.id);
+    const itensPossivelMatch = reconciliado.possiveis;
+    const itensNaoConfirmados = reconciliado.nao;
 
     // Excecoes (varias linhas planilha -> uma entrada no banco): NUNCA misturar com itens ja "possivel" (ambiguidade 1:1).
     // So tentamos agregar entre itens que falharam 1:1 (nao confirmados).
@@ -142,8 +163,8 @@ router.get('/validacao-pagamentos-diaria', async (req: Request, res: Response) =
      * Chaves apenas para excecoes acordadas:
      * - Mesmo aluno, mesmo dia, mesma aba (duas+ linhas na mesma folha).
      * - Mesmo aluno, mesmo dia, em qualquer aba (uma atividade em Ballet + outra em Pilates = um PIX so).
-     * - Mesmo pagador PIX, mesmo dia, em qualquer aba (pai/avo paga um valor unico para dois ou mais alunos).
-     * Nao usar "responsaveis" generico (gera grupos espurios entre familias diferentes).
+     * - Mesmo pagador PIX ou responsável (≥5 chars), mesmo dia (pai/mãe/cônjuge paga um valor unico).
+     * - Grupo familiar sticky (catálogo no Supabase: família/casal).
      */
     const keysDeAgrupamentoExcecoes = (p: PlanilhaItem): string[] => {
       const keys = new Set<string>();
@@ -152,8 +173,20 @@ router.get('/validacao-pagamentos-diaria', async (req: Request, res: Response) =
       const aba = normalizeText(p.aba);
       keys.add(`aba::${aba}::${baseData}::aluno::${aluno}`);
       keys.add(`global::${baseData}::aluno::${aluno}`);
+      const fam = familiaPagamentoChave(p.aluno);
+      if (fam) keys.add(`global::${baseData}::familia::${fam}`);
       const pg = p.pagadorPix ? normalizeText(p.pagadorPix) : '';
-      if (pg.length > 0) keys.add(`global::${baseData}::pagador::${pg}`);
+      if (pg.length >= 5) keys.add(`global::${baseData}::pagador::${pg}`);
+      for (const r of p.responsaveis ?? []) {
+        const rn = normalizeText(r);
+        if (rn.length >= 5) keys.add(`global::${baseData}::pagador::${rn}`);
+      }
+      for (const r of regrasAlunoPagador) {
+        if (r.aluno_normalizado !== alunoNormKey(p.aluno)) continue;
+        if (r.pessoa_banco_normalizada) {
+          keys.add(`global::${baseData}::sticky::${r.pessoa_banco_normalizada}`);
+        }
+      }
       return Array.from(keys);
     };
     for (const p of pendentes) {
@@ -197,23 +230,57 @@ router.get('/validacao-pagamentos-diaria', async (req: Request, res: Response) =
       businessRules.conciliacao.valorTolerancia,
     );
     const itensPossivelMatchFinais = colisoes.rows;
-    const itensNaoConfirmadosFinais = [
+    const itensNaoConfirmadosFinaisRaw = [
       ...itensNaoConfirmados.filter(
         (p) => !idsConvertidosParaPossivel.has(p.id) && !possiveisPorPlanilhaId.has(p.id),
       ),
       ...colisoes.demovidos,
     ];
+    const itensNaoConfirmadosFinais: PlanilhaItem[] = [];
+    const possivelVendasPosColisao: Array<{ planilha: PlanilhaItem; candidatos: BancoItem[] }> = [];
+    for (const p of itensNaoConfirmadosFinaisRaw) {
+      const vendas = candidatosVendasCreditoRecorrente(p, bancoItens, usadosBanco);
+      if (vendas.length > 0) {
+        possivelVendasPosColisao.push({ planilha: p, candidatos: vendas });
+      } else {
+        itensNaoConfirmadosFinais.push(p);
+      }
+    }
+    const itensPossivelMatchComVendas = [...itensPossivelMatchFinais, ...possivelVendasPosColisao];
 
-    const itensBancoSemCorrespondencia = bancoItens.filter((b) => !usadosBanco.has(b.id));
+    const mesRef = Number(dataStr.slice(5, 7));
+    const vinculosDia = await listVinculosDia(dataStr, mesRef, ano).catch(() => []);
+    const posVinculos = aplicarVinculosEExclusividadeBanco({
+      vinculos: vinculosDia.map((v) => ({ planilha_id: v.planilha_id, banco_id: v.banco_id })),
+      planilhas: planilhaItens,
+      bancoItens,
+      confirmados: itensConfirmados,
+      possiveis: itensPossivelMatchComVendas,
+      nao: itensNaoConfirmadosFinais,
+      tol: businessRules.conciliacao.valorTolerancia,
+    });
+    const itensConfirmadosFinais = posVinculos.confirmados;
+    const itensPossivelMatchPosVinculos = posVinculos.possiveis;
+    const itensNaoConfirmadosPosVinculos = posVinculos.nao;
+
+    const usadosBancoPosVinculos = new Set<string>();
+    for (const c of itensConfirmadosFinais) usadosBancoPosVinculos.add(c.banco.id);
+
+    const itensBancoSemCorrespondencia = bancoItens.filter((b) => !usadosBancoPosVinculos.has(b.id));
     const totalPlanilha = planilhaItens.reduce((s, x) => s + Number(x.valor || 0), 0);
     const bancoMatchIds = new Set<string>();
-    for (const c of itensConfirmados) bancoMatchIds.add(c.banco.id);
-    for (const x of itensPossivelMatchFinais) for (const cand of x.candidatos) bancoMatchIds.add(cand.id);
+    for (const c of itensConfirmadosFinais) bancoMatchIds.add(c.banco.id);
+    for (const x of itensPossivelMatchPosVinculos) for (const cand of x.candidatos) bancoMatchIds.add(cand.id);
     const bancoItensMatch = bancoItens.filter((b) => bancoMatchIds.has(b.id));
     const totalBancoMatch = bancoItensMatch.reduce((s, x) => s + Number(x.valor || 0), 0);
     const bancoItensDiaExibicao = bancoItens.filter((b) => b.data === dataStr);
     const delta = totalPlanilha - totalBancoMatch;
-    const statusGeral = itensNaoConfirmadosFinais.length > 0 ? 'divergente' : itensPossivelMatchFinais.length > 0 ? 'atencao' : 'ok';
+    const statusGeral =
+      itensNaoConfirmadosPosVinculos.length > 0
+        ? 'divergente'
+        : itensPossivelMatchPosVinculos.length > 0
+          ? 'atencao'
+          : 'ok';
 
     const payload = {
       meta: {
@@ -227,13 +294,13 @@ router.get('/validacao-pagamentos-diaria', async (req: Request, res: Response) =
       banco: { total: totalBancoMatch, quantidade: bancoItensMatch.length, itens: bancoItensDiaExibicao },
       validacao: {
         status_geral: statusGeral,
-        qtd_confirmados: itensConfirmados.length,
-        qtd_nao_confirmados: itensNaoConfirmadosFinais.length,
-        qtd_possivel_match: itensPossivelMatchFinais.length,
+        qtd_confirmados: itensConfirmadosFinais.length,
+        qtd_nao_confirmados: itensNaoConfirmadosPosVinculos.length,
+        qtd_possivel_match: itensPossivelMatchPosVinculos.length,
         delta_total_planilha_menos_banco: delta,
-        itens_confirmados: itensConfirmados,
-        itens_nao_confirmados: itensNaoConfirmadosFinais,
-        itens_possivel_match: itensPossivelMatchFinais,
+        itens_confirmados: itensConfirmadosFinais,
+        itens_nao_confirmados: itensNaoConfirmadosPosVinculos,
+        itens_possivel_match: itensPossivelMatchPosVinculos,
         itens_banco_sem_correspondencia: itensBancoSemCorrespondencia,
       },
     };

@@ -10,6 +10,8 @@ import { KeyboardShortcutsModal } from '../components/ui/KeyboardShortcutsModal'
 
 import { ThemeToggle } from '../components/ui/ThemeToggle';
 
+import { SensitiveBlurToggle } from '../components/ui/SensitiveBlurToggle';
+
 import { useAuth } from '../auth/AuthContext';
 
 
@@ -184,7 +186,7 @@ export function LayoutShell() {
 
       />
 
-      <main className="flex min-w-0 flex-1 flex-col bg-slate-100 dark:bg-slate-950">
+      <main className="flex min-w-0 flex-1 flex-col overflow-x-hidden bg-slate-100 dark:bg-slate-950">
 
         <div className="sticky top-0 z-20 flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-slate-100/95 px-3 py-2 backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/95">
 
@@ -212,6 +214,8 @@ export function LayoutShell() {
 
           <div className="flex flex-1 flex-wrap items-center justify-end gap-3">
 
+            <SensitiveBlurToggle />
+
             <ThemeToggle />
 
             <button
@@ -236,7 +240,7 @@ export function LayoutShell() {
 
         </div>
 
-        <div className="byla-outlet p-0 text-slate-900 dark:text-slate-100">
+        <div className="byla-outlet min-w-0 overflow-x-hidden p-0 text-slate-900 dark:text-slate-100">
 
           <Outlet />
 

@@ -1,14 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { usePersistedPageState } from '../hooks/usePersistedPageState';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Topbar } from '../app/Topbar';
 import { ValidacaoCalendarioGuia } from '../components/validacao/ValidacaoCalendarioGuia';
 import {
+  confirmarCreditoRecorrenteSugestao,
   createValidacaoVinculo,
   deleteValidacaoVinculo,
+  getAlertasVendasSemVinculo,
+  getCreditoRecorrenteSugestoes,
   getValidacaoFluxoIndiceAno,
   type ValidacaoFluxoIndiceAnoResponse,
   getValidacaoVinculos,
   getValidacaoPagamentosDiaria,
+  type SugestaoCreditoRecorrente,
   type ValidacaoDiariaPlanilhaItem,
   type ValidacaoDiariaBancoItem,
   type ValidacaoPagamentosDiariaResponse,
@@ -18,6 +24,41 @@ import {
   competenciaAlinhaComDataPagamento,
   labelCompetenciaMesAno,
 } from '../utils/competenciaPagamento';
+
+/** Heurística alinhada ao backend: CREDITO + Disponivel/bandeira na pessoa/descrição. */
+function isCreditoGenericoExtratoFront(pessoa: string, descricao?: string | null): boolean {
+  const text = `${pessoa} ${descricao ?? ''}`
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toUpperCase();
+  if (!text.trim()) return false;
+  if (text.includes('VENDAS')) return true;
+  const hasCredito = text.includes('CREDITO');
+  const hasDisponivelOuBandeira =
+    text.includes('DISPONIVEL') ||
+    text.includes('VISA') ||
+    text.includes('MASTER') ||
+    text.includes('ELO');
+  return hasCredito && hasDisponivelOuBandeira;
+}
+
+function isVendasExtratoFront(pessoa: string, descricao?: string | null): boolean {
+  const text = `${pessoa} ${descricao ?? ''}`
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toUpperCase();
+  return text.includes('VENDAS');
+}
+
+const AVISO_VENDAS_RECORRENTE =
+  'Este lançamento parece crédito por recorrência (Vendas). Confira se já está ligado a aluno(s) do fluxo.';
+
+function formatDataCurtaBr(iso: string): string {
+  const d = (iso ?? '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return iso;
+  const [y, m, day] = d.split('-');
+  return `${day}/${m}/${y}`;
+}
 
 /** Filtra por mês de competência (coluna do calendário na planilha) e recalcula totais da conciliação. */
 function filtrarRespostaPorMesCompetencia(
@@ -106,7 +147,31 @@ function statusLabel(status: 'pendente' | 'ok' | 'atencao' | 'divergente'): stri
 
 type StatusValidacaoDia = 'pendente' | 'ok' | 'atencao' | 'divergente';
 
-type PossivelMatchRow = { planilha: ValidacaoDiariaPlanilhaItem; candidatos: ValidacaoDiariaBancoItem[] };
+type PossivelMatchRow = {
+  planilha: ValidacaoDiariaPlanilhaItem;
+  candidatos: ValidacaoDiariaBancoItem[];
+  possivel_rateio_mesmo_aluno?: boolean;
+  grupo_rateio_ids?: string[];
+  rateio_soma?: number;
+  mesmo_pagador_multi_aluno?: boolean;
+  grupo_familia_pagamento?: boolean;
+  grupo_familia_rotulo?: string;
+};
+
+function labelOrigemFluxo(item: ValidacaoDiariaPlanilhaItem): string {
+  const aba = (item.aba ?? '').trim();
+  const mod = (item.modalidade ?? '').trim();
+  if (aba && mod && normalizeText(aba) !== normalizeText(mod)) return `${aba} · ${mod}`;
+  return aba || mod || '—';
+}
+
+function normalizeText(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .trim()
+    .toUpperCase();
+}
 
 function chaveGrupoPossivel(row: PossivelMatchRow): string {
   const d = row.planilha.data.slice(0, 10);
@@ -114,24 +179,69 @@ function chaveGrupoPossivel(row: PossivelMatchRow): string {
   return `${d}::${ids}`;
 }
 
-function somaBateComBanco(somaFluxo: number, valorBanco: number): boolean {
-  return Math.abs(somaFluxo - valorBanco) <= VALOR_EPS;
+function somaBateComBanco(somaFluxo: number, valorBanco: number, opts?: { aceitarDescontoFamilia?: boolean }): boolean {
+  if (Math.abs(somaFluxo - valorBanco) <= VALOR_EPS) return true;
+  if (opts?.aceitarDescontoFamilia && valorBanco > 0 && valorBanco < somaFluxo) {
+    return (somaFluxo - valorBanco) / somaFluxo <= 0.15 + 1e-9;
+  }
+  return false;
 }
 
-function candidatosValidosParaGrupo(grupo: PossivelMatchRow[]): ValidacaoDiariaBancoItem[] {
+/** Candidatos do seletor N→1: só valores que batem com a SOMA (nunca 250 quando a soma é 500). */
+function candidatosValidosParaGrupo(
+  grupo: PossivelMatchRow[],
+  bancoPoolDia: ValidacaoDiariaBancoItem[],
+): ValidacaoDiariaBancoItem[] {
   const sum = grupo.reduce((s, r) => s + Number(r.planilha.valor || 0), 0);
-  return grupo[0].candidatos.filter((c) => somaBateComBanco(sum, Number(c.valor || 0)));
+  const rateioN1 =
+    grupo.length > 1 ||
+    grupo.some((x) => x.grupo_familia_pagamento) ||
+    grupo.some((x) => x.possivel_rateio_mesmo_aluno) ||
+    grupo.some((x) => x.mesmo_pagador_multi_aluno);
+
+  const byId = new Map<string, ValidacaoDiariaBancoItem>();
+  for (const r of grupo) {
+    for (const c of r.candidatos) byId.set(c.id, c);
+  }
+  for (const b of bancoPoolDia) byId.set(b.id, b);
+
+  const aceitarDesconto = rateioN1;
+  const filtrados = Array.from(byId.values()).filter((c) =>
+    somaBateComBanco(sum, Number(c.valor || 0), { aceitarDescontoFamilia: aceitarDesconto }),
+  );
+
+  // N→1: nunca oferecer valor individual (ex.: 250) quando a regra é a soma (500).
+  if (rateioN1) return filtrados;
+  return filtrados.length > 0 ? filtrados : Array.from(byId.values());
 }
 
 function agruparPossivelMatch(rows: PossivelMatchRow[]): PossivelMatchRow[][] {
-  const map = new Map<string, PossivelMatchRow[]>();
+  const porRateioBackend = new Map<string, PossivelMatchRow[]>();
+  const restantes: PossivelMatchRow[] = [];
   for (const x of rows) {
+    if (x.grupo_rateio_ids && x.grupo_rateio_ids.length > 1) {
+      const k = x.grupo_rateio_ids.slice().sort().join('|');
+      const arr = porRateioBackend.get(k) ?? [];
+      arr.push(x);
+      porRateioBackend.set(k, arr);
+    } else {
+      restantes.push(x);
+    }
+  }
+  const result: PossivelMatchRow[][] = [];
+  for (const grupo of porRateioBackend.values()) {
+    const byId = new Map<string, PossivelMatchRow>();
+    for (const r of grupo) byId.set(r.planilha.id, r);
+    result.push(Array.from(byId.values()));
+  }
+
+  const map = new Map<string, PossivelMatchRow[]>();
+  for (const x of restantes) {
     const k = chaveGrupoPossivel(x);
     const arr = map.get(k) ?? [];
     arr.push(x);
     map.set(k, arr);
   }
-  const result: PossivelMatchRow[][] = [];
   for (const grupo of map.values()) {
     if (grupo.length === 1) {
       result.push(grupo);
@@ -155,35 +265,46 @@ function badgesGrupoPossivel(items: PossivelMatchRow[]): Array<{ label: string; 
   const modalidades = new Set(planilhas.map((p) => p.modalidade.trim()));
   const pagPix = planilhas.map((p) => (p.pagadorPix ?? '').trim()).filter(Boolean);
   const pagadorUnico = pagPix.length > 0 && new Set(pagPix).size === 1 ? pagPix[0] : null;
+  const rateioBackend = items.some((x) => x.possivel_rateio_mesmo_aluno);
+  const familiaBackend = items.some((x) => x.grupo_familia_pagamento);
+  const familiaRotulo =
+    items.find((x) => x.grupo_familia_rotulo)?.grupo_familia_rotulo ?? 'família';
+  const pagadorMultiBackend = items.some((x) => x.mesmo_pagador_multi_aluno);
 
   const badges: Array<{ label: string; title: string }> = [];
   const cand = items[0].candidatos;
+  const partesValor = planilhas.map((p) => formatCurrency(Number(p.valor || 0))).join(' + ');
+
+  if (rateioBackend || (alunos.size === 1 && modalidades.size > 1)) {
+    badges.push({
+      label: 'Pagamento único · várias modalidades',
+      title: `Provável pagamento único cobrindo ${n} modalidades (${partesValor} = ${formatCurrency(sum)}). Confirme um lançamento no banco para todas as linhas.`,
+    });
+  } else if (familiaBackend) {
+    badges.push({
+      label: `Pagamento único · ${familiaRotulo}`,
+      title: `${n} alunas/os do grupo (${familiaRotulo}) somam ${partesValor} = ${formatCurrency(sum)}. Confirme um lançamento no banco para todas.`,
+    });
+  } else if (pagadorMultiBackend || (pagadorUnico && alunos.size > 1)) {
+    badges.push({
+      label: 'Mesmo pagador no banco',
+      title: pagadorUnico
+        ? `Mesmo pagador PIX (${pagadorUnico}) para ${n} alunos — vincular aos dois?`
+        : `Mesmo pagador no banco para ${n} alunos — confirme o vínculo para todas as linhas.`,
+    });
+  }
 
   if (cand.length === 1 && somaBateComBanco(sum, Number(cand[0].valor))) {
     badges.push({
       label: 'Soma → 1 no banco',
       title: `${n} linhas no fluxo somam ${formatCurrency(sum)} e batem com uma única entrada de ${formatCurrency(
         Number(cand[0].valor),
-      )} no banco. Confirme após conferir nomes e valores.`,
+      )} no banco.`,
     });
   } else if (cand.some((c) => somaBateComBanco(sum, Number(c.valor)))) {
     badges.push({
       label: 'Soma → 1 no banco',
       title: `${n} linhas somam ${formatCurrency(sum)}. Escolha o lançamento do banco com o mesmo valor.`,
-    });
-  }
-
-  if (alunos.size === 1 && modalidades.size > 1) {
-    badges.push({
-      label: 'Várias modalidades',
-      title: 'Mesmo aluno com mais de uma atividade no mesmo dia — um único PIX pode cobrir todas.',
-    });
-  }
-
-  if (pagadorUnico && alunos.size > 1) {
-    badges.push({
-      label: 'Mesmo pagador (PIX)',
-      title: `O pagador PIX é o mesmo para ${n} alunos diferentes: ${pagadorUnico}.`,
     });
   }
 
@@ -204,6 +325,35 @@ function todayIsoLocal(): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+type ValidacaoNavPersisted = {
+  data: string;
+  aba: string;
+  modalidade: string;
+  mesCompetenciaFiltro: number | 'todos';
+};
+
+function validacaoNavInitialState(): ValidacaoNavPersisted {
+  return {
+    data: todayIsoLocal(),
+    aba: 'TODAS',
+    modalidade: 'TODAS',
+    mesCompetenciaFiltro: 'todos',
+  };
+}
+
+function patchValidacaoNav<K extends keyof ValidacaoNavPersisted>(
+  setNav: Dispatch<SetStateAction<ValidacaoNavPersisted>>,
+  key: K,
+  value: SetStateAction<ValidacaoNavPersisted[K]>,
+) {
+  setNav((prev) => ({
+    ...prev,
+    [key]: typeof value === 'function'
+      ? (value as (prev: ValidacaoNavPersisted[K]) => ValidacaoNavPersisted[K])(prev[key])
+      : value,
+  }));
 }
 
 /** Competência na planilha + aviso quando o mês de serviço ≠ mês da data de pagamento (o lançamento continua no dia da data). */
@@ -228,13 +378,33 @@ function CelulaCompetenciaPlanilha({ item }: { item: ValidacaoDiariaPlanilhaItem
 }
 
 export function ValidacaoPagamentosDiariaPage() {
+  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const dataQuery = searchParams.get('data');
   const veioDoCalendario = Boolean(dataQuery && /^\d{4}-\d{2}-\d{2}$/.test(dataQuery));
-  const [data, setData] = useState(todayIsoLocal());
+  const urlDataAppliedRef = useRef(false);
+
+  const [nav, setNav] = usePersistedPageState('validacao-pagamentos', validacaoNavInitialState());
+  const { data, aba, modalidade, mesCompetenciaFiltro } = nav;
+
+  const setData = useCallback(
+    (value: SetStateAction<string>) => patchValidacaoNav(setNav, 'data', value),
+    [setNav],
+  );
+  const setAba = useCallback(
+    (value: SetStateAction<string>) => patchValidacaoNav(setNav, 'aba', value),
+    [setNav],
+  );
+  const setModalidade = useCallback(
+    (value: SetStateAction<string>) => patchValidacaoNav(setNav, 'modalidade', value),
+    [setNav],
+  );
+  const setMesCompetenciaFiltro = useCallback(
+    (value: SetStateAction<number | 'todos'>) => patchValidacaoNav(setNav, 'mesCompetenciaFiltro', value),
+    [setNav],
+  );
+
   const [dataBusca, setDataBusca] = useState('');
-  const [aba, setAba] = useState('TODAS');
-  const [modalidade, setModalidade] = useState('TODAS');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resposta, setResposta] = useState<ValidacaoPagamentosDiariaResponse | null>(null);
@@ -244,8 +414,38 @@ export function ValidacaoPagamentosDiariaPage() {
   const statusPorDataRef = useRef(statusPorData);
   statusPorDataRef.current = statusPorData;
   const [savingVinculo, setSavingVinculo] = useState(false);
-  /** Filtro por mês de competência (coluna calendário na planilha). "Todos" = sem filtro. */
-  const [mesCompetenciaFiltro, setMesCompetenciaFiltro] = useState<number | 'todos'>('todos');
+  /** Default marcado; só aparece quando o lançamento do banco é crédito genérico. */
+  const [lembrarCreditoRecorrente, setLembrarCreditoRecorrente] = useState(true);
+  const [sugestoesIgnoradas, setSugestoesIgnoradas] = useState<Set<string>>(() => new Set());
+  const [confirmandoSugestaoId, setConfirmandoSugestaoId] = useState<string | null>(null);
+  /** Incrementa para forçar reload do dia após confirmar sugestão. */
+  const [reloadDiaToken, setReloadDiaToken] = useState(0);
+
+  const mesData = Number(data.slice(5, 7));
+  const anoData = Number(data.slice(0, 4));
+
+  const sugestoesQuery = useQuery({
+    queryKey: ['credito-recorrente-sugestoes', mesData, anoData],
+    queryFn: () => getCreditoRecorrenteSugestoes(mesData, anoData),
+  });
+
+  const alertasVendasQuery = useQuery({
+    queryKey: ['alertas-vendas', mesData, anoData],
+    queryFn: () => getAlertasVendasSemVinculo(mesData, anoData),
+  });
+
+  const alertasVendas = alertasVendasQuery.data?.alertas ?? [];
+
+  const sugestoesVisiveis = useMemo(() => {
+    const list: SugestaoCreditoRecorrente[] = sugestoesQuery.data?.sugestoes ?? [];
+    return list.filter(
+      (s) =>
+        s.status === 'unico' &&
+        s.banco != null &&
+        s.planilha_ids.length > 0 &&
+        !sugestoesIgnoradas.has(s.regra_id),
+    );
+  }, [sugestoesQuery.data, sugestoesIgnoradas]);
 
   const respostaFiltrada = useMemo(() => {
     if (!resposta) return null;
@@ -257,9 +457,13 @@ export function ValidacaoPagamentosDiariaPage() {
   const [draftGroupMatches, setDraftGroupMatches] = useState<Record<string, string>>({});
 
   useEffect(() => {
+    if (urlDataAppliedRef.current) return;
     const d = searchParams.get('data');
-    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) setData(d);
-  }, [searchParams]);
+    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+      setNav((prev) => ({ ...prev, data: d }));
+      urlDataAppliedRef.current = true;
+    }
+  }, [searchParams, setNav]);
 
   useEffect(() => {
     setDraftMatches({});
@@ -285,7 +489,7 @@ export function ValidacaoPagamentosDiariaPage() {
     return () => {
       cancelled = true;
     };
-  }, [data, aba, modalidade]);
+  }, [data, aba, modalidade, reloadDiaToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -309,7 +513,7 @@ export function ValidacaoPagamentosDiariaPage() {
     return () => {
       cancelled = true;
     };
-  }, [data, aba, modalidade, mesCompetenciaFiltro]);
+  }, [data, aba, modalidade, mesCompetenciaFiltro, reloadDiaToken]);
 
   /** Índice do ano (datas + abas) — mesma leitura do fluxo que o detalhe do dia. */
   useEffect(() => {
@@ -405,13 +609,23 @@ export function ValidacaoPagamentosDiariaPage() {
     return agruparPossivelMatch(rows);
   }, [validacaoAjustada, respostaFiltrada]);
 
-  async function vincularItem(planilhaId: string, bancoId: string) {
+  async function vincularItens(planilhaIds: string[], bancoId: string, opts?: { lembrarCreditoRecorrente?: boolean }) {
     const mes = Number(data.slice(5, 7));
     const ano = Number(data.slice(0, 4));
     setSavingVinculo(true);
     try {
-      await createValidacaoVinculo(data, mes, ano, bancoId, [planilhaId]);
-      setManualMatches((prev) => ({ ...prev, [planilhaId]: bancoId }));
+      await createValidacaoVinculo(data, mes, ano, bancoId, planilhaIds, {
+        lembrarCreditoRecorrente: opts?.lembrarCreditoRecorrente === true,
+      });
+      setManualMatches((prev) => {
+        const next = { ...prev };
+        for (const planilhaId of planilhaIds) next[planilhaId] = bancoId;
+        return next;
+      });
+      if (opts?.lembrarCreditoRecorrente) {
+        void queryClient.invalidateQueries({ queryKey: ['credito-recorrente-sugestoes'] });
+      }
+      void queryClient.invalidateQueries({ queryKey: ['alertas-vendas'] });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -432,6 +646,31 @@ export function ValidacaoPagamentosDiariaPage() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSavingVinculo(false);
+    }
+  }
+
+  async function confirmarSugestao(sugestao: SugestaoCreditoRecorrente) {
+    if (!sugestao.banco) return;
+    setConfirmandoSugestaoId(sugestao.regra_id);
+    setError(null);
+    try {
+      const dataRef = (sugestao.data_fluxo ?? sugestao.banco.data ?? sugestao.data_esperada).slice(0, 10);
+      await confirmarCreditoRecorrenteSugestao({
+        regra_id: sugestao.regra_id,
+        banco_id: sugestao.banco.id,
+        planilha_ids: sugestao.planilha_ids,
+        data_ref: dataRef,
+        mes: mesData,
+        ano: anoData,
+      });
+      await queryClient.invalidateQueries({ queryKey: ['credito-recorrente-sugestoes', mesData, anoData] });
+      void queryClient.invalidateQueries({ queryKey: ['alertas-vendas', mesData, anoData] });
+      setReloadDiaToken((n) => n + 1);
+      if (dataRef !== data) setData(dataRef);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setConfirmandoSugestaoId(null);
     }
   }
 
@@ -547,6 +786,15 @@ export function ValidacaoPagamentosDiariaPage() {
     return 'bg-rose-100 text-rose-800 border-rose-200';
   }, [validacaoAjustada]);
 
+  const vendasNoDia = useMemo(() => {
+    if (!resposta) return [];
+    return resposta.banco.itens.filter(
+      (b) =>
+        (b.data ?? '').slice(0, 10) === data &&
+        isVendasExtratoFront(b.pessoa, b.descricao),
+    );
+  }, [resposta, data]);
+
   return (
     <div className="p-6">
       <Topbar
@@ -653,6 +901,107 @@ export function ValidacaoPagamentosDiariaPage() {
           </select>
         </div>
       </div>
+
+      {alertasVendas.length > 0 ? (
+        <div className="mt-4 space-y-2" role="region" aria-label="Alertas de Vendas sem vínculo">
+          <p className="text-xs font-medium text-amber-900">
+            {alertasVendas.length} possível(is) nova(s) assinatura(s) no mês
+          </p>
+          {alertasVendas.map((alerta) => {
+            const diaFluxo = (alerta.data_fluxo_sugerida ?? alerta.data).slice(0, 10);
+            const mostraHintExtrato =
+              alerta.data_fluxo_sugerida &&
+              alerta.data_fluxo_sugerida.slice(0, 10) !== alerta.data.slice(0, 10);
+            return (
+            <div
+              key={`${alerta.data}-${alerta.valor}-${alerta.banco_id ?? alerta.mensagem}`}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+            >
+              <div className="min-w-0 flex-1">
+                <p>{alerta.mensagem}</p>
+                <p className="mt-1 text-xs text-amber-900/80 tabular-nums">
+                  {mostraHintExtrato ? (
+                    <>
+                      Cobrança no fluxo: {formatDataCurtaBr(diaFluxo)} · liquidação no extrato:{' '}
+                      {formatDataCurtaBr(alerta.data)}
+                    </>
+                  ) : (
+                    <>
+                      {formatDataCurtaBr(alerta.data)} · {formatCurrency(alerta.valor)}
+                      {alerta.pessoa ? ` · ${alerta.pessoa}` : ''}
+                    </>
+                  )}
+                  {mostraHintExtrato ? (
+                    <span className="ml-1">· {formatCurrency(alerta.valor)}</span>
+                  ) : null}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="shrink-0 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+                onClick={() => setData(diaFluxo)}
+              >
+                Ir ao dia
+              </button>
+            </div>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {sugestoesVisiveis.length > 0 ? (
+        <div className="mt-4 space-y-2" role="region" aria-label="Sugestões de crédito recorrente">
+          {sugestoesVisiveis.map((s) => {
+            const dataAprox = formatDataCurtaBr(s.banco?.data ?? s.data_esperada);
+            return (
+              <div
+                key={s.regra_id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950"
+              >
+                <div className="min-w-0 flex-1">
+                  <p>
+                    Possível crédito recorrente <strong>{s.rotulo}</strong> (~{dataAprox})
+                    {s.alunos_exibicao?.length ? (
+                      <span className="text-sky-900/80"> — {s.alunos_exibicao.join(', ')}</span>
+                    ) : null}
+                  </p>
+                  <p className="mt-1 text-xs text-sky-900/80">
+                    Liquidação esperada no extrato ~{formatDataCurtaBr(s.data_esperada)}
+                  </p>
+                  {s.aviso_valor ? (
+                    <p className="mt-1 text-xs text-amber-900">
+                      Valor no banco diferente do esperado na planilha.
+                    </p>
+                  ) : null}
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-800 disabled:opacity-50"
+                    disabled={confirmandoSugestaoId === s.regra_id}
+                    onClick={() => void confirmarSugestao(s)}
+                  >
+                    {confirmandoSugestaoId === s.regra_id ? 'Confirmando…' : 'Confirmar'}
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-xs font-medium text-sky-900 hover:bg-sky-100"
+                    onClick={() =>
+                      setSugestoesIgnoradas((prev) => {
+                        const next = new Set(prev);
+                        next.add(s.regra_id);
+                        return next;
+                      })
+                    }
+                  >
+                    Ignorar
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
 
       <section className="mt-4 bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="px-4 py-3 border-b bg-gray-50 flex flex-wrap items-center justify-between gap-3">
@@ -905,6 +1254,11 @@ export function ValidacaoPagamentosDiariaPage() {
                   Lista todas as entradas do dia no banco; os totais acima consideram só a competência selecionada.
                 </p>
               )}
+              {vendasNoDia.length > 0 ? (
+                <p className="mt-2 text-xs text-sky-900 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2">
+                  {AVISO_VENDAS_RECORRENTE}
+                </p>
+              ) : null}
             </div>
             <div className="p-4 overflow-x-auto">
               <table className="w-full text-xs">
@@ -1030,6 +1384,25 @@ export function ValidacaoPagamentosDiariaPage() {
                         <div className="text-sm text-amber-900">
                           <b>{x.planilha.aluno}</b> · {x.planilha.data} · {formatCurrency(x.planilha.valor)}
                         </div>
+                        <div className="text-[10px] text-gray-500 mt-0.5">{labelOrigemFluxo(x.planilha)}</div>
+                        {x.possivel_rateio_mesmo_aluno && x.grupo_rateio_ids && x.grupo_rateio_ids.length > 1 ? (
+                          <div
+                            className="mt-2 text-[11px] text-indigo-900 bg-indigo-50 border border-indigo-200 rounded-lg px-2.5 py-1.5"
+                            role="status"
+                          >
+                            Provável pagamento único cobrindo {x.grupo_rateio_ids.length} modalidades (
+                            {x.grupo_rateio_ids
+                              .map((id) => {
+                                const row = (validacaoAjustada ?? respostaFiltrada?.validacao)?.itens_possivel_match.find(
+                                  (r) => r.planilha.id === id,
+                                );
+                                return row ? formatCurrency(row.planilha.valor) : null;
+                              })
+                              .filter(Boolean)
+                              .join(' + ')}
+                            ). Use o card agrupado abaixo para vincular todas de uma vez.
+                          </div>
+                        ) : null}
                         <div className="text-[11px] text-amber-900 mt-1">
                           Competência: {labelCompetenciaMesAno(x.planilha.mesCompetencia, x.planilha.anoCompetencia)}
                           {!competenciaAlinhaComDataPagamento(
@@ -1061,6 +1434,12 @@ export function ValidacaoPagamentosDiariaPage() {
                                   else next[x.planilha.id] = bancoId;
                                   return next;
                                 });
+                                if (bancoId) {
+                                  const cand = x.candidatos.find((c) => c.id === bancoId);
+                                  if (cand && isCreditoGenericoExtratoFront(cand.pessoa, cand.descricao)) {
+                                    setLembrarCreditoRecorrente(true);
+                                  }
+                                }
                               }}
                             >
                               <option value="">Selecione...</option>
@@ -1071,6 +1450,38 @@ export function ValidacaoPagamentosDiariaPage() {
                               ))}
                             </select>
                           </div>
+                          {(() => {
+                            const bancoIdDraft = draftMatches[x.planilha.id];
+                            const cand = bancoIdDraft
+                              ? x.candidatos.find((c) => c.id === bancoIdDraft)
+                              : undefined;
+                            if (cand && isVendasExtratoFront(cand.pessoa, cand.descricao)) {
+                              return (
+                                <p className="w-full text-[11px] text-sky-900 bg-sky-50 border border-sky-200 rounded px-2 py-1.5">
+                                  {AVISO_VENDAS_RECORRENTE}
+                                </p>
+                              );
+                            }
+                            return null;
+                          })()}
+                          {(() => {
+                            const bancoIdDraft = draftMatches[x.planilha.id];
+                            const cand = bancoIdDraft
+                              ? x.candidatos.find((c) => c.id === bancoIdDraft)
+                              : undefined;
+                            const showLembrar =
+                              !!cand && isCreditoGenericoExtratoFront(cand.pessoa, cand.descricao);
+                            return showLembrar ? (
+                              <label className="flex items-center gap-1.5 text-[11px] text-amber-950 pb-2">
+                                <input
+                                  type="checkbox"
+                                  checked={lembrarCreditoRecorrente}
+                                  onChange={(e) => setLembrarCreditoRecorrente(e.target.checked)}
+                                />
+                                Lembrar este crédito recorrente
+                              </label>
+                            ) : null;
+                          })()}
                           <button
                             type="button"
                             className="px-3 py-2 text-xs rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
@@ -1079,7 +1490,14 @@ export function ValidacaoPagamentosDiariaPage() {
                               const planilhaId = x.planilha.id;
                               const bancoId = draftMatches[planilhaId];
                               if (!bancoId) return;
-                              await vincularItem(planilhaId, bancoId);
+                              const cand = x.candidatos.find((c) => c.id === bancoId);
+                              const lembrar =
+                                !!cand &&
+                                isCreditoGenericoExtratoFront(cand.pessoa, cand.descricao) &&
+                                lembrarCreditoRecorrente;
+                              await vincularItens([planilhaId], bancoId, {
+                                lembrarCreditoRecorrente: lembrar,
+                              });
                               setDraftMatches((prev) => {
                                 const next = { ...prev };
                                 delete next[planilhaId];
@@ -1116,7 +1534,14 @@ export function ValidacaoPagamentosDiariaPage() {
 
                   const gk = chaveGrupoPossivel(grupo[0]);
                   const badges = badgesGrupoPossivel(grupo);
-                  const candidatos = candidatosValidosParaGrupo(grupo);
+                  const bancoPoolDia = [
+                    ...(resposta?.validacao.itens_banco_sem_correspondencia ?? []),
+                    ...(resposta?.banco?.itens ?? []),
+                    ...((validacaoAjustada ?? respostaFiltrada.validacao).itens_banco_sem_correspondencia ?? []),
+                    ...(respostaFiltrada?.banco?.itens ?? []),
+                    ...grupo.flatMap((r) => r.candidatos),
+                  ];
+                  const candidatos = candidatosValidosParaGrupo(grupo, bancoPoolDia);
                   const todosMesmoManual =
                     grupo.length > 0 &&
                     grupo.every((r) => manualMatches[r.planilha.id] === manualMatches[grupo[0].planilha.id]) &&
@@ -1125,8 +1550,13 @@ export function ValidacaoPagamentosDiariaPage() {
 
                   const totalPlan = grupo.reduce((s, r) => s + Number(r.planilha.valor || 0), 0);
                   const bancoSelecionado = candidatos.find((c) => c.id === selectVal);
+                  const familiaGrupo = grupo.some((r) => r.grupo_familia_pagamento);
+                  const rateioMesmoAluno = grupo.some((r) => r.possivel_rateio_mesmo_aluno);
                   const somaConfere =
-                    !!bancoSelecionado && somaBateComBanco(totalPlan, Number(bancoSelecionado.valor || 0));
+                    !!bancoSelecionado &&
+                    somaBateComBanco(totalPlan, Number(bancoSelecionado.valor || 0), {
+                      aceitarDescontoFamilia: familiaGrupo || rateioMesmoAluno,
+                    });
 
                   return (
                     <div
@@ -1148,8 +1578,17 @@ export function ValidacaoPagamentosDiariaPage() {
                         ))}
                       </div>
                       <p className="text-[11px] text-amber-950/80 mb-3">
-                        Várias linhas no fluxo contra <b>um</b> PIX no banco — só confirme se a soma ({formatCurrency(totalPlan)})
-                        bater com o valor do lançamento escolhido.
+                        {badges.some((b) => b.label.includes('mãe e filha') || b.label.includes('família'))
+                          ? `Pagamento único do grupo familiar (${grupo
+                              .map((r) => formatCurrency(Number(r.planilha.valor || 0)))
+                              .join(' + ')} = ${formatCurrency(totalPlan)}). Escolha o lançamento no banco (aceita desconto) e confirme para as duas.`
+                          : badges.some((b) => b.label.includes('pagador'))
+                          ? 'Mesmo pagador no banco — vincular aos dois? Confirme só se a soma bater com o lançamento escolhido.'
+                          : badges.some((b) => b.label.includes('modalidades'))
+                            ? `Provável pagamento único cobrindo ${grupo.length} modalidades (${grupo
+                                .map((r) => formatCurrency(Number(r.planilha.valor || 0)))
+                                .join(' + ')}). Escolha o lançamento no banco e confirme para todas as linhas.`
+                            : `Várias linhas no fluxo contra um PIX no banco — só confirme se a soma (${formatCurrency(totalPlan)}) bater com o valor do lançamento escolhido.`}
                       </p>
                       <div className="overflow-x-auto rounded-lg border border-amber-200/80 bg-white/80 mb-3">
                         <table className="w-full text-xs">
@@ -1167,7 +1606,12 @@ export function ValidacaoPagamentosDiariaPage() {
                               <tr key={row.planilha.id} className="border-b border-amber-100">
                                 <td className="py-1.5 px-2">{row.planilha.aba}</td>
                                 <td className="py-1.5 px-2 max-w-[200px]">{row.planilha.modalidade}</td>
-                                <td className="py-1.5 px-2 font-medium">{row.planilha.aluno}</td>
+                                <td className="py-1.5 px-2 font-medium">
+                                  {row.planilha.aluno}
+                                  <span className="block text-[10px] font-normal text-gray-500 mt-0.5">
+                                    {labelOrigemFluxo(row.planilha)}
+                                  </span>
+                                </td>
                                 <td className="py-1.5 px-2 text-right tabular-nums">{formatCurrency(row.planilha.valor)}</td>
                                 <td className="py-1.5 px-2">
                                   {labelCompetenciaMesAno(row.planilha.mesCompetencia, row.planilha.anoCompetencia)}
@@ -1196,6 +1640,12 @@ export function ValidacaoPagamentosDiariaPage() {
                                 else next[gk] = bancoId;
                                 return next;
                               });
+                              if (bancoId) {
+                                const cand = candidatos.find((c) => c.id === bancoId);
+                                if (cand && isCreditoGenericoExtratoFront(cand.pessoa, cand.descricao)) {
+                                  setLembrarCreditoRecorrente(true);
+                                }
+                              }
                             }}
                           >
                             <option value="">Selecione...</option>
@@ -1206,6 +1656,22 @@ export function ValidacaoPagamentosDiariaPage() {
                             ))}
                           </select>
                         </div>
+                        {bancoSelecionado && isVendasExtratoFront(bancoSelecionado.pessoa, bancoSelecionado.descricao) ? (
+                          <p className="w-full text-[11px] text-sky-900 bg-sky-50 border border-sky-200 rounded px-2 py-1.5">
+                            {AVISO_VENDAS_RECORRENTE}
+                          </p>
+                        ) : null}
+                        {bancoSelecionado &&
+                        isCreditoGenericoExtratoFront(bancoSelecionado.pessoa, bancoSelecionado.descricao) ? (
+                          <label className="flex items-center gap-1.5 text-[11px] text-amber-950 pb-2">
+                            <input
+                              type="checkbox"
+                              checked={lembrarCreditoRecorrente}
+                              onChange={(e) => setLembrarCreditoRecorrente(e.target.checked)}
+                            />
+                            Lembrar este crédito recorrente
+                          </label>
+                        ) : null}
                         <button
                           type="button"
                           className="px-4 py-2 text-xs rounded-lg bg-amber-700 text-white hover:bg-amber-800 disabled:opacity-50 font-medium"
@@ -1218,9 +1684,18 @@ export function ValidacaoPagamentosDiariaPage() {
                           onClick={async () => {
                             if (!selectVal || !somaConfere) return;
                             const bancoId = selectVal;
-                            for (const r of grupo) {
-                              await vincularItem(r.planilha.id, bancoId);
-                            }
+                            const lembrar =
+                              !!bancoSelecionado &&
+                              isCreditoGenericoExtratoFront(
+                                bancoSelecionado.pessoa,
+                                bancoSelecionado.descricao,
+                              ) &&
+                              lembrarCreditoRecorrente;
+                            await vincularItens(
+                              grupo.map((r) => r.planilha.id),
+                              bancoId,
+                              { lembrarCreditoRecorrente: lembrar },
+                            );
                             setDraftGroupMatches((prev) => {
                               const next = { ...prev };
                               delete next[gk];

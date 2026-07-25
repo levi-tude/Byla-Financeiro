@@ -56,6 +56,12 @@ export const navSections: NavSection[] = [
       { path: '/despesas', label: 'Despesas', roles: ['admin'] },
       { path: '/controle-caixa', label: 'Controle de caixa', roles: ['admin'] },
       {
+        path: '/assinaturas-credito-recorrente',
+        label: 'Assinaturas (recorrente)',
+        roles: ['admin'],
+      },
+      { path: '/financas/alunos', label: 'Alunos', roles: ['admin'] },
+      {
         path: '/validacao-pagamentos-diaria',
         label: 'Pagamentos (dia a dia)',
         group: 'Validação',
