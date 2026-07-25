@@ -8,18 +8,21 @@ import { queryClient } from './queryClient';
 import { AuthProvider } from './auth/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { SensitiveBlurProvider } from './context/SensitiveBlurContext';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <AuthProvider>
-          <ToastProvider>
-            <MonthYearProvider>
-              <App />
-            </MonthYearProvider>
-          </ToastProvider>
-        </AuthProvider>
+        <SensitiveBlurProvider>
+          <AuthProvider>
+            <ToastProvider>
+              <MonthYearProvider>
+                <App />
+              </MonthYearProvider>
+            </ToastProvider>
+          </AuthProvider>
+        </SensitiveBlurProvider>
       </ThemeProvider>
     </QueryClientProvider>
   </React.StrictMode>

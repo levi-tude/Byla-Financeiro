@@ -26,6 +26,8 @@ export type ConciliacaoPagamentoItem = {
   aba: string;
   modalidade: string;
   dia_vencimento: number | null;
+  /** Dia de cobrança no Fluxo (ISO), quando houver pagamento no mês. */
+  data_pagamento_fluxo?: string | null;
   status: ConciliacaoPagamentoStatus;
   data_credito?: string | null;
   valor_credito?: number | null;
@@ -276,12 +278,16 @@ export function montarItensConciliacaoPagamentos(input: {
       planoBolsa,
     });
 
+    const dataPagamentoFluxo =
+      pags.length > 0 ? (pags[0].data_pagamento ?? '').slice(0, 10) || null : null;
+
     itens.push({
       aluno_id: a.id,
       aluno_nome: a.aluno_nome,
       aba: a.aba,
       modalidade: a.modalidade || a.aba,
       dia_vencimento: diaVenc,
+      data_pagamento_fluxo: dataPagamentoFluxo,
       status,
       data_credito: credito?.data ?? null,
       valor_credito: credito?.valor ?? null,

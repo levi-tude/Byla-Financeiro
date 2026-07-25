@@ -17,6 +17,8 @@ import { DespesasPage } from './pages/DespesasPage';
 import { EntradasPage } from './pages/EntradasPage';
 import { AluguelSalasPage } from './pages/AluguelSalasPage';
 import { ConciliacaoPagamentosPage } from './pages/ConciliacaoPagamentosPage';
+import { AssinaturasCreditoRecorrentePage } from './pages/AssinaturasCreditoRecorrentePage';
+import { FinancasAlunosPage } from './pages/FinancasAlunosPage';
 
 function HomeByRole() {
   const auth = useAuth();
@@ -138,6 +140,22 @@ export default function App() {
             element={
               <RequireAuth roles={['admin']}>
                 <ControleCaixaPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="assinaturas-credito-recorrente"
+            element={
+              <RequireAuth roles={['admin']}>
+                <AssinaturasCreditoRecorrentePage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="financas/alunos"
+            element={
+              <RequireAuth roles={['admin']}>
+                <FinancasAlunosPage />
               </RequireAuth>
             }
           />

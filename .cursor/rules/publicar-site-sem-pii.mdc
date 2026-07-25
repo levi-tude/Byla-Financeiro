@@ -1,0 +1,29 @@
+---
+description: Publicar no GitHub/site — sem PII, sem force-push, por ondas
+alwaysApply: true
+---
+
+# Publicar site / GitHub (Byla Financeiro)
+
+## Modelo
+
+- GitHub público = portfólio + fonte do deploy (Render/Vercel).
+- Dados reais de clientes = só Supabase (app autenticado) ou pasta fora do Git.
+- **Nenhum PII no Git** (nomes reais, docs de estágio, dumps, `.env` com valores).
+
+## Quando o usuário pedir “subir”, “atualizar o site”, “publicar no GitHub”
+
+1. Ler e seguir a skill do projeto: `.cursor/skills/subir-alteracoes-site/SKILL.md`.
+2. Publicar por **onda** (pacote), não o WIP inteiro da pasta.
+3. Rodar portão de PII + `npm run verify:push` (ou `verify:push:quick` se combinado).
+4. Base = `origin/main` limpa; branch + PR. **Sem force-push** em `main` sem pedido explícito.
+
+## Nunca stagear / commitar
+
+- `docs/**` de estágio, anexos, PDFs pessoais, cyber install com inventário sensível
+- `backend/_tmp*`, `scripts/_audit*`, `scripts/_diag*`, exports de produção
+- Catálogos/testes com **nomes reais** de alunos/responsáveis
+
+## Spec
+
+`docs/superpowers/specs/2026-07-25-publicar-site-sem-pii-design.md`

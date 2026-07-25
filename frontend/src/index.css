@@ -53,6 +53,15 @@ html.dark {
   min-height: 100vh;
 }
 
+#app-sidebar nav.byla-sidebar-nav {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+#app-sidebar nav.byla-sidebar-nav::-webkit-scrollbar {
+  display: none;
+}
+
 /* Relatórios: oculta UI na impressão; bloco .print-only só aparece ao imprimir / Salvar como PDF */
 .print-only {
   display: none;
@@ -70,4 +79,27 @@ html.dark {
   body {
     background: white;
   }
+}
+
+/*
+ * Modo desenvolvimento: ocultar dados sensíveis para prints (ativado pelo botão "Ocultar dados").
+ * Não afeta produção — o botão só aparece com import.meta.env.DEV.
+ */
+html.byla-sensitive-blur-active .byla-outlet td,
+html.byla-sensitive-blur-active .byla-outlet .tabular-nums,
+html.byla-sensitive-blur-active .byla-outlet input:not([type='checkbox']):not([type='radio']):not([type='button']):not([type='submit']),
+html.byla-sensitive-blur-active .byla-outlet textarea,
+html.byla-sensitive-blur-active .byla-outlet select,
+html.byla-sensitive-blur-active .byla-outlet .recharts-wrapper text,
+html.byla-sensitive-blur-active .byla-outlet [class*='text-2xl'][class*='font-semibold'],
+html.byla-sensitive-blur-active .byla-outlet [class*='text-xl'][class*='font-semibold'],
+html.byla-sensitive-blur-active .byla-outlet [class*='text-lg'][class*='font-bold'] {
+  filter: blur(8px);
+  user-select: none;
+}
+
+html.byla-sensitive-blur-active #app-sidebar .truncate,
+html.byla-sensitive-blur-active #app-sidebar .border-t.border-byla-navy-border .text-xs {
+  filter: blur(8px);
+  user-select: none;
 }

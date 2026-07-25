@@ -15,6 +15,9 @@ import {
   aplicarSugestaoMapeamentoFromVinculos,
   revogarSugestaoMapeamentoFromVinculo,
 } from '../services/mapeamentoFromValidacaoFluxo.js';
+import { aprenderCreditoRecorrenteFromVinculo } from '../services/mapeamentoCreditoRecorrente.js';
+import { amarrarRegraStickyAssinatura } from '../services/assinaturaCreditoRecorrente.js';
+import { aprenderAlunoPagadorFromVinculo } from '../services/mapeamentoAlunoPagador.js';
 
 type PlanilhaItem = {
   id: string;
@@ -216,6 +219,22 @@ router.post('/validacao-vinculos', async (req: Request, res: Response) => {
         banco_id,
         planilha_ids,
       );
+      const lembrar = parsed.data.lembrar_credito_recorrente === true;
+      const aprendido = await aprenderCreditoRecorrenteFromVinculo(supabase, {
+        bancoId: banco_id,
+        planilhaIds: planilha_ids,
+        dataRef: data,
+        lembrar,
+      }).catch(() => ({ saved: false as const, reason: 'aprendizado_falhou' }));
+      const pagbankSubsId = parsed.data.pagbank_subs_id?.trim();
+      if (pagbankSubsId && aprendido.saved && aprendido.regra_id) {
+        await amarrarRegraStickyAssinatura(supabase, pagbankSubsId, aprendido.regra_id).catch(
+          () => undefined,
+        );
+      }
+      for (const pid of planilha_ids) {
+        await aprenderAlunoPagadorFromVinculo(supabase, pid, banco_id).catch(() => undefined);
+      }
     }
 
     return res.json({ ok: true, ...result, sugestao_mapeamento });

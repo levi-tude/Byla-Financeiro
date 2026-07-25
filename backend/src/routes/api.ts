@@ -12,6 +12,9 @@ import { GetModalidadesCompletoUseCase } from '../useCases/GetModalidadesComplet
 import { GetPendenciasCompletoUseCase } from '../useCases/GetPendenciasCompletoUseCase.js';
 import { GetFluxoCompletoUseCase } from '../useCases/GetFluxoCompletoUseCase.js';
 import calendarioRoutes from './calendario.js';
+import creditoRecorrenteRoutes from './creditoRecorrente.js';
+import assinaturasCreditoRecorrenteRoutes from './assinaturasCreditoRecorrente.js';
+import financasAlunosRoutes from './financasAlunos.js';
 import conciliacaoRoutes from './conciliacao.js';
 import { createRelatoriosRouter } from './relatorios.js';
 import planilhaFluxoBylaRoutes from './planilhaFluxoByla.js';
@@ -69,6 +72,32 @@ router.use(
 
 router.use(
   [
+    '/credito-recorrente/sugestoes',
+    '/credito-recorrente/confirmar',
+    '/credito-recorrente/alertas-vendas',
+  ],
+  requireRoles(['secretaria', 'admin']),
+);
+router.use('/credito-recorrente/regras', requireRoles(['admin']));
+
+router.use(
+  '/assinaturas-credito-recorrente/alertas-parou',
+  requireRoles(['secretaria', 'admin']),
+);
+router.use(
+  '/assinaturas-credito-recorrente/:id/classificar',
+  requireRoles(['secretaria', 'admin']),
+);
+router.use('/assinaturas-credito-recorrente', (req, res, next) => {
+  const rel = req.path.slice('/assinaturas-credito-recorrente'.length) || '/';
+  if (rel === '/alertas-parou' || rel.endsWith('/classificar')) {
+    return next();
+  }
+  return requireRoles(['admin'])(req, res, next);
+});
+
+router.use(
+  [
     '/alunos-completo',
     '/modalidades-completo',
     '/pendencias-completo',
@@ -104,11 +133,15 @@ router.use(
     '/planilha-fluxo-byla/debug-range-completo',
     '/controle-caixa',
     '/migracao/fluxo/conferencia',
+    '/financas/alunos',
   ],
   requireRoles(['admin'])
 );
 
 router.use(calendarioRoutes);
+router.use(creditoRecorrenteRoutes);
+router.use(assinaturasCreditoRecorrenteRoutes);
+router.use(financasAlunosRoutes);
 router.use(conciliacaoRoutes);
 router.use(createAluguelSalasRouter());
 

@@ -103,6 +103,93 @@ test('montarItens: em dia, atrasado, pendente e bolsa', () => {
   assert.equal(byNome['Diana Bolsa'].status, 'bolsa');
 });
 
+test('montarItens: Catarina Noronha PIX dia vencimento → em_dia (jul/2026)', () => {
+  const alunos = [
+    aluno({
+      id: '3f1b8d0e-8a9f-4dfb-b296-794c4d2a3493',
+      aba: 'PILATES',
+      modalidade: 'PILATES',
+      aluno_nome: 'CATARINA NORONHA VEIGA',
+      venc: '20',
+      plano: 'SEMESTRAL',
+      valor_referencia: 250,
+      responsaveis: 'CATARINA',
+    }),
+  ];
+  const pagamentos = [
+    pagamento({
+      id: '664b5714-42d1-435e-ade7-2fe9ff21dfe4',
+      aba: 'PILATES',
+      modalidade: 'PILATES',
+      aluno_nome: 'CATARINA NORONHA VEIGA',
+      data_pagamento: '2026-07-20',
+      forma: 'PIX',
+      valor: 250,
+      responsaveis: 'CATARINA',
+      linha_planilha: 29,
+    }),
+  ];
+  const entradas = [
+    tx({
+      id: '10362cfa-94a1-4399-8462-5dc18221f8cb',
+      data: '2026-07-20',
+      pessoa: 'Catarina Noronha Veiga',
+      valor: 250,
+      descricao: 'Catarina Noronha Veiga',
+      tipo: 'entrada',
+    }),
+  ];
+
+  const result = montarItensConciliacaoPagamentos({
+    mes: MES,
+    ano: ANO,
+    alunos,
+    pagamentos,
+    entradas,
+    vinculosByPlanilha: new Map(),
+  });
+
+  const item = result.itens[0];
+  assert.equal(item.status, 'em_dia');
+  assert.equal(item.dia_vencimento, 20);
+  assert.equal(item.data_credito, '2026-07-20');
+  assert.equal(item.banco_status, 'match');
+  assert.equal(item.vinculo_id, null);
+});
+
+test('montarItens: sem pagamento na competência → pendente (mesmo com crédito no banco)', () => {
+  const alunos = [
+    aluno({
+      id: '3f1b8d0e-8a9f-4dfb-b296-794c4d2a3493',
+      aba: 'PILATES',
+      modalidade: 'PILATES',
+      aluno_nome: 'CATARINA NORONHA VEIGA',
+      venc: '20',
+    }),
+  ];
+
+  const result = montarItensConciliacaoPagamentos({
+    mes: 6,
+    ano: ANO,
+    alunos,
+    pagamentos: [],
+    entradas: [
+      tx({
+        id: '10362cfa-94a1-4399-8462-5dc18221f8cb',
+        data: '2026-06-20',
+        pessoa: 'Catarina Noronha Veiga',
+        valor: 250,
+        descricao: null,
+        tipo: 'entrada',
+      }),
+    ],
+    vinculosByPlanilha: new Map(),
+  });
+
+  assert.equal(result.itens[0].status, 'pendente');
+  assert.equal(result.itens[0].data_credito, null);
+});
+
 test('stripCamposBancariosConciliacao: secretaria omite bancários; admin mantém', () => {
   const raw = montarItensConciliacaoPagamentos({
     mes: MES,
