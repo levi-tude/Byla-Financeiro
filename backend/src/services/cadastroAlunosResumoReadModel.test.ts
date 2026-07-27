@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { montarCadastroAlunosResumo } from './cadastroAlunosResumoReadModel.js';
 
-test('montarCadastroAlunosResumo: agrupa por aba/modalidade e separa vínculo', () => {
+test('montarCadastroAlunosResumo: pagador no Fluxo não conta como vínculo da Validação', () => {
   const result = montarCadastroAlunosResumo({
     alunos: [
       {
@@ -39,20 +39,20 @@ test('montarCadastroAlunosResumo: agrupa por aba/modalidade e separa vínculo', 
       ['dança|2|bruno sem vinculo', 'DÉBITO'],
     ]),
     stickyByAluno: new Map(),
+    alunosComVinculoValidacao: new Set(),
     gruposFamilia: [],
   });
 
   assert.equal(result.totais.alunos, 2);
-  assert.equal(result.totais.com_vinculo, 1);
-  assert.equal(result.totais.sem_vinculo, 1);
-  assert.equal(result.secoes.length, 1);
-  assert.equal(result.secoes[0].alunos_com_vinculo.length, 1);
-  assert.equal(result.secoes[0].alunos_sem_vinculo.length, 1);
-  assert.equal(result.secoes[0].por_forma.length, 2);
-  assert.equal(result.secoes[0].alunos_sem_vinculo[0].meio, 'debito');
+  assert.equal(result.totais.com_vinculo, 0);
+  assert.equal(result.totais.sem_vinculo, 2);
+  assert.equal(result.secoes[0].alunos_com_vinculo.length, 0);
+  assert.equal(result.secoes[0].alunos_sem_vinculo.length, 2);
+  assert.equal(result.secoes[0].alunos_sem_vinculo[0].vinculo_status, 'cadastro');
+  assert.equal(result.secoes[0].alunos_sem_vinculo[0].pagador_cadastro, 'PIX Ana');
 });
 
-test('montarCadastroAlunosResumo: sticky conta como vínculo aprendido', () => {
+test('montarCadastroAlunosResumo: sticky da Validação conta como com vínculo', () => {
   const result = montarCadastroAlunosResumo({
     alunos: [
       {
@@ -72,12 +72,42 @@ test('montarCadastroAlunosResumo: sticky conta como vínculo aprendido', () => {
     ],
     formaPorAluno: new Map([['yoga|1|carla sticky', 'PIX']]),
     stickyByAluno: new Map([['CARLA STICKY', 'PIX CARLA MÃE']]),
+    alunosComVinculoValidacao: new Set(),
     gruposFamilia: [],
   });
 
   assert.equal(result.totais.com_vinculo, 1);
-  assert.equal(result.secoes[0].alunos_com_vinculo[0].vinculo_status, 'aprendido');
+  assert.equal(result.secoes[0].alunos_com_vinculo[0].vinculo_status, 'validacao');
   assert.equal(result.secoes[0].alunos_com_vinculo[0].pagador_vinculo, 'PIX CARLA MÃE');
+});
+
+test('montarCadastroAlunosResumo: vínculo confirmado na Validação conta mesmo sem sticky', () => {
+  const result = montarCadastroAlunosResumo({
+    alunos: [
+      {
+        id: 'a1',
+        aba: 'DANÇA',
+        modalidade: 'Jazz',
+        linha_planilha: 1,
+        aluno_nome: 'Diana Validada',
+        wpp: '71999990003',
+        responsaveis: 'Mãe Diana',
+        plano: 'Mensal',
+        venc: '15',
+        valor_referencia: 200,
+        pagador_pix: 'PIX Diana',
+        ativo: true,
+      },
+    ],
+    formaPorAluno: new Map([['dança|1|diana validada', 'PIX']]),
+    stickyByAluno: new Map(),
+    alunosComVinculoValidacao: new Set(['dança|1|diana validada']),
+    gruposFamilia: [],
+  });
+
+  assert.equal(result.totais.com_vinculo, 1);
+  assert.equal(result.secoes[0].alunos_com_vinculo[0].vinculo_status, 'validacao');
+  assert.equal(result.secoes[0].alunos_com_vinculo[0].pagador_cadastro, 'PIX Diana');
 });
 
 test('montarCadastroAlunosResumo: filtro sem_vinculo', () => {
@@ -113,11 +143,75 @@ test('montarCadastroAlunosResumo: filtro sem_vinculo', () => {
       },
     ],
     formaPorAluno: new Map(),
-    stickyByAluno: new Map(),
+    stickyByAluno: new Map([['ANA COM PIX', 'PIX ANA EXTRATO']]),
+    alunosComVinculoValidacao: new Set(),
     gruposFamilia: [],
     filtroVinculo: 'sem_vinculo',
   });
 
   assert.equal(result.totais.alunos, 1);
   assert.equal(result.secoes[0].alunos_sem_vinculo[0].aluno_nome, 'Bruno Sem Vinculo');
+});
+
+test('montarCadastroAlunosResumo: filtra por dia de vencimento e lista dias disponíveis', () => {
+  const result = montarCadastroAlunosResumo({
+    alunos: [
+      {
+        id: 'a1',
+        aba: 'DANÇA',
+        modalidade: 'Jazz',
+        linha_planilha: 1,
+        aluno_nome: 'Ana Dia 5',
+        wpp: '71999990000',
+        responsaveis: 'Mãe Ana',
+        plano: 'Mensal',
+        venc: '5',
+        valor_referencia: 200,
+        pagador_pix: 'PIX Ana',
+        ativo: true,
+      },
+      {
+        id: 'a2',
+        aba: 'DANÇA',
+        modalidade: 'Jazz',
+        linha_planilha: 2,
+        aluno_nome: 'Bruno Dia 10',
+        wpp: '71999990001',
+        responsaveis: 'Pai Bruno',
+        plano: 'Mensal',
+        venc: '10',
+        valor_referencia: 200,
+        pagador_pix: null,
+        ativo: true,
+      },
+      {
+        id: 'a3',
+        aba: 'DANÇA',
+        modalidade: 'Jazz',
+        linha_planilha: 3,
+        aluno_nome: 'Carla Sem Venc',
+        wpp: '71999990002',
+        responsaveis: 'Carla',
+        plano: 'Mensal',
+        venc: null,
+        valor_referencia: 200,
+        pagador_pix: null,
+        ativo: true,
+      },
+    ],
+    formaPorAluno: new Map(),
+    stickyByAluno: new Map(),
+    alunosComVinculoValidacao: new Set(),
+    gruposFamilia: [],
+    filtroDiaVencimento: 10,
+  });
+
+  assert.deepEqual(result.totais.por_dia_vencimento, [
+    { dia: 5, count: 1 },
+    { dia: 10, count: 1 },
+  ]);
+  assert.equal(result.totais.sem_vencimento_cadastrado, 1);
+  assert.equal(result.totais.alunos, 1);
+  assert.equal(result.secoes[0].alunos_sem_vinculo[0].aluno_nome, 'Bruno Dia 10');
+  assert.equal(result.secoes[0].alunos_sem_vinculo[0].dia_vencimento, 10);
 });

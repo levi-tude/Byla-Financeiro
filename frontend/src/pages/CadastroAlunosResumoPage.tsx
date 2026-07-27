@@ -25,8 +25,8 @@ const MEIO_LABEL: Record<MeioPagamentoAluno, string> = {
 };
 
 const VINCULO_STATUS_LABEL = {
-  cadastro: 'No cadastro',
-  aprendido: 'Aprendido na Validação',
+  validacao: 'Vinculado na Validação',
+  cadastro: 'Só pagador no Fluxo',
   nenhum: 'Sem vínculo',
 } as const;
 
@@ -36,6 +36,7 @@ type PageFilters = {
   vinculo: CadastroAlunoVinculoFiltro;
   cadastro: CadastroAlunoCadastroFiltro;
   meio: MeioPagamentoAlunoFiltro;
+  diaVencimento: string;
   mostrarComVinculo: boolean;
   mostrarSemVinculo: boolean;
 };
@@ -46,19 +47,30 @@ const INITIAL_FILTERS: PageFilters = {
   vinculo: 'todos',
   cadastro: 'todos',
   meio: 'todos',
+  diaVencimento: '',
   mostrarComVinculo: true,
   mostrarSemVinculo: true,
 };
 
+function parseDiaVencimentoFiltro(value: string): number | 'sem' | undefined {
+  if (!value) return undefined;
+  if (value === 'sem') return 'sem';
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 function pagadorExibicao(item: CadastroAlunoItem): string {
-  return item.pagador_cadastro ?? item.pagador_vinculo ?? '—';
+  if (item.vinculo_status === 'validacao') {
+    return item.pagador_vinculo ?? 'Confirmado no extrato';
+  }
+  return item.pagador_cadastro ?? '—';
 }
 
 function montarTextoLista(secoes: CadastroAlunoSecao[], somenteSemVinculo: boolean): string {
   const linhas: string[] = [
     'Lista de alunos — Espaço Byla',
     somenteSemVinculo
-      ? 'Alunos SEM vínculo de pagador (precisam informar forma e quem paga)'
+      ? 'Alunos SEM vínculo na Validação (precisam confirmar pagamento no extrato)'
       : 'Todos os alunos por aba e modalidade',
     '',
   ];
@@ -112,6 +124,7 @@ export function CadastroAlunosResumoPage() {
       filters.vinculo,
       filters.cadastro,
       filters.meio,
+      filters.diaVencimento,
     ],
     queryFn: () =>
       getCadastroAlunosResumo({
@@ -120,6 +133,7 @@ export function CadastroAlunosResumoPage() {
         vinculo: filters.vinculo,
         cadastro: filters.cadastro,
         meio: filters.meio,
+        diaVencimento: parseDiaVencimentoFiltro(filters.diaVencimento),
         ativo: true,
       }),
   });
@@ -153,8 +167,8 @@ export function CadastroAlunosResumoPage() {
         id: 'vinculo',
         label:
           filters.vinculo === 'com_vinculo'
-            ? 'Com vínculo de pagador'
-            : 'Sem vínculo de pagador',
+            ? 'Com vínculo na Validação'
+            : 'Sem vínculo na Validação',
         onRemove: () => setFilters((f) => ({ ...f, vinculo: 'todos' })),
       });
     }
@@ -172,8 +186,18 @@ export function CadastroAlunosResumoPage() {
         onRemove: () => setFilters((f) => ({ ...f, meio: 'todos' })),
       });
     }
+    if (filters.diaVencimento) {
+      c.push({
+        id: 'diaVencimento',
+        label:
+          filters.diaVencimento === 'sem'
+            ? 'Sem vencimento cadastrado'
+            : `Vencimento dia ${filters.diaVencimento}`,
+        onRemove: () => setFilters((f) => ({ ...f, diaVencimento: '' })),
+      });
+    }
     return c;
-  }, [filters.vinculo, filters.cadastro, filters.meio, setFilters]);
+  }, [filters.vinculo, filters.cadastro, filters.meio, filters.diaVencimento, setFilters]);
 
   async function copiarLista(somenteSemVinculo: boolean) {
     const texto = montarTextoLista(secoesVisiveis, somenteSemVinculo);
@@ -186,21 +210,22 @@ export function CadastroAlunosResumoPage() {
     <div className="space-y-4 pb-10">
       <Topbar
         title="Cadastro de alunos"
-        subtitle="Lista por aba e modalidade — vínculo de pagador, forma habitual e pendências de cadastro"
+        subtitle="Lista por aba e modalidade — vínculo na Validação, forma habitual e pendências de cadastro"
       />
 
       <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100">
         <p>
-          Use esta lista para a secretária informar <span className="font-medium">como cada aluno paga</span> e{' '}
-          <span className="font-medium">quem é o pagador no extrato</span> (PIX/cartão).{' '}
-          <span className="font-medium">Vínculo</span> = pagador cadastrado no Fluxo ou nome aprendido na Validação
-          bancária. Alunos <span className="font-medium">sem vínculo</span> precisam de preenchimento.
+          Use esta lista para a secretária saber <span className="font-medium">quem já teve pagamento confirmado no extrato</span>{' '}
+          (Validação diária) e quem ainda precisa vincular.{' '}
+          <span className="font-medium">Com vínculo</span> = confirmado na Validação (fica salvo para os próximos meses).{' '}
+          Ter pagador só no cadastro do Fluxo <span className="font-medium">não conta</span> — ainda aparece em{' '}
+          <span className="font-medium">sem vínculo</span>.
         </p>
       </div>
 
       <FilterBar
         title="Filtros"
-        subtitle="Aba, modalidade, vínculo de pagador, cadastro e forma de pagamento."
+        subtitle="Aba, modalidade, vínculo na Validação, cadastro, forma de pagamento e dia de vencimento."
         chips={chips}
       >
         <div className="flex flex-wrap items-end gap-3">
@@ -239,7 +264,7 @@ export function CadastroAlunosResumoPage() {
           </label>
 
           <label className="flex flex-col gap-1 text-xs text-slate-600 dark:text-slate-400">
-            Vínculo pagador
+            Vínculo (Validação)
             <select
               className="min-w-[160px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
               value={filters.vinculo}
@@ -283,6 +308,27 @@ export function CadastroAlunosResumoPage() {
                   {MEIO_LABEL[m]}
                 </option>
               ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-xs text-slate-600 dark:text-slate-400">
+            Dia de vencimento
+            <select
+              className="min-w-[180px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+              value={filters.diaVencimento}
+              onChange={(e) => setFilters((f) => ({ ...f, diaVencimento: e.target.value }))}
+            >
+              <option value="">Todos</option>
+              {(query.data?.totais.por_dia_vencimento ?? []).map((d) => (
+                <option key={d.dia} value={String(d.dia)}>
+                  Dia {d.dia} ({d.count})
+                </option>
+              ))}
+              {(query.data?.totais.sem_vencimento_cadastrado ?? 0) > 0 ? (
+                <option value="sem">
+                  Sem vencimento ({query.data?.totais.sem_vencimento_cadastrado})
+                </option>
+              ) : null}
             </select>
           </label>
 
@@ -335,8 +381,8 @@ export function CadastroAlunosResumoPage() {
         <>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <ResumoCard label="Alunos ativos" value={query.data.totais.alunos} />
-            <ResumoCard label="Com vínculo pagador" value={query.data.totais.com_vinculo} tone="ok" />
-            <ResumoCard label="Sem vínculo pagador" value={query.data.totais.sem_vinculo} tone="warn" />
+            <ResumoCard label="Com vínculo na Validação" value={query.data.totais.com_vinculo} tone="ok" />
+            <ResumoCard label="Sem vínculo na Validação" value={query.data.totais.sem_vinculo} tone="warn" />
             <ResumoCard
               label="Cadastro incompleto"
               value={query.data.totais.cadastro_incompleto}
@@ -357,6 +403,35 @@ export function CadastroAlunosResumoPage() {
                   >
                     {MEIO_LABEL[m.meio]}: {m.count}
                   </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {query.data.totais.por_dia_vencimento.length > 0 ? (
+            <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
+              <p className="mb-2 text-sm font-medium text-slate-800 dark:text-slate-100">
+                Alunos por dia de vencimento cadastrado
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {query.data.totais.por_dia_vencimento.map((d) => (
+                  <button
+                    key={d.dia}
+                    type="button"
+                    className={`rounded-full px-2.5 py-1 text-xs ${
+                      filters.diaVencimento === String(d.dia)
+                        ? 'bg-sky-600 text-white'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
+                    }`}
+                    onClick={() =>
+                      setFilters((f) => ({
+                        ...f,
+                        diaVencimento: f.diaVencimento === String(d.dia) ? '' : String(d.dia),
+                      }))
+                    }
+                  >
+                    Dia {d.dia}: {d.count}
+                  </button>
                 ))}
               </div>
             </div>
@@ -430,8 +505,8 @@ function SecaoModalidade({ secao }: { secao: CadastroAlunoSecao }) {
       </header>
 
       <div className="grid gap-4 p-4 lg:grid-cols-2">
-        <ListaAlunos titulo="Sem vínculo de pagador" itens={secao.alunos_sem_vinculo} destaque />
-        <ListaAlunos titulo="Com vínculo de pagador" itens={secao.alunos_com_vinculo} />
+        <ListaAlunos titulo="Sem vínculo na Validação" itens={secao.alunos_sem_vinculo} destaque />
+        <ListaAlunos titulo="Com vínculo na Validação" itens={secao.alunos_com_vinculo} />
       </div>
     </section>
   );
@@ -477,7 +552,11 @@ function ListaAlunos({
               <span>Meio: {MEIO_LABEL[a.meio]}</span>
               <span>Pagador: {pagadorExibicao(a)}</span>
               <span>{VINCULO_STATUS_LABEL[a.vinculo_status]}</span>
-              {a.venc ? <span>Venc: dia {a.venc}</span> : null}
+              {a.dia_vencimento != null ? (
+                <span>Venc: dia {a.dia_vencimento}</span>
+              ) : a.venc ? (
+                <span>Venc: {a.venc}</span>
+              ) : null}
               {a.grupo_familia ? <span>Família: {a.grupo_familia}</span> : null}
             </div>
             {a.cadastro_pendencias.length > 0 ? (

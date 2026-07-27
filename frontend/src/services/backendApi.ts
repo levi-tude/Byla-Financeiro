@@ -2202,9 +2202,10 @@ export async function getFinancasAlunos(
 
 /* ——— Cadastro de alunos (resumo para secretária) ——— */
 
-export type CadastroAlunoVinculoStatus = 'cadastro' | 'aprendido' | 'nenhum';
+export type CadastroAlunoVinculoStatus = 'validacao' | 'cadastro' | 'nenhum';
 export type CadastroAlunoVinculoFiltro = 'todos' | 'com_vinculo' | 'sem_vinculo';
 export type CadastroAlunoCadastroFiltro = 'todos' | 'completo' | 'incompleto';
+export type CadastroAlunoDiaVencimentoFiltro = number | 'sem';
 
 export type CadastroAlunoItem = {
   id: string;
@@ -2213,6 +2214,7 @@ export type CadastroAlunoItem = {
   modalidade: string;
   plano: string | null;
   venc: string | null;
+  dia_vencimento: number | null;
   ativo: boolean;
   cadastro_status: 'completo' | 'incompleto';
   cadastro_pendencias: string[];
@@ -2251,8 +2253,10 @@ export type CadastroAlunosResumoResponse = {
     sem_vinculo: number;
     cadastro_completo: number;
     cadastro_incompleto: number;
+    sem_vencimento_cadastrado: number;
     por_meio: Array<{ meio: MeioPagamentoAluno; count: number }>;
     por_aba: Array<{ aba: string; count: number }>;
+    por_dia_vencimento: Array<{ dia: number; count: number }>;
   };
   secoes: CadastroAlunoSecao[];
 };
@@ -2263,6 +2267,7 @@ export async function getCadastroAlunosResumo(params?: {
   vinculo?: CadastroAlunoVinculoFiltro;
   cadastro?: CadastroAlunoCadastroFiltro;
   meio?: MeioPagamentoAlunoFiltro;
+  diaVencimento?: CadastroAlunoDiaVencimentoFiltro;
   ativo?: boolean;
 }): Promise<CadastroAlunosResumoResponse> {
   if (!BASE_URL) throw new Error('VITE_BACKEND_URL não configurado');
@@ -2272,6 +2277,9 @@ export async function getCadastroAlunosResumo(params?: {
   if (params?.vinculo) qs.set('vinculo', params.vinculo);
   if (params?.cadastro) qs.set('cadastro', params.cadastro);
   if (params?.meio) qs.set('meio', params.meio);
+  if (params?.diaVencimento != null) {
+    qs.set('dia_vencimento', String(params.diaVencimento));
+  }
   if (params?.ativo != null) qs.set('ativo', String(params.ativo));
   const s = qs.toString();
   const res = await apiFetch(`/api/cadastro-alunos/resumo${s ? `?${s}` : ''}`, { method: 'GET' });
@@ -2287,8 +2295,10 @@ export async function getCadastroAlunosResumo(params?: {
           sem_vinculo: 0,
           cadastro_completo: 0,
           cadastro_incompleto: 0,
+          sem_vencimento_cadastrado: 0,
           por_meio: [],
           por_aba: [],
+          por_dia_vencimento: [],
         },
         secoes: [],
       };
