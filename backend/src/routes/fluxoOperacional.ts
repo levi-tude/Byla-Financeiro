@@ -13,6 +13,7 @@ import {
   loadFluxoPagamentosCompetenciaMes,
   statusExtratoForFluxoPagamento,
 } from '../services/fluxoExtratoValidacaoService.js';
+import { resolverRegimeCobranca } from '../logic/regimeCobrancaAluno.js';
 
 const fluxoAlunosListQuerySchema = z.object({
   aba: z.string().trim().optional(),
@@ -35,6 +36,7 @@ const fluxoAlunoUpsertBodySchema = z.object({
   wpp: z.string().trim().max(120).nullable().optional(),
   responsaveis: z.string().trim().max(260).nullable().optional(),
   plano: z.string().trim().max(120).nullable().optional(),
+  regimeCobranca: z.enum(['normal', 'bolsa', 'excecao']).optional().default('normal'),
   matricula: z.string().trim().max(120).nullable().optional(),
   fim: z.string().trim().max(120).nullable().optional(),
   venc: z.string().trim().max(120).nullable().optional(),
@@ -337,7 +339,7 @@ export default function createFluxoOperacionalRouter(): Router {
     let query = supabase
       .from('fluxo_alunos_operacionais')
       .select(
-        'id, aba, modalidade, linha_planilha, aluno_nome, wpp, responsaveis, plano, matricula, fim, venc, valor_referencia, pagador_pix, observacoes, ativo, created_at, updated_at, raw_row, pendencia_campos_ignorados, cobranca_tentativas'
+        'id, aba, modalidade, linha_planilha, aluno_nome, wpp, responsaveis, plano, regime_cobranca, matricula, fim, venc, valor_referencia, pagador_pix, observacoes, ativo, created_at, updated_at, raw_row, pendencia_campos_ignorados, cobranca_tentativas'
       )
       .order('aba', { ascending: true })
       .order('linha_planilha', { ascending: true })
@@ -465,6 +467,7 @@ export default function createFluxoOperacionalRouter(): Router {
           wpp: toNullable(payload.wpp),
           responsaveis: toNullable(payload.responsaveis),
           plano: toNullable(payload.plano),
+          regime_cobranca: payload.regimeCobranca ?? 'normal',
           matricula: toNullable(payload.matricula),
           fim: toNullable(payload.fim),
           venc: toNullable(payload.venc),
@@ -477,7 +480,7 @@ export default function createFluxoOperacionalRouter(): Router {
         { onConflict: 'aba,linha_planilha' }
       )
       .select(
-        'id, aba, modalidade, linha_planilha, aluno_nome, wpp, responsaveis, plano, matricula, fim, venc, valor_referencia, pagador_pix, observacoes, ativo'
+        'id, aba, modalidade, linha_planilha, aluno_nome, wpp, responsaveis, plano, regime_cobranca, matricula, fim, venc, valor_referencia, pagador_pix, observacoes, ativo'
       )
       .single();
     if (error) return res.status(500).json({ error: error.message });
@@ -507,7 +510,7 @@ export default function createFluxoOperacionalRouter(): Router {
     const { data: beforeData } = await supabase
       .from('fluxo_alunos_operacionais')
       .select(
-        'id, aba, modalidade, linha_planilha, aluno_nome, wpp, responsaveis, plano, matricula, fim, venc, valor_referencia, pagador_pix, observacoes, ativo'
+        'id, aba, modalidade, linha_planilha, aluno_nome, wpp, responsaveis, plano, regime_cobranca, matricula, fim, venc, valor_referencia, pagador_pix, observacoes, ativo'
       )
       .eq('id', id)
       .maybeSingle();
@@ -521,6 +524,7 @@ export default function createFluxoOperacionalRouter(): Router {
         wpp: toNullable(payload.wpp),
         responsaveis: toNullable(payload.responsaveis),
         plano: toNullable(payload.plano),
+        regime_cobranca: payload.regimeCobranca ?? 'normal',
         matricula: toNullable(payload.matricula),
         fim: toNullable(payload.fim),
         venc: toNullable(payload.venc),
@@ -531,7 +535,7 @@ export default function createFluxoOperacionalRouter(): Router {
       })
       .eq('id', id)
       .select(
-        'id, aba, modalidade, linha_planilha, aluno_nome, wpp, responsaveis, plano, matricula, fim, venc, valor_referencia, pagador_pix, observacoes, ativo'
+        'id, aba, modalidade, linha_planilha, aluno_nome, wpp, responsaveis, plano, regime_cobranca, matricula, fim, venc, valor_referencia, pagador_pix, observacoes, ativo'
       )
       .single();
     if (error) return res.status(500).json({ error: error.message });
@@ -764,13 +768,22 @@ export default function createFluxoOperacionalRouter(): Router {
 
     const { data: alunosRows, error: alunosErr } = await supabase
       .from('fluxo_alunos_operacionais')
-      .select('aba, linha_planilha, aluno_nome, venc, valor_referencia, responsaveis, pagador_pix, raw_row')
+      .select(
+        'aba, linha_planilha, aluno_nome, venc, valor_referencia, responsaveis, pagador_pix, plano, regime_cobranca, raw_row',
+      )
       .limit(5000);
     if (alunosErr) return res.status(500).json({ error: alunosErr.message });
 
     const alunoPorChave = new Map<
       string,
-      { venc: string | null; valor_referencia: number | null; responsaveis: string | null; pagador_pix: string | null }
+      {
+        venc: string | null;
+        valor_referencia: number | null;
+        responsaveis: string | null;
+        pagador_pix: string | null;
+        plano: string | null;
+        regime_cobranca: string | null;
+      }
     >();
     for (const a of alunosRows ?? []) {
       const k = alunoMatchKey(String(a.aba), Number(a.linha_planilha), String(a.aluno_nome));
@@ -784,6 +797,8 @@ export default function createFluxoOperacionalRouter(): Router {
         valor_referencia: valorCad ?? raw.valor ?? null,
         responsaveis: respCad || raw.responsaveis || null,
         pagador_pix: pixCad || raw.pagador_pix || null,
+        plano: a.plano != null ? String(a.plano) : null,
+        regime_cobranca: a.regime_cobranca != null ? String(a.regime_cobranca) : null,
       });
     }
 
@@ -796,6 +811,8 @@ export default function createFluxoOperacionalRouter(): Router {
         aluno_valor_referencia: cad?.valor_referencia ?? null,
         aluno_responsaveis: cad?.responsaveis ?? null,
         aluno_pagador_pix: cad?.pagador_pix ?? null,
+        aluno_plano: cad?.plano ?? null,
+        aluno_regime_cobranca: cad?.regime_cobranca ?? null,
       };
     });
 
@@ -1004,7 +1021,9 @@ export default function createFluxoOperacionalRouter(): Router {
 
     let alunosQuery = supabase
       .from('fluxo_alunos_operacionais')
-      .select('id, aba, modalidade, linha_planilha, aluno_nome, wpp, responsaveis, plano, venc, valor_referencia, pagador_pix, ativo')
+      .select(
+        'id, aba, modalidade, linha_planilha, aluno_nome, wpp, responsaveis, plano, regime_cobranca, venc, valor_referencia, pagador_pix, ativo',
+      )
       .eq('ativo', true)
       .order('aba', { ascending: true })
       .order('modalidade', { ascending: true })
@@ -1039,10 +1058,22 @@ export default function createFluxoOperacionalRouter(): Router {
     const pagoPorAlunoMes = new Map<string, number>();
     const detalhePorAlunoMes = new Map<string, { dataPagamento: string | null; formaPagamento: string | null; valorPago: number }>();
     const statusPorAlunoMes = new Map<string, Set<string>>();
+    const regimePorAlunoKey = new Map<string, ReturnType<typeof resolverRegimeCobranca>>();
+    for (const a of alunosRows ?? []) {
+      const ak = keyAluno(String(a.aba), String(a.modalidade), Number(a.linha_planilha), String(a.aluno_nome));
+      regimePorAlunoKey.set(
+        ak,
+        resolverRegimeCobranca({
+          regime_cobranca: (a as { regime_cobranca?: string | null }).regime_cobranca,
+          plano: a.plano != null ? String(a.plano) : null,
+        }),
+      );
+    }
     for (const p of pagamentosRows ?? []) {
       const keyMes = competenciaKey(Number(p.ano_competencia), Number(p.mes_competencia));
       if (!janelaKeys.has(keyMes)) continue;
-      const k = `${keyAluno(String(p.aba), String(p.modalidade), Number(p.linha_planilha), String(p.aluno_nome))}|${keyMes}`;
+      const alunoKey = keyAluno(String(p.aba), String(p.modalidade), Number(p.linha_planilha), String(p.aluno_nome));
+      const k = `${alunoKey}|${keyMes}`;
       const prev = pagoPorAlunoMes.get(k) ?? 0;
       const valorAtual = Number(p.valor ?? 0);
       pagoPorAlunoMes.set(k, prev + valorAtual);
@@ -1055,8 +1086,10 @@ export default function createFluxoOperacionalRouter(): Router {
           valorPago: valorAtual,
         });
       }
+      const regime = regimePorAlunoKey.get(alunoKey) ?? 'normal';
       const st = statusExtratoForFluxoPagamento(String(p.id), vinculosByPlanilha, {
         forma: p.forma != null ? String(p.forma) : null,
+        regime: regime === 'normal' ? null : regime,
       }).status_extrato;
       const set = statusPorAlunoMes.get(k) ?? new Set<string>();
       set.add(st);
@@ -1070,20 +1103,27 @@ export default function createFluxoOperacionalRouter(): Router {
     const itens = (alunosRows ?? []).map((a) => {
       const alunoKey = keyAluno(String(a.aba), String(a.modalidade), Number(a.linha_planilha), String(a.aluno_nome));
       const esperado = a.valor_referencia != null ? Number(a.valor_referencia) : null;
+      const regime = regimePorAlunoKey.get(alunoKey) ?? 'normal';
+      const semCobranca = regime === 'bolsa' || regime === 'excecao';
 
       const historico = mesesJanela.map((m) => {
         const keyMes = competenciaKey(m.ano, m.mes);
         const pago = pagoPorAlunoMes.get(`${alunoKey}|${keyMes}`) ?? 0;
         const detalhe = detalhePorAlunoMes.get(`${alunoKey}|${keyMes}`);
         const statusSet = statusPorAlunoMes.get(`${alunoKey}|${keyMes}`);
-        let status_extrato: 'validado' | 'pendente' | 'sem_lancamento' = 'sem_lancamento';
-        if (pago > 0 && statusSet) {
+        let status_extrato: 'validado' | 'pendente' | 'sem_lancamento' | 'bolsa' | 'excecao' =
+          'sem_lancamento';
+        if (semCobranca) {
+          status_extrato = regime;
+        } else if (pago > 0 && statusSet) {
           status_extrato = statusSet.has('pendente') ? 'pendente' : 'validado';
         }
         const agora = new Date();
         const mesAtualRealKey = competenciaKey(agora.getFullYear(), agora.getMonth() + 1);
         let status: 'pago' | 'parcial' | 'pendente' | 'sem_dado' | 'futuro' = 'sem_dado';
-        if (keyMes > mesAtualRealKey) {
+        if (semCobranca) {
+          status = 'sem_dado';
+        } else if (keyMes > mesAtualRealKey) {
           status = 'futuro';
         } else if (esperado == null) {
           status = pago > 0 ? 'pago' : 'sem_dado';

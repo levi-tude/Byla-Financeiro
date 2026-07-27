@@ -1,9 +1,19 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { normalizePlanilhaId, planilhaIdFromFluxoUuid } from '../logic/fluxoPagamentoFingerprint.js';
 import { isFormaPagamentoDinheiro } from '../logic/pagamentoDinheiroFluxo.js';
+import {
+  resolverRegimeCobranca,
+  type RegimeCobrancaAluno,
+} from '../logic/regimeCobrancaAluno.js';
 import { listVinculosMes, listVinculosPorPlanilhaIds } from './validacaoVinculos.js';
 
-export type StatusExtratoFluxo = 'validado' | 'pendente' | 'divergente' | 'sem_lancamento';
+export type StatusExtratoFluxo =
+  | 'validado'
+  | 'pendente'
+  | 'divergente'
+  | 'sem_lancamento'
+  | 'bolsa'
+  | 'excecao';
 
 export type FluxoPagamentoExtratoStatus = {
   fluxo_pagamento_id: string;
@@ -44,9 +54,19 @@ export async function indexVinculosPorPagamentoIds(
 export function statusExtratoForFluxoPagamento(
   fluxoPagamentoId: string,
   vinculosByPlanilha: Map<string, { banco_id: string; id: string }>,
-  opts?: { forma?: string | null },
+  opts?: { forma?: string | null; regime?: RegimeCobrancaAluno | null },
 ): FluxoPagamentoExtratoStatus {
   const planilhaId = planilhaIdFromFluxoUuid(fluxoPagamentoId);
+
+  if (opts?.regime === 'bolsa' || opts?.regime === 'excecao') {
+    return {
+      fluxo_pagamento_id: fluxoPagamentoId,
+      planilha_id: planilhaId,
+      status_extrato: opts.regime,
+      banco_id: null,
+      vinculo_id: null,
+    };
+  }
 
   if (isFormaPagamentoDinheiro(opts?.forma)) {
     return {
@@ -78,15 +98,31 @@ export function statusExtratoForFluxoPagamento(
 }
 
 export async function enrichFluxoPagamentosComStatusExtrato<
-  T extends { id: string; forma?: string | null },
+  T extends {
+    id: string;
+    forma?: string | null;
+    regime_cobranca?: string | null;
+    plano?: string | null;
+    aluno_regime_cobranca?: string | null;
+    aluno_plano?: string | null;
+  },
 >(pagamentos: T[], _mes?: number, _ano?: number): Promise<(T & FluxoPagamentoExtratoStatus)[]> {
   void _mes;
   void _ano;
   const vinculos = await indexVinculosPorPagamentoIds(pagamentos.map((p) => String(p.id)));
-  return pagamentos.map((p) => ({
-    ...p,
-    ...statusExtratoForFluxoPagamento(String(p.id), vinculos, { forma: p.forma }),
-  }));
+  return pagamentos.map((p) => {
+    const regime = resolverRegimeCobranca({
+      regime_cobranca: p.aluno_regime_cobranca ?? p.regime_cobranca,
+      plano: p.aluno_plano ?? p.plano,
+    });
+    return {
+      ...p,
+      ...statusExtratoForFluxoPagamento(String(p.id), vinculos, {
+        forma: p.forma,
+        regime: regime === 'normal' ? null : regime,
+      }),
+    };
+  });
 }
 
 export type FluxoTotaisCompetenciaLinha = {

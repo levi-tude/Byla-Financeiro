@@ -24,6 +24,7 @@ const STATUS_LABEL: Record<ConciliacaoPagamentoStatus, string> = {
   pendente: 'Pendente',
   sem_vencimento: 'Sem vencimento',
   bolsa: 'Bolsa',
+  excecao: 'Exceção',
 };
 
 /** Ordem de cobrança (mercado AR / aging): urgência primeiro. */
@@ -33,6 +34,7 @@ const STATUS_SORT: Record<ConciliacaoPagamentoStatus, number> = {
   sem_vencimento: 2,
   em_dia: 3,
   bolsa: 4,
+  excecao: 5,
 };
 
 function normalizeSearch(s: string): string {
@@ -55,6 +57,9 @@ function statusBadgeClass(status: ConciliacaoPagamentoStatus): string {
   }
   if (status === 'bolsa') {
     return 'bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-200';
+  }
+  if (status === 'excecao') {
+    return 'bg-violet-100 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200';
   }
   return 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300';
 }
@@ -217,6 +222,7 @@ export function ConciliacaoPagamentosPage() {
       pendente: 0,
       sem_vencimento: 0,
       bolsa: 0,
+      excecao: 0,
       total: 0,
     };
     for (const item of itensComFiltrosGerais) {
@@ -592,6 +598,7 @@ export function ConciliacaoPagamentosPage() {
         </button>
         {secondaryPill('sem_vencimento', 'Sem vencimento', totaisVisiveis.sem_vencimento)}
         {secondaryPill('bolsa', 'Bolsa', totaisVisiveis.bolsa)}
+        {secondaryPill('excecao', 'Exceção', totaisVisiveis.excecao)}
       </div>
 
       <FilterBar

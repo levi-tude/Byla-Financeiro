@@ -158,6 +158,39 @@ async function main() {
     process.exit(1);
   }
 
+  // Preserva regime_cobranca (bolsa/exceção) marcado no sistema — remigração não deve apagar.
+  const { data: regimesExistentes, error: regimesErr } = await supabase
+    .from('fluxo_alunos_operacionais')
+    .select('aba, linha_planilha, aluno_nome, regime_cobranca')
+    .neq('regime_cobranca', 'normal')
+    .limit(10000);
+  if (regimesErr) {
+    console.warn(`Aviso ao ler regimes existentes: ${regimesErr.message}`);
+  }
+  const regimePorLinha = new Map<string, string>();
+  const regimePorNome = new Map<string, string>();
+  for (const r of regimesExistentes ?? []) {
+    const regime = String(r.regime_cobranca ?? '').trim();
+    if (regime !== 'bolsa' && regime !== 'excecao') continue;
+    const aba = String(r.aba ?? '').trim().toLowerCase();
+    const nome = String(r.aluno_nome ?? '').trim().toLowerCase();
+    regimePorLinha.set(`${aba}|${Number(r.linha_planilha)}`, regime);
+    if (nome) regimePorNome.set(`${aba}|${nome}`, regime);
+  }
+  for (const row of alunosPayload) {
+    const aba = String(row.aba ?? '').trim().toLowerCase();
+    const nome = String(row.aluno_nome ?? '').trim().toLowerCase();
+    const preserved =
+      regimePorLinha.get(`${aba}|${Number(row.linha_planilha)}`) ??
+      regimePorNome.get(`${aba}|${nome}`);
+    if (preserved) {
+      row.regime_cobranca = preserved;
+    } else {
+      const plano = String(row.plano ?? '').toLowerCase();
+      if (plano.includes('bolsa')) row.regime_cobranca = 'bolsa';
+    }
+  }
+
   // Limpa snapshot anterior da mesma origem para evitar acúmulo de linhas obsoletas
   // quando o parser muda ou quando alunos saem da planilha.
   const delAlunosMigracao = await supabase

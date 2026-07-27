@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Topbar } from '../app/Topbar';
 import { ValidacaoCalendarioGuia } from '../components/validacao/ValidacaoCalendarioGuia';
@@ -63,6 +64,7 @@ function buildCalendarSlots(mes: number, ano: number, diasMap: Map<string, Calen
 }
 
 export function CalendarioFinanceiroPage() {
+  const queryClient = useQueryClient();
   const now = new Date();
   const [mes, setMes] = useState(now.getMonth() + 1);
   const [ano, setAno] = useState(now.getFullYear());
@@ -268,6 +270,11 @@ export function CalendarioFinanceiroPage() {
         return next;
       });
       setModalNotice('Vínculo salvo com sucesso.');
+      void queryClient.invalidateQueries({ queryKey: ['matches-provaveis'] });
+      void queryClient.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos'] });
+      void queryClient.invalidateQueries({ queryKey: ['cadastro-alunos-resumo'] });
+      void queryClient.invalidateQueries({ queryKey: ['financas-alunos'] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacao-pagamentos'] });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setModalNotice('Não foi possível salvar o vínculo.');
@@ -286,6 +293,11 @@ export function CalendarioFinanceiroPage() {
       await load();
       setVinculosDia((prev) => prev.filter((x) => x.planilha_id !== planilhaId));
       setModalNotice('Vínculo removido.');
+      void queryClient.invalidateQueries({ queryKey: ['matches-provaveis'] });
+      void queryClient.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos'] });
+      void queryClient.invalidateQueries({ queryKey: ['cadastro-alunos-resumo'] });
+      void queryClient.invalidateQueries({ queryKey: ['financas-alunos'] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacao-pagamentos'] });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setModalNotice('Não foi possível remover o vínculo.');

@@ -52,6 +52,7 @@ const STATUS_CONCILIACAO_LABEL: Record<FinancasAlunoConciliacaoStatus, string> =
   pendente: 'Pendente',
   sem_vencimento: 'Sem vencimento',
   bolsa: 'Bolsa',
+  excecao: 'Exceção',
 };
 
 function meioBadgeClass(meio: MeioPagamentoAluno): string {
@@ -98,6 +99,9 @@ function statusConciliacaoBadgeClass(status: FinancasAlunoConciliacaoStatus): st
   }
   if (status === 'bolsa') {
     return 'bg-purple-100 text-purple-800 dark:bg-purple-950/50 dark:text-purple-200';
+  }
+  if (status === 'excecao') {
+    return 'bg-violet-100 text-violet-800 dark:bg-violet-950/50 dark:text-violet-200';
   }
   return 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300';
 }

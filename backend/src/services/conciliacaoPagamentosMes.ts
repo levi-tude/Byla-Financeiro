@@ -5,10 +5,13 @@
 
 import {
   classificarStatusConciliacao,
-  isPlanoBolsaConciliacao,
   parseDiaVencimentoCadastro,
   type ConciliacaoPagamentoStatus,
 } from '../logic/conciliacaoStatusExtrato.js';
+import {
+  resolverRegimeCobranca,
+  type RegimeCobrancaAluno,
+} from '../logic/regimeCobrancaAluno.js';
 import {
   matchUmPagamentoPlanilhaBanco,
   type BancoItem,
@@ -45,6 +48,7 @@ export type ConciliacaoPagamentosTotais = {
   pendente: number;
   sem_vencimento: number;
   bolsa: number;
+  excecao: number;
   total: number;
 };
 
@@ -62,6 +66,7 @@ export type ConciliacaoAlunoFixture = {
   aluno_nome: string;
   venc: string | null;
   plano: string | null;
+  regime_cobranca?: RegimeCobrancaAluno | string | null;
   valor_referencia: number | null;
   responsaveis: string | null;
   pagador_pix: string | null;
@@ -148,6 +153,7 @@ function emptyTotais(): ConciliacaoPagamentosTotais {
     pendente: 0,
     sem_vencimento: 0,
     bolsa: 0,
+    excecao: 0,
     total: 0,
   };
 }
@@ -264,7 +270,10 @@ export function montarItensConciliacaoPagamentos(input: {
   const itens: ConciliacaoPagamentoItem[] = [];
 
   for (const a of alunos) {
-    const planoBolsa = isPlanoBolsaConciliacao(a.plano);
+    const regime = resolverRegimeCobranca({
+      regime_cobranca: a.regime_cobranca,
+      plano: a.plano,
+    });
     const diaVenc = parseDiaVencimentoCadastro(a.venc);
     const key = chaveAlunoAba(a.aba, a.aluno_nome);
     const pags = pagamentosPorAluno.get(key) ?? [];
@@ -285,7 +294,7 @@ export function montarItensConciliacaoPagamentos(input: {
       dataCreditoIso: credito?.data ?? null,
       mes,
       ano,
-      planoBolsa,
+      regime,
     });
 
     const dataPagamentoFluxo =
@@ -357,7 +366,7 @@ export async function getConciliacaoPagamentosMes(
   const { data: alunosRows, error: alunosErr } = await supabase
     .from('fluxo_alunos_operacionais')
     .select(
-      'id, aba, modalidade, aluno_nome, venc, plano, valor_referencia, responsaveis, pagador_pix',
+      'id, aba, modalidade, aluno_nome, venc, plano, regime_cobranca, valor_referencia, responsaveis, pagador_pix',
     )
     .eq('ativo', true)
     .limit(10000);
@@ -419,6 +428,7 @@ export async function getConciliacaoPagamentosMes(
       aluno_nome: String(r.aluno_nome ?? ''),
       venc: r.venc != null ? String(r.venc) : null,
       plano: r.plano != null ? String(r.plano) : null,
+      regime_cobranca: r.regime_cobranca != null ? String(r.regime_cobranca) : null,
       valor_referencia: r.valor_referencia != null ? Number(r.valor_referencia) : null,
       responsaveis: r.responsaveis != null ? String(r.responsaveis) : null,
       pagador_pix: r.pagador_pix != null ? String(r.pagador_pix) : null,

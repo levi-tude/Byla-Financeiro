@@ -12,6 +12,7 @@ import {
   normalizePlanilhaId,
 } from '../logic/fluxoPagamentoFingerprint.js';
 import { isFormaPagamentoDinheiro } from '../logic/pagamentoDinheiroFluxo.js';
+import { alunoSemCobrancaObrigatoria } from '../logic/regimeCobrancaAluno.js';
 import {
   confiancaLabel,
   rotulosRazoesAdmin,
@@ -138,6 +139,30 @@ export async function getMatchesProvaveisMes(mes: number, ano: number): Promise<
     .eq('mes_competencia', mes);
   if (fluxoErr) throw new Error(fluxoErr.message);
 
+  const { data: alunosRows, error: alunosErr } = await supabase
+    .from('fluxo_alunos_operacionais')
+    .select('aba, linha_planilha, aluno_nome, plano, regime_cobranca')
+    .eq('ativo', true)
+    .limit(10000);
+  if (alunosErr) throw new Error(alunosErr.message);
+
+  const regimePorAluno = new Map<string, { regime_cobranca: string | null; plano: string | null }>();
+  for (const a of alunosRows ?? []) {
+    const key = `${String(a.aba ?? '').trim().toLowerCase()}|${Number(a.linha_planilha)}|${String(a.aluno_nome ?? '').trim().toLowerCase()}`;
+    regimePorAluno.set(key, {
+      regime_cobranca: a.regime_cobranca != null ? String(a.regime_cobranca) : null,
+      plano: a.plano != null ? String(a.plano) : null,
+    });
+    // fallback por aba+nome (quando linha muda na remigração)
+    const keyNome = `${String(a.aba ?? '').trim().toLowerCase()}|${String(a.aluno_nome ?? '').trim().toLowerCase()}`;
+    if (!regimePorAluno.has(keyNome)) {
+      regimePorAluno.set(keyNome, {
+        regime_cobranca: a.regime_cobranca != null ? String(a.regime_cobranca) : null,
+        plano: a.plano != null ? String(a.plano) : null,
+      });
+    }
+  }
+
   const planilhasAll: PlanilhaItem[] = (fluxoRows ?? []).map((r) => {
     const base: PlanilhaItem = {
       id: String(r.id),
@@ -171,9 +196,14 @@ export async function getMatchesProvaveisMes(mes: number, ano: number): Promise<
   const isVinculadoFluxo = (p: PlanilhaItem) =>
     vinculadosPlanilha.has(planilhaIdFromFluxoUuid(p.id)) || vinculadosPlanilha.has(p.id);
 
-  const pendentes = planilhasAll.filter(
-    (p) => !isFormaPagamentoDinheiro(p.forma) && !isVinculadoFluxo(p),
-  );
+  const pendentes = planilhasAll.filter((p) => {
+    if (isFormaPagamentoDinheiro(p.forma) || isVinculadoFluxo(p)) return false;
+    const keyLinha = `${p.aba.trim().toLowerCase()}|${p.linha}|${p.aluno.trim().toLowerCase()}`;
+    const keyNome = `${p.aba.trim().toLowerCase()}|${p.aluno.trim().toLowerCase()}`;
+    const cad = regimePorAluno.get(keyLinha) ?? regimePorAluno.get(keyNome);
+    if (cad && alunoSemCobrancaObrigatoria(cad)) return false;
+    return true;
+  });
 
   // Janela ampla: cobre ±flex, D+5 Vendas e legado ~D+30
   const inicioMes = `${ano}-${String(mes).padStart(2, '0')}-01`;

@@ -12,6 +12,11 @@ import {
 } from '../logic/fluxoPagamentoFingerprint.js';
 import { inferirMeioPagamentoFluxo, type MeioPagamentoAluno } from '../logic/meioPagamentoVinculo.js';
 import { normalizeText } from '../logic/conciliacaoTexto.js';
+import {
+  isRegimeSemCobranca,
+  resolverRegimeCobranca,
+  type RegimeCobrancaAluno,
+} from '../logic/regimeCobrancaAluno.js';
 import { casarVinculosOrfaosPorDataValor } from '../logic/vinculosOrfaosHeuristica.js';
 import { getSupabase } from './supabaseClient.js';
 import { listMapeamentoAlunoPagadorAtivos } from './mapeamentoAlunoPagador.js';
@@ -29,6 +34,8 @@ export type CadastroAlunoVinculoFiltro = 'todos' | 'com_vinculo' | 'sem_vinculo'
 
 export type CadastroAlunoCadastroFiltro = 'todos' | 'completo' | 'incompleto';
 
+export type CadastroAlunoRegimeFiltro = 'todos' | 'normal' | 'bolsa' | 'excecao' | 'bolsa_excecao';
+
 export type CadastroAlunoDiaVencimentoFiltro = number | 'sem';
 
 export type CadastroAlunoItem = {
@@ -37,6 +44,7 @@ export type CadastroAlunoItem = {
   aba: string;
   modalidade: string;
   plano: string | null;
+  regime_cobranca: RegimeCobrancaAluno;
   venc: string | null;
   dia_vencimento: number | null;
   ativo: boolean;
@@ -62,11 +70,13 @@ export type CadastroAlunoSecao = {
   total: number;
   com_vinculo: number;
   sem_vinculo: number;
+  bolsa_excecao: number;
   cadastro_completo: number;
   cadastro_incompleto: number;
   por_forma: CadastroAlunoFormaContagem[];
   alunos_com_vinculo: CadastroAlunoItem[];
   alunos_sem_vinculo: CadastroAlunoItem[];
+  alunos_bolsa_excecao: CadastroAlunoItem[];
 };
 
 export type CadastroAlunoDiaVencimentoContagem = {
@@ -80,6 +90,7 @@ export type CadastroAlunosResumoResponse = {
     ativos: number;
     com_vinculo: number;
     sem_vinculo: number;
+    bolsa_excecao: number;
     cadastro_completo: number;
     cadastro_incompleto: number;
     sem_vencimento_cadastrado: number;
@@ -99,6 +110,7 @@ type AlunoRow = {
   wpp: string | null;
   responsaveis: string | null;
   plano: string | null;
+  regime_cobranca?: string | null;
   venc: string | null;
   valor_referencia: number | null;
   pagador_pix: string | null;
@@ -284,6 +296,7 @@ export function montarCadastroAlunosResumo(input: {
   gruposFamilia: Array<{ rotulo: string; membros: string[][] }>;
   filtroVinculo?: CadastroAlunoVinculoFiltro;
   filtroCadastro?: CadastroAlunoCadastroFiltro;
+  filtroRegime?: CadastroAlunoRegimeFiltro;
   filtroMeio?: MeioPagamentoAluno;
   filtroAba?: string;
   filtroModalidade?: string;
@@ -298,6 +311,7 @@ export function montarCadastroAlunosResumo(input: {
     gruposFamilia,
     filtroVinculo = 'todos',
     filtroCadastro = 'todos',
+    filtroRegime = 'todos',
     filtroMeio,
     filtroAba,
     filtroModalidade,
@@ -312,6 +326,15 @@ export function montarCadastroAlunosResumo(input: {
     if (filtroAba && row.aba !== filtroAba) continue;
     if (filtroModalidade && row.modalidade !== filtroModalidade) continue;
 
+    const regime = resolverRegimeCobranca({
+      regime_cobranca: row.regime_cobranca,
+      plano: row.plano,
+    });
+    if (filtroRegime === 'normal' && regime !== 'normal') continue;
+    if (filtroRegime === 'bolsa' && regime !== 'bolsa') continue;
+    if (filtroRegime === 'excecao' && regime !== 'excecao') continue;
+    if (filtroRegime === 'bolsa_excecao' && !isRegimeSemCobranca(regime)) continue;
+
     const pendenciasInput: CadastroAlunoPendenciasInput = {
       wpp: row.wpp,
       responsaveis: row.responsaveis,
@@ -319,6 +342,7 @@ export function montarCadastroAlunosResumo(input: {
       venc: row.venc,
       venc_exibicao: row.venc_exibicao,
       plano: row.plano,
+      regime_cobranca: regime,
       valor_referencia: row.valor_referencia,
       valor_mensal_exibicao: row.valor_mensal_exibicao,
       valor_mensal_origem: row.valor_mensal_origem,
@@ -344,8 +368,13 @@ export function montarCadastroAlunosResumo(input: {
       alunosComVinculoValidacao,
     );
 
-    if (filtroVinculo === 'com_vinculo' && !temVinculoPagador(vinculoStatus)) continue;
-    if (filtroVinculo === 'sem_vinculo' && temVinculoPagador(vinculoStatus)) continue;
+    // Bolsa/exceção não entra no filtro "sem vínculo" (não precisa vincular extrato).
+    if (filtroVinculo === 'com_vinculo') {
+      if (isRegimeSemCobranca(regime) || !temVinculoPagador(vinculoStatus)) continue;
+    }
+    if (filtroVinculo === 'sem_vinculo') {
+      if (isRegimeSemCobranca(regime) || temVinculoPagador(vinculoStatus)) continue;
+    }
 
     const formaHabitual =
       formaPorAluno.get(
@@ -360,6 +389,7 @@ export function montarCadastroAlunosResumo(input: {
       aba: String(row.aba ?? ''),
       modalidade: String(row.modalidade ?? row.aba ?? ''),
       plano: row.plano ? String(row.plano) : null,
+      regime_cobranca: regime,
       venc: vencExibe,
       dia_vencimento: diaVencimento,
       ativo: Boolean(row.ativo),
@@ -400,16 +430,21 @@ export function montarCadastroAlunosResumo(input: {
         total: 0,
         com_vinculo: 0,
         sem_vinculo: 0,
+        bolsa_excecao: 0,
         cadastro_completo: 0,
         cadastro_incompleto: 0,
         por_forma: [],
         alunos_com_vinculo: [],
         alunos_sem_vinculo: [],
+        alunos_bolsa_excecao: [],
       };
       secoesMap.set(key, secao);
     }
     secao.total += 1;
-    if (temVinculoPagador(item.vinculo_status)) {
+    if (isRegimeSemCobranca(item.regime_cobranca)) {
+      secao.bolsa_excecao += 1;
+      secao.alunos_bolsa_excecao.push(item);
+    } else if (temVinculoPagador(item.vinculo_status)) {
       secao.com_vinculo += 1;
       secao.alunos_com_vinculo.push(item);
     } else {
@@ -421,7 +456,14 @@ export function montarCadastroAlunosResumo(input: {
   }
 
   const secoes = Array.from(secoesMap.values())
-    .map((s) => ({ ...s, por_forma: contarPorForma([...s.alunos_com_vinculo, ...s.alunos_sem_vinculo]) }))
+    .map((s) => ({
+      ...s,
+      por_forma: contarPorForma([
+        ...s.alunos_com_vinculo,
+        ...s.alunos_sem_vinculo,
+        ...s.alunos_bolsa_excecao,
+      ]),
+    }))
     .sort((a, b) => {
       const ab = a.aba.localeCompare(b.aba, 'pt-BR');
       if (ab !== 0) return ab;
@@ -433,12 +475,19 @@ export function montarCadastroAlunosResumo(input: {
     porAba.set(item.aba, (porAba.get(item.aba) ?? 0) + 1);
   }
 
+  const semCobranca = (i: CadastroAlunoItem) => isRegimeSemCobranca(i.regime_cobranca);
+
   return {
     totais: {
       alunos: itensFiltrados.length,
       ativos: itensFiltrados.filter((i) => i.ativo).length,
-      com_vinculo: itensFiltrados.filter((i) => temVinculoPagador(i.vinculo_status)).length,
-      sem_vinculo: itensFiltrados.filter((i) => !temVinculoPagador(i.vinculo_status)).length,
+      com_vinculo: itensFiltrados.filter(
+        (i) => !semCobranca(i) && temVinculoPagador(i.vinculo_status),
+      ).length,
+      sem_vinculo: itensFiltrados.filter(
+        (i) => !semCobranca(i) && !temVinculoPagador(i.vinculo_status),
+      ).length,
+      bolsa_excecao: itensFiltrados.filter((i) => semCobranca(i)).length,
       cadastro_completo: itensFiltrados.filter((i) => i.cadastro_status === 'completo').length,
       cadastro_incompleto: itensFiltrados.filter((i) => i.cadastro_status === 'incompleto').length,
       sem_vencimento_cadastrado: semVencimentoCadastrado,
@@ -455,6 +504,7 @@ export function montarCadastroAlunosResumo(input: {
 export async function getCadastroAlunosResumo(params: {
   filtroVinculo?: CadastroAlunoVinculoFiltro;
   filtroCadastro?: CadastroAlunoCadastroFiltro;
+  filtroRegime?: CadastroAlunoRegimeFiltro;
   filtroMeio?: MeioPagamentoAluno;
   filtroAba?: string;
   filtroModalidade?: string;
@@ -468,7 +518,7 @@ export async function getCadastroAlunosResumo(params: {
     supabase
       .from('fluxo_alunos_operacionais')
       .select(
-        'id, aba, modalidade, linha_planilha, aluno_nome, wpp, responsaveis, plano, venc, valor_referencia, pagador_pix, ativo, raw_row, pendencia_campos_ignorados',
+        'id, aba, modalidade, linha_planilha, aluno_nome, wpp, responsaveis, plano, regime_cobranca, venc, valor_referencia, pagador_pix, ativo, raw_row, pendencia_campos_ignorados',
       )
       .order('aba', { ascending: true })
       .order('linha_planilha', { ascending: true })
@@ -532,6 +582,9 @@ export async function getCadastroAlunosResumo(params: {
       wpp: row.wpp != null ? String(row.wpp) : null,
       responsaveis: row.responsaveis != null ? String(row.responsaveis) : null,
       plano: row.plano != null ? String(row.plano) : null,
+      regime_cobranca: (row as { regime_cobranca?: unknown }).regime_cobranca != null
+        ? String((row as { regime_cobranca?: unknown }).regime_cobranca)
+        : null,
       venc: row.venc != null ? String(row.venc) : null,
       valor_referencia: valorCadastro,
       pagador_pix: row.pagador_pix != null ? String(row.pagador_pix) : null,

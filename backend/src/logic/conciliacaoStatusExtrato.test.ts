@@ -25,6 +25,19 @@ test('bolsa não entra como pendente', () => {
   );
 });
 
+test('exceção não entra como pendente', () => {
+  assert.equal(
+    classificarStatusConciliacao({
+      diaVencimento: 10,
+      dataCreditoIso: null,
+      mes: 7,
+      ano: 2026,
+      regime: 'excecao',
+    }),
+    'excecao',
+  );
+});
+
 test('sem crédito → pendente; crédito dia 10 com venc 10 → em_dia; dia 11 → atrasado', () => {
   assert.equal(
     classificarStatusConciliacao({

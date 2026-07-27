@@ -22,6 +22,14 @@ export const cadastroAlunosVinculoQuerySchema = z.enum(['todos', 'com_vinculo', 
 
 export const cadastroAlunosCadastroQuerySchema = z.enum(['todos', 'completo', 'incompleto']);
 
+export const cadastroAlunosRegimeQuerySchema = z.enum([
+  'todos',
+  'normal',
+  'bolsa',
+  'excecao',
+  'bolsa_excecao',
+]);
+
 export const cadastroAlunosDiaVencimentoQuerySchema = z.preprocess(
   (v) => (v === '' || v == null ? undefined : v),
   z.union([z.coerce.number().int().min(1).max(31), z.literal('sem')]).optional(),
@@ -37,6 +45,10 @@ export const cadastroAlunosResumoQuerySchema = z.object({
   cadastro: z.preprocess(
     (v) => (v === '' || v == null ? 'todos' : v),
     cadastroAlunosCadastroQuerySchema.default('todos'),
+  ),
+  regime: z.preprocess(
+    (v) => (v === '' || v == null ? 'todos' : v),
+    cadastroAlunosRegimeQuerySchema.default('todos'),
   ),
   meio: z.preprocess(
     (v) => (v === '' || v == null ? 'todos' : v),

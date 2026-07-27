@@ -188,6 +188,17 @@ function isPlanoBolsa(plano: string | null | undefined): boolean {
   return n === 'bolsa' || n.includes('bolsa');
 }
 
+function alunoSemCobrancaOverview(a: {
+  regime_cobranca?: string | null;
+  plano?: string | null;
+}): boolean {
+  const r = String(a.regime_cobranca ?? '')
+    .trim()
+    .toLowerCase();
+  if (r === 'bolsa' || r === 'excecao') return true;
+  return isPlanoBolsa(a.plano);
+}
+
 function ignoradosPendencia(a: FluxoOperacionalAluno): Set<string> {
   const s = new Set<string>();
   for (const x of a.pendencia_campos_ignorados ?? []) {
@@ -203,7 +214,7 @@ export function camposCadastroFaltantes(a: FluxoOperacionalAluno): string[] {
   if (!ign.has('wpp') && !String(a.wpp ?? '').trim()) r.push('WhatsApp');
   if (!ign.has('responsaveis') && !(a.responsaveis_exibicao?.trim() || a.responsaveis?.trim())) r.push('Responsáveis');
   if (!ign.has('venc') && !(a.venc_exibicao?.trim() || a.venc?.trim())) r.push('Vencimento');
-  if (!ign.has('valor_ref') && !isPlanoBolsa(a.plano)) {
+  if (!ign.has('valor_ref') && !alunoSemCobrancaOverview(a)) {
     if (a.valor_mensal_origem === 'planilha_bruta' || a.valor_mensal_origem === 'ultimo_pagamento') {
       r.push('Valor ref.');
     } else if (a.valor_referencia == null && a.valor_mensal_exibicao == null) {

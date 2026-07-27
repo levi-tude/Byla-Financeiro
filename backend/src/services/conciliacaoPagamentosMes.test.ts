@@ -103,6 +103,30 @@ test('montarItens: em dia, atrasado, pendente e bolsa', () => {
   assert.equal(byNome['Diana Bolsa'].status, 'bolsa');
 });
 
+test('montarItens: regime_cobranca excecao (staff) não conta como pendente', () => {
+  const alunos = [
+    aluno({
+      id: 'a5',
+      aluno_nome: 'Elena Excecao',
+      venc: null,
+      plano: 'Mensal',
+      regime_cobranca: 'excecao',
+      valor_referencia: null,
+    }),
+  ];
+  const result = montarItensConciliacaoPagamentos({
+    mes: MES,
+    ano: ANO,
+    alunos,
+    pagamentos: [],
+    entradas: [],
+    vinculosByPlanilha: new Map(),
+  });
+  assert.equal(result.totais.excecao, 1);
+  assert.equal(result.totais.pendente, 0);
+  assert.equal(result.itens[0].status, 'excecao');
+});
+
 test('montarItens: Catarina Noronha PIX dia vencimento → em_dia (jul/2026)', () => {
   const alunos = [
     aluno({
