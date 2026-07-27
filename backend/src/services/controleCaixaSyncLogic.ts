@@ -188,16 +188,22 @@ export function aplicarSyncCompletoSistema(
   };
 }
 
-/** Agrega valor em todas as chaves equivalentes (estável + linha:uuid + raw). */
+/**
+ * Agrega valor em todas as chaves equivalentes (estável + linha:uuid + raw).
+ * Deduplica chaves: se a efetiva já é a estável, NÃO somar duas vezes no mesmo slot
+ * (isso inflava o Controle Sistema ~2× após remap sticky → ent_parc_*).
+ */
 export function agregarValorEmChaves(
   map: Map<string, number>,
   keys: string[],
   valor: number,
 ): void {
   const v = round2(Math.abs(valor));
+  const seen = new Set<string>();
   for (const k of keys) {
     const key = k.trim();
-    if (!key) continue;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
     map.set(key, round2((map.get(key) ?? 0) + v));
   }
 }
