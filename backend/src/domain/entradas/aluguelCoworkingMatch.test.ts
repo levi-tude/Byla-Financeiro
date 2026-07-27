@@ -58,6 +58,16 @@ describe('matchAluguelCoworkingParaPagador', () => {
     const m = matchAluguelCoworkingParaPagador('Maria Silva Santos', 150, catalogAluguel, new Map());
     assert.equal(m, null);
   });
+
+  it('valor igual ao Controle sem nome NÃO sugere aluguel (evita misturar mensalidade)', () => {
+    const m = matchAluguelCoworkingParaPagador(
+      'Ana Souza Models Studio',
+      1200,
+      catalogAluguel,
+      new Map([['linha:neto', 1200]]),
+    );
+    assert.equal(m, null);
+  });
 });
 
 describe('resolverSegmentoEntradaGrupo', () => {
@@ -94,6 +104,42 @@ describe('resolverSegmentoEntradaGrupo', () => {
         },
       }),
       'aluguel_coworking',
+    );
+  });
+
+  it('categoria classificada em aluguel manda no segmento', () => {
+    assert.equal(
+      resolverSegmentoEntradaGrupo({
+        bloco_template_key: 'entrada_aluguel_coworking',
+        bloco_titulo: 'ENTRADAS ALUGUEL / COWORKING',
+        template_key: 'ent_alug_pholha',
+        aba_fluxo: null,
+        aluno_nome: null,
+        sugestao_fluxo: null,
+        match_aluguel: null,
+      }),
+      'aluguel_coworking',
+    );
+  });
+
+  it('sinal de Fluxo (aluno/aba) fica em mensalidades mesmo com match_aluguel', () => {
+    assert.equal(
+      resolverSegmentoEntradaGrupo({
+        bloco_template_key: null,
+        bloco_titulo: null,
+        template_key: null,
+        aba_fluxo: 'BYLA DANÇA',
+        aluno_nome: 'Ana Fictícia',
+        sugestao_fluxo: null,
+        match_aluguel: {
+          template_key: 'linha:neto',
+          label: 'Neto (SBA)',
+          confianca: 'alta',
+          motivo: 'Nome: NETO',
+          score: 12,
+        },
+      }),
+      'mensalidades',
     );
   });
 });

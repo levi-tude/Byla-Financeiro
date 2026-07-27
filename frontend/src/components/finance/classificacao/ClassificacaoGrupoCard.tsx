@@ -11,6 +11,7 @@ export function ClassificacaoGrupoCard({
   sugestaoHint,
   sugestaoFluxoBadge,
   cartaoDetalhe,
+  origemBadgeLabel,
   onConfirmarSugestao,
   confirmarPending,
   onClassificar,
@@ -31,6 +32,8 @@ export function ClassificacaoGrupoCard({
   sugestaoHint?: string | null;
   sugestaoFluxoBadge?: boolean;
   cartaoDetalhe?: string | null;
+  /** Badge curto ao lado do status (ex.: Validação, Cartão). */
+  origemBadgeLabel?: string | null;
   onConfirmarSugestao?: () => void;
   confirmarPending?: boolean;
   onClassificar: () => void;
@@ -53,11 +56,18 @@ export function ClassificacaoGrupoCard({
           {scoreRepeticao >= 2 && <StatusBadge tone="atencao" label="Repete" />}
           {regraDesativada && <StatusBadge tone="pendente" label="Regra desativada" />}
           {sugestaoFluxoBadge && <StatusBadge tone="atencao" label="Sugerido pelo fluxo" />}
-          {cartaoDetalhe && <StatusBadge tone="pendente" label="Cartão" />}
+          {(origemBadgeLabel || cartaoDetalhe) && (
+            <StatusBadge tone="pendente" label={origemBadgeLabel ?? 'Cartão'} />
+          )}
           {estado === 'pendente' && !categoriaLabel && !sugestaoFluxoBadge && (
             <StatusBadge tone="pendente" label="Pendente" />
           )}
-          {categoriaLabel && <StatusBadge tone="ok" label={categoriaLabel} />}
+          {categoriaLabel && (
+            <StatusBadge
+              tone={estado === 'pendente' && sugestaoFluxoBadge ? 'atencao' : 'ok'}
+              label={estado === 'pendente' && sugestaoFluxoBadge ? `Sugestão: ${categoriaLabel}` : categoriaLabel}
+            />
+          )}
         </div>
       </div>
       {cartaoDetalhe && estado === 'pendente' && (

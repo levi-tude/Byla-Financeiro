@@ -58,8 +58,36 @@ function categoriaNoSegmento(c: EntradaCategoriaLinha, segmento: SegmentoEntrada
   return titulo.includes('aluguel') || titulo.includes('coworking') || c.blocoTemplateKey === 'entrada_aluguel_coworking';
 }
 
+function segmentoDaCategoria(c: Pick<EntradaCategoriaLinha, 'blocoTitulo' | 'blocoTemplateKey'>): SegmentoEntrada {
+  return categoriaNoSegmento(c as EntradaCategoriaLinha, 'aluguel_coworking')
+    ? 'aluguel_coworking'
+    : 'mensalidades';
+}
+
 function grupoVisivelNoSegmento(g: EntradaGrupo, segmento: SegmentoEntrada): boolean {
   return (g.segmento ?? 'mensalidades') === segmento;
+}
+
+function sugestaoConfirmavel(g: EntradaGrupo): { template_key: string; label: string | null; mapeamento_id?: string } | null {
+  if (g.sugestao_fluxo?.template_key) {
+    return {
+      template_key: g.sugestao_fluxo.template_key,
+      label: g.sugestao_fluxo.label,
+      mapeamento_id: g.sugestao_fluxo.mapeamento_id || undefined,
+    };
+  }
+  const s = g.sugestao;
+  if (
+    s?.template_key &&
+    (s.confianca === 'alta' || s.confianca === 'media') &&
+    (s.origem === 'validacao_fluxo' ||
+      s.origem === 'fluxo_operacional' ||
+      s.origem === 'cadastro_mensalidade' ||
+      s.origem === 'aluguel_nome_valor')
+  ) {
+    return { template_key: s.template_key, label: s.label };
+  }
+  return null;
 }
 
 function EntradasClassificarModal({
@@ -67,22 +95,27 @@ function EntradasClassificarModal({
   mes,
   ano,
   categorias,
-  segmento,
   onClose,
   onSaved,
 }: {
   grupo: EntradaGrupo;
   mes: number;
   ano: number;
+  /** Catálogo completo (parceiros + aluguel/coworking) — permite reclassificar entre blocos. */
   categorias: EntradaCategoriaLinha[];
-  segmento: SegmentoEntrada;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (segmentoEscolhido?: SegmentoEntrada) => void;
 }) {
   const { showToast } = useToast();
-  const categoriasSegmento = useMemo(
-    () => categorias.filter((c) => categoriaNoSegmento(c, segmento)),
-    [categorias, segmento],
+  const categoriasTodas = useMemo(
+    () =>
+      categorias.map((c) => ({
+        templateKey: c.templateKey,
+        label: c.label,
+        blocoTitulo: c.blocoTitulo,
+        blocoTemplateKey: c.blocoTemplateKey,
+      })),
+    [categorias],
   );
   const initialTemplateKey = useMemo(
     () =>
@@ -91,18 +124,13 @@ function EntradasClassificarModal({
           grupo.sugestao_fluxo?.template_key ??
           grupo.match_aluguel?.template_key ??
           grupo.sugestao?.template_key,
-        categoriasSegmento.map((c) => ({
-          templateKey: c.templateKey,
-          label: c.label,
-          blocoTitulo: c.blocoTitulo,
-          blocoTemplateKey: c.blocoTemplateKey,
-        })),
+        categoriasTodas,
         grupo.categoria_label ??
           grupo.sugestao_fluxo?.label ??
           grupo.match_aluguel?.label ??
           grupo.sugestao?.label,
       ),
-    [grupo, categoriasSegmento],
+    [grupo, categoriasTodas],
   );
   const [templateKey, setTemplateKey] = useState(initialTemplateKey);
 
@@ -129,7 +157,7 @@ function EntradasClassificarModal({
 
   const saveMut = useMutation({
     mutationFn: () => {
-      const cat = categoriasSegmento.find((c) => c.templateKey === templateKey);
+      const cat = categorias.find((c) => c.templateKey === templateKey);
       return putEntradasMapeamento(mes, ano, {
         pessoa_normalizada: grupo.pessoa_normalizada,
         template_key: templateKey,
@@ -141,28 +169,22 @@ function EntradasClassificarModal({
       });
     },
     onSuccess: () => {
+      const cat = categorias.find((c) => c.templateKey === templateKey);
       showToast('Categoria salva. Regra vale para meses futuros.', 'success');
-      onSaved();
+      onSaved(cat ? segmentoDaCategoria(cat) : undefined);
       onClose();
     },
   });
-
-  const segmentoLabel =
-    segmento === 'mensalidades' ? 'Entradas Parceiros (mensalidades)' : 'Entradas Aluguel / Coworking';
 
   return (
     <ClassificacaoModal
       title="Classificar entrada"
       subtitle={grupo.titulo_card}
       subtitleExtra={`PIX: ${grupo.pessoa_exibida}`}
-      categoriaLabel={`Categoria — ${segmentoLabel}`}
-      categoriaHint={
-        segmento === 'aluguel_coworking'
-          ? 'Escolha o locatário cadastrado no Controle (ex.: Pholha, Neto).'
-          : undefined
-      }
-      emptyCatalogHint={`Abra o Controle de Caixa deste mês para carregar as linhas de ${segmentoLabel.toLowerCase()}.`}
-      categorias={categoriasSegmento}
+      categoriaLabel="Categoria (Controle de Caixa)"
+      categoriaHint="Parceiros (mensalidades) e Aluguel/Coworking — pode mover entre os dois blocos."
+      emptyCatalogHint="Abra o Controle de Caixa deste mês para carregar as linhas de entrada."
+      categorias={categoriasTodas}
       templateKey={templateKey}
       onTemplateKeyChange={setTemplateKey}
       transacoes={detalheQuery.data?.transacoes ?? []}
@@ -183,12 +205,13 @@ function EntradasClassificarModal({
         );
       }}
       sugestao={
-        grupo.sugestao_fluxo && segmento === 'mensalidades' && !templateKey ? (
+        grupo.sugestao_fluxo && !templateKey ? (
           <p className="mt-2 text-xs text-emerald-800 dark:text-emerald-200">
-            Sugerido pelo Pagamento dia a dia: {grupo.sugestao_fluxo.label}
+            Indicado pela Validação / Fluxo: {grupo.sugestao_fluxo.label}
             {grupo.sugestao_fluxo.detalhe ? ` (${grupo.sugestao_fluxo.detalhe})` : ''}
+            . Confirme ou escolha outra linha abaixo.
           </p>
-        ) : grupo.match_aluguel && segmento === 'aluguel_coworking' && !templateKey ? (
+        ) : grupo.match_aluguel && !templateKey ? (
           <p className="mt-2 text-xs text-emerald-800 dark:text-emerald-200">
             Sugestão aluguel/coworking: {grupo.match_aluguel.label} ({grupo.match_aluguel.motivo},{' '}
             {grupo.match_aluguel.confianca})
@@ -271,10 +294,12 @@ export function EntradasPage() {
   const [modalGrupo, setModalGrupo] = useState<EntradaGrupo | null>(null);
   const qc = useQueryClient();
 
-  const invalidate = () => {
+  const invalidate = (segmentoEscolhido?: SegmentoEntrada) => {
     void qc.invalidateQueries({ queryKey: ['entradas-resumo', mes, ano] });
     void qc.invalidateQueries({ queryKey: ['entradas-grupos', mes, ano] });
+    void qc.invalidateQueries({ queryKey: ['entradas-categorias', mes, ano] });
     void qc.invalidateQueries({ queryKey: ['controle-caixa', mes, ano] });
+    if (segmentoEscolhido) setSegmento(segmentoEscolhido);
   };
 
   const syncControlePermitido = mesPermiteSincronizarEntradasRepasses(mes, ano);
@@ -317,23 +342,26 @@ export function EntradasPage() {
 
   const confirmarSugestaoMut = useMutation({
     mutationFn: async (g: EntradaGrupo) => {
-      if (g.sugestao_fluxo?.mapeamento_id) {
-        return patchEntradasMapeamento(mes, ano, g.sugestao_fluxo.mapeamento_id, { confirmado: true });
+      const sug = sugestaoConfirmavel(g);
+      if (sug?.mapeamento_id) {
+        return patchEntradasMapeamento(mes, ano, sug.mapeamento_id, { confirmado: true });
       }
-      if (g.sugestao_fluxo?.template_key) {
+      if (sug?.template_key) {
         return putEntradasMapeamento(mes, ano, {
           pessoa_normalizada: g.pessoa_normalizada,
-          template_key: g.sugestao_fluxo.template_key,
-          categoria_label: g.sugestao_fluxo.label ?? g.categoria_label ?? undefined,
+          template_key: sug.template_key,
+          categoria_label: sug.label ?? g.categoria_label ?? undefined,
           subcategoria:
             g.modalidade && g.aba_fluxo ? `${g.aba_fluxo} · ${g.modalidade}` : g.modalidade ?? undefined,
         });
       }
       throw new Error('Sem sugestão para confirmar');
     },
-    onSuccess: () => {
+    onSuccess: (_data, g) => {
+      const sug = sugestaoConfirmavel(g);
+      const cat = (categoriasQuery.data?.categorias ?? []).find((c) => c.templateKey === sug?.template_key);
       showToast('Sugestão confirmada. A regra passa a valer para fechamento e Controle.', 'success');
-      invalidate();
+      invalidate(cat ? segmentoDaCategoria(cat) : undefined);
     },
     onError: () => {
       showToast('Não foi possível confirmar a sugestão.', 'error');
@@ -410,6 +438,22 @@ export function EntradasPage() {
     });
   }, [gruposQuery.data?.grupos, segmento, filtroTipo, categoriasOpcoes]);
 
+  const pendentesPorSegmento = useMemo(() => {
+    const lista = gruposQuery.data?.grupos ?? [];
+    if (tab !== 'pendentes') return { mensalidades: 0, aluguel_coworking: 0 };
+    let mensalidades = 0;
+    let aluguel_coworking = 0;
+    for (const g of lista) {
+      if ((g.segmento ?? 'mensalidades') === 'aluguel_coworking') aluguel_coworking += 1;
+      else mensalidades += 1;
+    }
+    return { mensalidades, aluguel_coworking };
+  }, [gruposQuery.data?.grupos, tab]);
+
+  const outroSegmento: SegmentoEntrada =
+    segmento === 'mensalidades' ? 'aluguel_coworking' : 'mensalidades';
+  const pendentesOutroSegmento = pendentesPorSegmento[outroSegmento];
+
   const porCategoriaBlocos = useMemo(() => {
     const blocos = (resumoQuery.data?.por_bloco ?? []).map((bloco) => ({
       bloco_titulo: bloco.bloco_titulo,
@@ -429,41 +473,57 @@ export function EntradasPage() {
   const mostrarPendentePorCategoria =
     tab === 'categorias' && (!filtroTipo || filtroTipo === FILTRO_TIPO_PENDENTE);
 
-  const segmentoBtn = (id: SegmentoEntrada, label: string, hint: string) => (
-    <button
-      type="button"
-      key={id}
-      onClick={() => {
-        setSegmento(id);
-        setFiltroTipo('');
-      }}
-      title={hint}
-      className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-        segmento === id
-          ? 'bg-indigo-600 text-white'
-          : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-      }`}
-    >
-      {label}
-    </button>
-  );
+  const segmentoBtn = (id: SegmentoEntrada, label: string, hint: string) => {
+    const count = tab === 'pendentes' ? pendentesPorSegmento[id] : null;
+    return (
+      <button
+        type="button"
+        key={id}
+        onClick={() => {
+          setSegmento(id);
+          setFiltroTipo('');
+        }}
+        title={hint}
+        className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+          segmento === id
+            ? 'bg-indigo-600 text-white'
+            : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+        }`}
+      >
+        {label}
+        {count != null && count > 0 ? (
+          <span
+            className={`ml-1.5 inline-flex min-w-[1.25rem] justify-center rounded-full px-1.5 text-xs font-semibold ${
+              segmento === id ? 'bg-white/20 text-white' : 'bg-amber-200 text-amber-900 dark:bg-amber-900 dark:text-amber-100'
+            }`}
+          >
+            {count}
+          </span>
+        ) : null}
+      </button>
+    );
+  };
 
   return (
     <div className="p-6 space-y-4 max-w-7xl mx-auto">
       <Topbar
         title="Entradas"
-        subtitle="Classifique PIX de mensalidades (parceiros) e de aluguel/coworking no Controle de Caixa"
+        subtitle="Classifique PIX no Controle: mensalidades (parceiros) e aluguel/coworking"
       />
 
       <div className="mt-4">
         <FilterBar
           title="Classificação de entradas"
-          subtitle="Duas famílias no Controle: Entradas Parceiros (mensalidades) e Entradas Aluguel / Coworking (locação direta)"
+          subtitle="Validação liga banco ↔ aluno do Fluxo; aqui você confirma a linha contábil do Controle (ou corrige)."
         >
           <p className="text-sm text-slate-600 dark:text-slate-400">
             {syncControlePermitido
-              ? 'Ao classificar ou desvincular, o Controle Sistema atualiza sozinho (parceiros, aluguel e repasses). O que ainda estiver pendente abaixo não entra no fechamento até receber categoria.'
+              ? 'Ao classificar ou desvincular, o Controle Sistema atualiza sozinho (parceiros, aluguel e repasses). Pendente abaixo ainda não entra no fechamento.'
               : 'Neste mês o Controle permanece manual (até mai/2026). Você ainda pode classificar entradas e criar regras para os meses seguintes.'}
+          </p>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            Vínculo na Validação sugere a categoria pela aba/modalidade do Fluxo (ex.: Pilates → Pilates Mari).
+            Isso não é a classificação contábil até confirmar ou até a regra sticky já existir.
           </p>
           {kpis && (kpis.qtd_grupos_pendentes ?? 0) > 0 ? (
             <p className="mt-2 text-sm font-medium text-amber-800 dark:text-amber-200">
@@ -528,6 +588,40 @@ export function EntradasPage() {
           'PIX de quem aluga sala ou faz coworking — bloco Entradas Aluguel / Coworking',
         )}
       </div>
+
+      {tab === 'pendentes' && pendentesOutroSegmento > 0 && gruposFiltrados.length === 0 && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+          Há {pendentesOutroSegmento} pendente{pendentesOutroSegmento === 1 ? '' : 's'} em{' '}
+          {outroSegmento === 'mensalidades' ? 'Mensalidades' : 'Aluguel / Coworking'}.{' '}
+          <button
+            type="button"
+            className="font-semibold underline"
+            onClick={() => {
+              setSegmento(outroSegmento);
+              setFiltroTipo('');
+            }}
+          >
+            Ver lá
+          </button>
+        </p>
+      )}
+
+      {tab === 'pendentes' && pendentesOutroSegmento > 0 && gruposFiltrados.length > 0 && (
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Também há {pendentesOutroSegmento} em{' '}
+          <button
+            type="button"
+            className="underline"
+            onClick={() => {
+              setSegmento(outroSegmento);
+              setFiltroTipo('');
+            }}
+          >
+            {outroSegmento === 'mensalidades' ? 'Mensalidades' : 'Aluguel / Coworking'}
+          </button>
+          .
+        </p>
+      )}
 
       <ClassificacaoTabBar
         tabs={[
@@ -609,47 +703,65 @@ export function EntradasPage() {
                 filtroTipoAtivo
                   ? 'Nenhum grupo corresponde ao tipo selecionado nesta aba.'
                   : tab === 'pendentes'
-                    ? segmento === 'mensalidades'
-                      ? 'Nenhuma mensalidade pendente neste mês (ou classifique na aba Aluguel / Coworking).'
-                      : 'Nenhum PIX de aluguel/coworking pendente neste mês.'
+                    ? pendentesOutroSegmento > 0
+                      ? `Nenhum pendente aqui — há ${pendentesOutroSegmento} em ${outroSegmento === 'mensalidades' ? 'Mensalidades' : 'Aluguel / Coworking'}.`
+                      : segmento === 'mensalidades'
+                        ? 'Nenhuma mensalidade pendente neste mês.'
+                        : 'Nenhum PIX de aluguel/coworking pendente neste mês.'
                     : segmento === 'mensalidades'
                       ? 'Nenhum pagador de mensalidade classificado neste mês.'
                       : 'Nenhum pagador de aluguel/coworking classificado neste mês.'
               }
             />
           )}
-          {gruposFiltrados.map((g) => (
+          {gruposFiltrados.map((g) => {
+            const sugConf = sugestaoConfirmavel(g);
+            const labelSugerida =
+              g.regra_pendente_confirmacao || sugConf
+                ? g.sugestao_fluxo?.label ?? g.sugestao?.label ?? g.categoria_label
+                : g.categoria_label;
+            const fromValidacao =
+              g.origem_grupo === 'pix_vinculo' ||
+              g.origem_grupo === 'cartao_vinculo' ||
+              g.origem_grupo === 'cartao_match';
+            return (
             <ClassificacaoGrupoCard
               key={g.grupo_key}
               titulo={g.titulo_card}
               resumo={`${g.qtd_mes} lançamento(s) · ${formatBrl(g.total_mes)}`}
               meta={`${g.pessoa_exibida} · ${g.datas.map(formatDate).join(', ')}`}
               estado={g.estado}
-              categoriaLabel={g.regra_pendente_confirmacao ? g.sugestao_fluxo?.label ?? null : g.categoria_label}
+              categoriaLabel={labelSugerida}
               scoreRepeticao={g.score_repeticao}
               regraDesativada={g.regra_desativada}
-              sugestaoFluxoBadge={Boolean(
-                g.regra_pendente_confirmacao &&
-                  g.sugestao_fluxo &&
-                  (g.origem_grupo === 'pix_vinculo' ||
-                    g.origem_grupo === 'cartao_vinculo' ||
-                    g.origem_grupo === 'cartao_match'),
-              )}
-              cartaoDetalhe={g.cartao_detalhe ?? null}
+              sugestaoFluxoBadge={Boolean(sugConf && g.estado === 'pendente')}
+              cartaoDetalhe={
+                fromValidacao
+                  ? g.cartao_detalhe ??
+                    (g.origem_grupo === 'pix_vinculo'
+                      ? 'Vinculado na Validação · indica categoria pelo Fluxo'
+                      : g.cartao_detalhe)
+                  : g.origem_grupo?.startsWith('cartao')
+                    ? g.cartao_detalhe
+                    : null
+              }
+              origemBadgeLabel={
+                g.origem_grupo === 'pix_vinculo'
+                  ? 'Validação'
+                  : g.origem_grupo === 'cartao_vinculo' || g.origem_grupo === 'cartao_match'
+                    ? 'Cartão'
+                    : null
+              }
               sugestaoHint={
                 g.sugestao_fluxo
-                  ? `${g.sugestao_fluxo.label}${g.sugestao_fluxo.detalhe ? ` · ${g.sugestao_fluxo.detalhe}` : ''}`
+                  ? `Indicação Fluxo/Validação: ${g.sugestao_fluxo.label}${g.sugestao_fluxo.detalhe ? ` · ${g.sugestao_fluxo.detalhe}` : ''} (ainda não é classificação confirmada)`
                   : g.match_aluguel
                     ? `${g.match_aluguel.label} · ${g.match_aluguel.motivo}`
                     : g.sugestao
-                      ? `Sugestão: ${g.sugestao.label}${g.sugestao.aluno_nome ? ` · ${g.sugestao.aluno_nome}` : ''}`
+                      ? `Sugestão: ${g.sugestao.label}${g.sugestao.aluno_nome ? ` · ${g.sugestao.aluno_nome}` : ''} (${g.sugestao.origem})`
                       : null
               }
-              onConfirmarSugestao={
-                g.regra_pendente_confirmacao && g.sugestao_fluxo
-                  ? () => confirmarSugestaoMut.mutate(g)
-                  : undefined
-              }
+              onConfirmarSugestao={sugConf ? () => confirmarSugestaoMut.mutate(g) : undefined}
               confirmarPending={confirmarSugestaoMut.isPending}
               classificarDesabilitado={g.origem_grupo === 'cartao_avulso'}
               onClassificar={() => setModalGrupo(g)}
@@ -681,7 +793,8 @@ export function EntradasPage() {
                 g.estado === 'pendente' && g.regra_pendente_confirmacao ? 'Recusar sugestão' : 'Desvincular'
               }
             />
-          ))}
+            );
+          })}
         </section>
       )}
 
@@ -691,7 +804,6 @@ export function EntradasPage() {
           mes={mes}
           ano={ano}
           categorias={categoriasQuery.data.categorias}
-          segmento={segmento}
           onClose={() => setModalGrupo(null)}
           onSaved={invalidate}
         />
