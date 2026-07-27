@@ -55,8 +55,10 @@ function linha(
 }
 
 /**
- * Fallback quando não há mês anterior no banco — espelha estrutura operacional (ref. maio/2026).
- * Novos meses normais herdam via readControleCaixa → mes_anterior.
+ * Fallback quando não há mês anterior no banco — espelha o último oficial migrado
+ * (competência jun/2026 = aba JULHO 26 da planilha). Teatro Infantil fica nas saídas
+ * parceiros (como em mai/2026) para o Fluxo poder classificar quando houver valor.
+ * Novos meses normais herdam via readControleCaixa → mes_anterior / oficial.
  */
 export function buildControleCaixaTemplate(): ControleTemplatePayload {
   return {
@@ -134,14 +136,13 @@ export function buildControleCaixaTemplate(): ControleTemplatePayload {
           linha(null, 'Materiais', 3),
           linha(null, 'Energia Solar', 4),
           linha(null, 'Contadora', 5),
-          linha(null, 'Parcela Pilates', 6),
-          linha(null, 'Eli Ar Condicionado', 7),
-          linha(null, 'Impostos', 8),
-          linha(null, 'IPTU', 9),
-          linha(null, 'Samuel', 10),
-          linha(null, 'Luciana', 11),
-          linha(null, 'Funcionários', 12),
-          linha(null, 'Transporte', 13),
+          linha(null, 'Eli Ar Condicionado', 6),
+          linha(null, 'Impostos', 7),
+          linha(null, 'IPTU', 8),
+          linha(null, 'Samuel', 9),
+          linha(null, 'Luciana', 10),
+          linha(null, 'Funcionários', 11),
+          linha(null, 'Transporte', 12),
         ],
       },
     ],

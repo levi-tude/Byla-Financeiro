@@ -1,4 +1,3 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ControleTemplatePayload } from './template.js';
 import type { ControleCaixaReadDto } from '../../services/controleCaixaRead.js';
 
@@ -75,9 +74,59 @@ export function estruturaControleCompleta(dto: Pick<ControleCaixaReadDto, 'bloco
 }
 
 /**
+ * Template genérico antigo (template_auto de abr/2026): labels inventados
+ * (Funcional, Repasse X, Aluguel sala, Gastos Fixos, Saídas Aluguel) —
+ * NÃO espelha a planilha oficial (Dança/Yoga/Pilates Mari/…).
+ */
+export function estruturaControleLegadaGenerica(
+  dto: Pick<ControleCaixaReadDto, 'blocos'>,
+): boolean {
+  const blocos = dto.blocos ?? [];
+  for (const b of blocos) {
+    const tk = (b.templateKey ?? '').toLowerCase();
+    const titulo = b.titulo.toLowerCase();
+    if (tk.includes('saida_aluguel') || titulo.includes('saídas aluguel') || titulo.includes('saidas aluguel')) {
+      return true;
+    }
+    if (titulo === 'gastos fixos' || titulo.includes('total saídas (parceiros)')) {
+      return true;
+    }
+    for (const l of b.linhas) {
+      const label = l.label.trim().toLowerCase();
+      if (
+        label === 'funcional' ||
+        label.startsWith('repasse ') ||
+        label.startsWith('aluguel sala') ||
+        label === 'outros parceiros' ||
+        label === 'salários / pró-labore' ||
+        label === 'sistemas / assinaturas'
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/** Estrutura incompleta ou legada genérica — precisa espelhar oficial/template. */
+export function precisaRepararEstruturaSistema(
+  dto: Pick<ControleCaixaReadDto, 'blocos'>,
+): boolean {
+  return !estruturaControleCompleta(dto) || estruturaControleLegadaGenerica(dto);
+}
+
+/** Período bom para herdar categorias no mês seguinte. */
+export function periodoUsavelParaHerdar(
+  dto: Pick<ControleCaixaReadDto, 'blocos'> | null | undefined,
+): boolean {
+  if (!dto || !periodoTemEstrutura(dto)) return false;
+  return !precisaRepararEstruturaSistema(dto);
+}
+
+/**
  * Busca o Controle do mês anterior mais recente (até maxSaltos).
  * `loadExisting` deve retornar erro se o período não existir (sem auto-criar).
- * Períodos sem blocos são ignorados (ex.: sistema vazio criado por engano).
+ * Ignora períodos sem blocos, incompletos ou com template genérico legado.
  */
 export async function buildPayloadFromMesAnterior(
   mes: number,
@@ -90,7 +139,7 @@ export async function buildPayloadFromMesAnterior(
   for (let i = 0; i < maxSaltos; i += 1) {
     ({ mes: m, ano: a } = mesAnoAnterior(m, a));
     const prev = await loadExisting(m, a);
-    if ('data' in prev && periodoTemEstrutura(prev.data)) {
+    if ('data' in prev && periodoUsavelParaHerdar(prev.data)) {
       return controleDtoToNovoMesPayload(prev.data);
     }
   }

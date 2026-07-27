@@ -59,7 +59,7 @@ export async function loadCatalogoSaidasControleMes(
   mes: number,
   ano: number,
 ): Promise<CategoriaSaidaLinha[]> {
-  const result = await readControleCaixa(mes, ano);
+  const result = await readControleCaixa(mes, ano, 'sistema');
   if ('error' in result) throw new Error(result.error);
   return catalogoSaidasFromControleData(result.data);
 }
@@ -73,7 +73,7 @@ export function catalogoSaidasTemplatePadrao(): CategoriaSaidaLinha[] {
     modo: 'sistema',
     modosDisponiveis: ['sistema'],
     somenteLeitura: false,
-    existe: false,
+    existe: true,
     abaRef: null,
     origem: 'template',
     updatedAt: null,
