@@ -66,7 +66,22 @@ type TxClassificada = {
   competencia_confirmada?: boolean;
 };
 
-function agregarEntradasClassificadas(
+/**
+ * Filtro de visão do sync — alinhado a Entradas/Despesas (`buildResumo*`).
+ * Em competência usa a efetiva (sugerida ou confirmada); NÃO exige `confirmada`,
+ * senão o Controle Sistema fica quase zerado (quase ninguém confirma competência).
+ */
+export function filtrarTransacoesParaSyncVisao(
+  transacoes: TxClassificada[],
+  mes: number,
+  ano: number,
+  visao: VisaoControleSync,
+): TxClassificada[] {
+  if (visao === 'caixa') return transacoes.filter((t) => dataNoMes(t.data, mes, ano));
+  return transacoes.filter((t) => transacaoContaNaCompetencia(t, mes, ano));
+}
+
+export function agregarEntradasClassificadas(
   transacoes: TxClassificada[],
   catalog: CategoriaEntradaLinha[],
   mes: number,
@@ -74,10 +89,7 @@ function agregarEntradasClassificadas(
   visao: VisaoControleSync,
 ): Map<string, number> {
   const map = new Map<string, number>();
-  const filtradas =
-    visao === 'caixa'
-      ? transacoes.filter((t) => dataNoMes(t.data, mes, ano))
-      : transacoes.filter((t) => transacaoContaNaCompetencia(t, mes, ano, true));
+  const filtradas = filtrarTransacoesParaSyncVisao(transacoes, mes, ano, visao);
 
   for (const t of filtradas) {
     if (t.origem_efetiva !== 'mapeamento_manual' || !t.template_key_efetivo) continue;
@@ -95,7 +107,7 @@ function agregarEntradasClassificadas(
   return map;
 }
 
-function agregarDespesasFixasClassificadas(
+export function agregarDespesasFixasClassificadas(
   transacoes: TxClassificada[],
   catalog: CategoriaSaidaLinha[],
   mes: number,
@@ -103,10 +115,7 @@ function agregarDespesasFixasClassificadas(
   visao: VisaoControleSync,
 ): Map<string, number> {
   const map = new Map<string, number>();
-  const filtradas =
-    visao === 'caixa'
-      ? transacoes.filter((t) => dataNoMes(t.data, mes, ano))
-      : transacoes.filter((t) => transacaoContaNaCompetencia(t, mes, ano, true));
+  const filtradas = filtrarTransacoesParaSyncVisao(transacoes, mes, ano, visao);
 
   for (const t of filtradas) {
     if (t.origem_efetiva !== 'mapeamento_manual' || !t.template_key_efetivo) continue;
