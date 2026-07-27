@@ -16,8 +16,9 @@ import {
   type PlanilhaItem,
 } from '../logic/conciliacaoPagamentoMatch.js';
 import { normalizeText } from '../logic/conciliacaoTexto.js';
+import { planilhaIdFromFluxoUuid } from '../logic/fluxoPagamentoFingerprint.js';
 import { getSupabase } from './supabaseClient.js';
-import { listVinculosMes } from './validacaoVinculos.js';
+import { listVinculosPorPlanilhaIds } from './validacaoVinculos.js';
 import { filtrarTransacoesOficiais, type TransacaoBase } from './transacoesFiltro.js';
 
 export type ConciliacaoPagamentoItem = {
@@ -108,12 +109,6 @@ function ultimoDiaMes(mes: number, ano: number): number {
 
 function chaveAlunoAba(aba: string, alunoNome: string): string {
   return `${normalizeText(aba)}|${normalizeText(alunoNome)}`;
-}
-
-function planilhaIdFromFluxoUuid(fluxoId: string): string {
-  const t = fluxoId.trim();
-  if (t.startsWith('fluxo::')) return t;
-  return `fluxo::${t}`;
 }
 
 function toBancoItem(t: ConciliacaoTransacaoFixture | TransacaoBase | BancoItem): BancoItem {
@@ -377,26 +372,6 @@ export async function getConciliacaoPagamentosMes(
   const todas = (txRows ?? []) as TransacaoBase[];
   const { entradas } = filtrarTransacoesOficiais(todas);
 
-  const vinculos = await listVinculosMes(mes, ano);
-  const vinculosByPlanilha = new Map<string, { banco_id: string; id: string }>();
-  for (const v of vinculos) {
-    vinculosByPlanilha.set(v.planilha_id, { banco_id: v.banco_id, id: v.id });
-  }
-
-  const alunos: ConciliacaoAlunoFixture[] = ((alunosRows ?? []) as Record<string, unknown>[]).map(
-    (r) => ({
-      id: String(r.id),
-      aba: String(r.aba ?? ''),
-      modalidade: String(r.modalidade ?? r.aba ?? ''),
-      aluno_nome: String(r.aluno_nome ?? ''),
-      venc: r.venc != null ? String(r.venc) : null,
-      plano: r.plano != null ? String(r.plano) : null,
-      valor_referencia: r.valor_referencia != null ? Number(r.valor_referencia) : null,
-      responsaveis: r.responsaveis != null ? String(r.responsaveis) : null,
-      pagador_pix: r.pagador_pix != null ? String(r.pagador_pix) : null,
-    }),
-  );
-
   const pagamentos: ConciliacaoPagamentoFixture[] = ((pagRows ?? []) as Record<string, unknown>[]).map(
     (r) => ({
       id: String(r.id),
@@ -411,6 +386,27 @@ export async function getConciliacaoPagamentosMes(
       responsaveis: r.responsaveis != null ? String(r.responsaveis) : null,
       pagador_pix: r.pagador_pix != null ? String(r.pagador_pix) : null,
       linha_planilha: r.linha_planilha != null ? Number(r.linha_planilha) : undefined,
+    }),
+  );
+
+  const planilhaIds = pagamentos.map((p) => planilhaIdFromFluxoUuid(String(p.id)));
+  const vinculos = await listVinculosPorPlanilhaIds(planilhaIds);
+  const vinculosByPlanilha = new Map<string, { banco_id: string; id: string }>();
+  for (const v of vinculos) {
+    vinculosByPlanilha.set(planilhaIdFromFluxoUuid(v.planilha_id), { banco_id: v.banco_id, id: v.id });
+  }
+
+  const alunos: ConciliacaoAlunoFixture[] = ((alunosRows ?? []) as Record<string, unknown>[]).map(
+    (r) => ({
+      id: String(r.id),
+      aba: String(r.aba ?? ''),
+      modalidade: String(r.modalidade ?? r.aba ?? ''),
+      aluno_nome: String(r.aluno_nome ?? ''),
+      venc: r.venc != null ? String(r.venc) : null,
+      plano: r.plano != null ? String(r.plano) : null,
+      valor_referencia: r.valor_referencia != null ? Number(r.valor_referencia) : null,
+      responsaveis: r.responsaveis != null ? String(r.responsaveis) : null,
+      pagador_pix: r.pagador_pix != null ? String(r.pagador_pix) : null,
     }),
   );
 

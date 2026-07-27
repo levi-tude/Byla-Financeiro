@@ -1,3 +1,4 @@
+import { fluxoUuidFromAnyPlanilhaId, normalizePlanilhaId } from '../logic/fluxoPagamentoFingerprint.js';
 import { getSupabase } from './supabaseClient.js';
 
 export type VinculoPagamento = {
@@ -42,6 +43,46 @@ export async function listVinculosMes(mes: number, ano: number): Promise<Vinculo
     if (!error && Array.isArray(rows)) return rows as VinculoPagamento[];
   }
   return Array.from(mem.values()).filter((v) => v.mes === mes && v.ano === ano);
+}
+
+function expandPlanilhaIdsForLookup(planilhaIds: string[]): string[] {
+  const out = new Set<string>();
+  for (const raw of planilhaIds) {
+    const t = String(raw ?? '').trim();
+    if (!t) continue;
+    out.add(t);
+    out.add(normalizePlanilhaId(t));
+    const uuid = fluxoUuidFromAnyPlanilhaId(t);
+    if (uuid) out.add(uuid);
+  }
+  return [...out];
+}
+
+/** Vínculos pelos IDs dos pagamentos do Fluxo (independente do mês gravado no extrato). */
+export async function listVinculosPorPlanilhaIds(planilhaIds: string[]): Promise<VinculoPagamento[]> {
+  const ids = expandPlanilhaIdsForLookup(planilhaIds);
+  if (ids.length === 0) return [];
+
+  const supabase = getSupabase();
+  if (supabase) {
+    const CHUNK = 200;
+    const all: VinculoPagamento[] = [];
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const slice = ids.slice(i, i + CHUNK);
+      const { data: rows, error } = await supabase
+        .from('validacao_pagamentos_vinculos')
+        .select('id, data_ref, mes, ano, banco_id, planilha_id, observacao, created_at, updated_at')
+        .in('planilha_id', slice);
+      if (error) throw new Error(error.message);
+      if (Array.isArray(rows)) all.push(...(rows as VinculoPagamento[]));
+    }
+    const byKey = new Map<string, VinculoPagamento>();
+    for (const v of all) byKey.set(normalizePlanilhaId(v.planilha_id), v);
+    return [...byKey.values()];
+  }
+
+  const lookup = new Set(ids.map((id) => normalizePlanilhaId(id)));
+  return Array.from(mem.values()).filter((v) => lookup.has(normalizePlanilhaId(v.planilha_id)));
 }
 
 export async function upsertVinculosDia(
