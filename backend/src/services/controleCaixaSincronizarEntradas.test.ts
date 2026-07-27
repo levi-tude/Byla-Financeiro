@@ -3,8 +3,13 @@ import assert from 'node:assert/strict';
 import { buildControleCaixaTemplate } from '../domain/controleCaixa/template.js';
 import { mergeEstruturaPreservandoValores } from './controleCaixaEstrutura.js';
 import { aplicarSyncCompletoSistema } from './controleCaixaSyncLogic.js';
+import {
+  agregarEntradasClassificadas,
+  filtrarTransacoesParaSyncVisao,
+} from './controleCaixaSincronizarEntradas.js';
 import type { ControleCaixaReadDto } from './controleCaixaRead.js';
 import { YOGA_AJUSTE_FIXO, PILATES_MARI_AJUSTE_FIXO } from '../domain/entradas/repasseParceiros.js';
+import { transacaoContaNaCompetencia } from './transacaoCompetenciaService.js';
 
 function dtoFromTemplate(partial: Partial<ControleCaixaReadDto> = {}): ControleCaixaReadDto {
   const t = buildControleCaixaTemplate();
@@ -216,5 +221,38 @@ describe('aplicarSyncCompletoSistema', () => {
     assert.equal(data.totais.saidaFixasTotal, 100);
     assert.equal(data.totais.saidaTotal, 700);
     assert.equal(data.totais.lucroTotal, 800);
+  });
+});
+
+describe('filtrarTransacoesParaSyncVisao (competência)', () => {
+  const base = {
+    data: '2026-06-15',
+    valor: 340,
+    origem_efetiva: 'mapeamento_manual',
+    template_key_efetivo: 'ent_parc_danca',
+    categoria_efetiva: 'Dança',
+    mes_competencia: 6,
+    ano_competencia: 2026,
+  };
+
+  it('inclui competência sugerida (não confirmada) — alinhado a Entradas/Despesas', () => {
+    const txs = [{ ...base, competencia_confirmada: false }];
+    assert.equal(transacaoContaNaCompetencia(txs[0], 6, 2026, true), false);
+    assert.equal(filtrarTransacoesParaSyncVisao(txs, 6, 2026, 'competencia').length, 1);
+  });
+
+  it('exclui mês de competência diferente', () => {
+    const txs = [{ ...base, mes_competencia: 7, competencia_confirmada: false }];
+    assert.equal(filtrarTransacoesParaSyncVisao(txs, 6, 2026, 'competencia').length, 0);
+  });
+
+  it('agrega valor de classificado não confirmado em visão competência', () => {
+    const txs = [
+      { ...base, valor: 1000, competencia_confirmada: false },
+      { ...base, valor: 500, competencia_confirmada: true, template_key_efetivo: 'ent_parc_yoga' },
+    ];
+    const map = agregarEntradasClassificadas(txs, [], 6, 2026, 'competencia');
+    assert.equal(map.get('ent_parc_danca'), 1000);
+    assert.equal(map.get('ent_parc_yoga'), 500);
   });
 });
