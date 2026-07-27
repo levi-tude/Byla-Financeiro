@@ -17,6 +17,7 @@ import {
 } from '../logic/conciliacaoPagamentoMatch.js';
 import { normalizeText } from '../logic/conciliacaoTexto.js';
 import { planilhaIdFromFluxoUuid } from '../logic/fluxoPagamentoFingerprint.js';
+import { isFormaPagamentoDinheiro } from '../logic/pagamentoDinheiroFluxo.js';
 import { getSupabase } from './supabaseClient.js';
 import { listVinculosPorPlanilhaIds } from './validacaoVinculos.js';
 import { filtrarTransacoesOficiais, type TransacaoBase } from './transacoesFiltro.js';
@@ -35,7 +36,7 @@ export type ConciliacaoPagamentoItem = {
   pessoa_banco?: string | null;
   transacao_id?: string | null;
   vinculo_id?: string | null;
-  banco_status?: 'vinculo' | 'match' | 'nenhum';
+  banco_status?: 'vinculo' | 'match' | 'dinheiro' | 'nenhum';
 };
 
 export type ConciliacaoPagamentosTotais = {
@@ -94,9 +95,9 @@ type CreditoResolvido = {
   data: string;
   valor: number;
   pessoa: string;
-  transacao_id: string;
+  transacao_id: string | null;
   vinculo_id: string | null;
-  banco_status: 'vinculo' | 'match';
+  banco_status: 'vinculo' | 'match' | 'dinheiro';
 };
 
 function pad2(n: number): string {
@@ -175,6 +176,20 @@ function resolverCreditoAluno(params: {
   const creditos: CreditoResolvido[] = [];
 
   for (const pag of pagamentosAluno) {
+    if (isFormaPagamentoDinheiro(pag.forma)) {
+      const dataPg = (pag.data_pagamento ?? '').slice(0, 10);
+      if (!dataPg) continue;
+      creditos.push({
+        data: dataPg,
+        valor: Number(pag.valor || 0),
+        pessoa: 'Pagamento em dinheiro',
+        transacao_id: null,
+        vinculo_id: null,
+        banco_status: 'dinheiro',
+      });
+      continue;
+    }
+
     const planilhaId = planilhaIdFromFluxoUuid(String(pag.id));
     const vinculo = vinculosByPlanilha.get(planilhaId);
     if (!vinculo) continue;

@@ -19,6 +19,8 @@ test('inferirMeioPagamentoFluxo', () => {
   assert.equal(inferirMeioPagamentoFluxo('débito'), 'debito');
   assert.equal(inferirMeioPagamentoFluxo('PIX'), 'pix');
   assert.equal(inferirMeioPagamentoFluxo('Crédito recorrente'), 'credito_recorrente');
+  assert.equal(inferirMeioPagamentoFluxo('Dinheiro'), 'dinheiro');
+  assert.equal(inferirMeioPagamentoFluxo('Espécie'), 'dinheiro');
 });
 
 test('formaFluxoCompativelComBanco: debito não casa com crédito', () => {

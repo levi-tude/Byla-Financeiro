@@ -190,6 +190,30 @@ test('montarItens: sem pagamento na competência → pendente (mesmo com crédit
   assert.equal(result.itens[0].data_credito, null);
 });
 
+test('montarItens: pagamento em dinheiro usa data do Fluxo e não exige vínculo', () => {
+  const result = montarItensConciliacaoPagamentos({
+    mes: MES,
+    ano: ANO,
+    alunos: [aluno({ id: 'a1', aluno_nome: 'Eva Dinheiro', venc: '10' })],
+    pagamentos: [
+      pagamento({
+        id: 'p-din',
+        aluno_nome: 'Eva Dinheiro',
+        forma: 'Dinheiro',
+        data_pagamento: '2026-07-10',
+      }),
+    ],
+    entradas: [],
+    vinculosByPlanilha: new Map(),
+  });
+
+  assert.equal(result.itens.length, 1);
+  assert.equal(result.itens[0].status, 'em_dia');
+  assert.equal(result.itens[0].data_credito, '2026-07-10');
+  assert.equal(result.itens[0].banco_status, 'dinheiro');
+  assert.equal(result.itens[0].pessoa_banco, 'Pagamento em dinheiro');
+});
+
 test('stripCamposBancariosConciliacao: secretaria omite bancários; admin mantém', () => {
   const raw = montarItensConciliacaoPagamentos({
     mes: MES,

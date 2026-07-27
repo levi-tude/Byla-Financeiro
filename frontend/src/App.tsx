@@ -19,6 +19,7 @@ import { AluguelSalasPage } from './pages/AluguelSalasPage';
 import { ConciliacaoPagamentosPage } from './pages/ConciliacaoPagamentosPage';
 import { AssinaturasCreditoRecorrentePage } from './pages/AssinaturasCreditoRecorrentePage';
 import { FinancasAlunosPage } from './pages/FinancasAlunosPage';
+import { CadastroAlunosResumoPage } from './pages/CadastroAlunosResumoPage';
 
 function HomeByRole() {
   const auth = useAuth();
@@ -111,6 +112,14 @@ export default function App() {
             }
           />
           <Route path="fluxo-divergencias" element={<Navigate to="/fluxo-caixa" replace />} />
+          <Route
+            path="cadastro-alunos"
+            element={
+              <RequireAuth roles={['secretaria', 'admin']}>
+                <CadastroAlunosResumoPage />
+              </RequireAuth>
+            }
+          />
           <Route
             path="fluxo-caixa"
             element={

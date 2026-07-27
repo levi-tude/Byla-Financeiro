@@ -11,11 +11,37 @@ export const meioPagamentoAlunoQuerySchema = z.enum([
   'debito',
   'credito_a_vista',
   'credito_recorrente',
+  'dinheiro',
   'desconhecido',
   'todos',
 ]);
 
 export const financasAlunosVinculoQuerySchema = z.enum(['todos', 'vinculado', 'sem_vinculo']);
+
+export const cadastroAlunosVinculoQuerySchema = z.enum(['todos', 'com_vinculo', 'sem_vinculo']);
+
+export const cadastroAlunosCadastroQuerySchema = z.enum(['todos', 'completo', 'incompleto']);
+
+export const cadastroAlunosResumoQuerySchema = z.object({
+  aba: z.string().trim().optional(),
+  modalidade: z.string().trim().optional(),
+  vinculo: z.preprocess(
+    (v) => (v === '' || v == null ? 'todos' : v),
+    cadastroAlunosVinculoQuerySchema.default('todos'),
+  ),
+  cadastro: z.preprocess(
+    (v) => (v === '' || v == null ? 'todos' : v),
+    cadastroAlunosCadastroQuerySchema.default('todos'),
+  ),
+  meio: z.preprocess(
+    (v) => (v === '' || v == null ? 'todos' : v),
+    meioPagamentoAlunoQuerySchema.default('todos'),
+  ),
+  ativo: z.preprocess(
+    (v) => (v === '' || v == null ? 'true' : v),
+    z.enum(['true', 'false']).default('true'),
+  ),
+});
 
 export const financasAlunosQuerySchema = mesAnoQuerySchema.extend({
   meio: z.preprocess(

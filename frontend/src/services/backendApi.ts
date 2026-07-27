@@ -2140,11 +2140,12 @@ export type MeioPagamentoAluno =
   | 'debito'
   | 'credito_a_vista'
   | 'credito_recorrente'
+  | 'dinheiro'
   | 'desconhecido';
 
 export type MeioPagamentoAlunoFiltro = MeioPagamentoAluno | 'todos';
 
-export type FinancasAlunoBancoStatus = 'vinculo' | 'match' | 'nenhum';
+export type FinancasAlunoBancoStatus = 'vinculo' | 'match' | 'dinheiro' | 'nenhum';
 export type FinancasAlunoConciliacaoStatus =
   | 'em_dia'
   | 'atrasado'
@@ -2197,6 +2198,100 @@ export async function getFinancasAlunos(
   return text
     ? (JSON.parse(text) as FinancasAlunosResponse)
     : { mes, ano, grupos: [] };
+}
+
+/* ——— Cadastro de alunos (resumo para secretária) ——— */
+
+export type CadastroAlunoVinculoStatus = 'cadastro' | 'aprendido' | 'nenhum';
+export type CadastroAlunoVinculoFiltro = 'todos' | 'com_vinculo' | 'sem_vinculo';
+export type CadastroAlunoCadastroFiltro = 'todos' | 'completo' | 'incompleto';
+
+export type CadastroAlunoItem = {
+  id: string;
+  aluno_nome: string;
+  aba: string;
+  modalidade: string;
+  plano: string | null;
+  venc: string | null;
+  ativo: boolean;
+  cadastro_status: 'completo' | 'incompleto';
+  cadastro_pendencias: string[];
+  pagador_cadastro: string | null;
+  pagador_vinculo: string | null;
+  vinculo_status: CadastroAlunoVinculoStatus;
+  forma_habitual: string | null;
+  meio: MeioPagamentoAluno;
+  grupo_familia: string | null;
+};
+
+export type CadastroAlunoFormaContagem = {
+  forma: string;
+  meio: MeioPagamentoAluno;
+  count: number;
+};
+
+export type CadastroAlunoSecao = {
+  aba: string;
+  modalidade: string;
+  total: number;
+  com_vinculo: number;
+  sem_vinculo: number;
+  cadastro_completo: number;
+  cadastro_incompleto: number;
+  por_forma: CadastroAlunoFormaContagem[];
+  alunos_com_vinculo: CadastroAlunoItem[];
+  alunos_sem_vinculo: CadastroAlunoItem[];
+};
+
+export type CadastroAlunosResumoResponse = {
+  totais: {
+    alunos: number;
+    ativos: number;
+    com_vinculo: number;
+    sem_vinculo: number;
+    cadastro_completo: number;
+    cadastro_incompleto: number;
+    por_meio: Array<{ meio: MeioPagamentoAluno; count: number }>;
+    por_aba: Array<{ aba: string; count: number }>;
+  };
+  secoes: CadastroAlunoSecao[];
+};
+
+export async function getCadastroAlunosResumo(params?: {
+  aba?: string;
+  modalidade?: string;
+  vinculo?: CadastroAlunoVinculoFiltro;
+  cadastro?: CadastroAlunoCadastroFiltro;
+  meio?: MeioPagamentoAlunoFiltro;
+  ativo?: boolean;
+}): Promise<CadastroAlunosResumoResponse> {
+  if (!BASE_URL) throw new Error('VITE_BACKEND_URL não configurado');
+  const qs = new URLSearchParams();
+  if (params?.aba) qs.set('aba', params.aba);
+  if (params?.modalidade) qs.set('modalidade', params.modalidade);
+  if (params?.vinculo) qs.set('vinculo', params.vinculo);
+  if (params?.cadastro) qs.set('cadastro', params.cadastro);
+  if (params?.meio) qs.set('meio', params.meio);
+  if (params?.ativo != null) qs.set('ativo', String(params.ativo));
+  const s = qs.toString();
+  const res = await apiFetch(`/api/cadastro-alunos/resumo${s ? `?${s}` : ''}`, { method: 'GET' });
+  const text = await res.text();
+  if (!res.ok) throw new Error(await parseBackendError(res, text));
+  return text
+    ? (JSON.parse(text) as CadastroAlunosResumoResponse)
+    : {
+        totais: {
+          alunos: 0,
+          ativos: 0,
+          com_vinculo: 0,
+          sem_vinculo: 0,
+          cadastro_completo: 0,
+          cadastro_incompleto: 0,
+          por_meio: [],
+          por_aba: [],
+        },
+        secoes: [],
+      };
 }
 
 /* ——— Aluguel de salas ——— */

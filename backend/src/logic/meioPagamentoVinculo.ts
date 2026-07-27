@@ -1,4 +1,5 @@
 import { normalizeText } from './conciliacaoTexto.js';
+import { isFormaPagamentoDinheiro } from './pagamentoDinheiroFluxo.js';
 import { isCreditoGenericoExtrato } from './creditoRecorrente.js';
 
 export type MeioPagamentoAluno =
@@ -6,6 +7,7 @@ export type MeioPagamentoAluno =
   | 'debito'
   | 'credito_a_vista'
   | 'credito_recorrente'
+  | 'dinheiro'
   | 'desconhecido';
 
 function textoCombinado(pessoa: string, descricao?: string | null, forma?: string | null): string {
@@ -16,6 +18,7 @@ function textoCombinado(pessoa: string, descricao?: string | null, forma?: strin
 export function inferirMeioPagamentoFluxo(forma: string | null | undefined): MeioPagamentoAluno {
   const t = normalizeText(forma ?? '');
   if (!t) return 'desconhecido';
+  if (isFormaPagamentoDinheiro(forma)) return 'dinheiro';
   if (t.includes('PIX')) return 'pix';
   if (t.includes('DEBIT')) return 'debito';
   if (t.includes('RECORREN') || t.includes('ASSINAT')) return 'credito_recorrente';

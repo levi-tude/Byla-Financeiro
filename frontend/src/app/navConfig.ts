@@ -43,6 +43,11 @@ export const navSections: NavSection[] = [
         label: 'Conciliação',
         roles: ['secretaria', 'admin'],
       },
+      {
+        path: '/cadastro-alunos',
+        label: 'Cadastro de alunos',
+        roles: ['secretaria', 'admin'],
+      },
     ],
   },
   {
