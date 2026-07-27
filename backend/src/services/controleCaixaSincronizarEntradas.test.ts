@@ -7,6 +7,10 @@ import {
   agregarEntradasClassificadas,
   filtrarTransacoesParaSyncVisao,
 } from './controleCaixaSincronizarEntradas.js';
+import {
+  agregarDinheiroFluxoParceiros,
+  mesclarValoresEntrada,
+} from '../logic/dinheiroFluxoParaControle.js';
 import type { ControleCaixaReadDto } from './controleCaixaRead.js';
 import { catalogoEntradasFromControleData } from '../domain/entradas/categoriasEntrada.js';
 import { YOGA_AJUSTE_FIXO, PILATES_MARI_AJUSTE_FIXO } from '../domain/entradas/repasseParceiros.js';
@@ -317,5 +321,75 @@ describe('filtrarTransacoesParaSyncVisao (competência)', () => {
     assert.equal(linha(data, 'ent_parc_yoga')?.valor, 0);
     assert.equal(linha(data, 'sai_parc_danca')?.valor, 240);
     assert.equal(linha(data, 'sai_parc_yoga')?.valor, 0);
+  });
+});
+
+describe('dinheiro Fluxo no sync Sistema (integração pura)', () => {
+  it('extrato + dinheiro na mesma modalidade; só dinheiro em outra; aba sem chave ignorada', () => {
+    const catalog = catalogoEntradasFromControleData(dtoFromTemplate());
+    const extrato = agregarEntradasClassificadas(
+      [
+        {
+          data: '2026-06-15',
+          valor: 1000,
+          origem_efetiva: 'mapeamento_manual',
+          template_key_efetivo: 'ent_parc_danca',
+          categoria_efetiva: 'Dança',
+          mes_competencia: 6,
+          ano_competencia: 2026,
+          competencia_confirmada: false,
+        },
+      ],
+      catalog,
+      6,
+      2026,
+      'competencia',
+    );
+    const dinheiro = agregarDinheiroFluxoParceiros(
+      [
+        {
+          aba: 'BYLA DANÇA',
+          modalidade: null,
+          forma: 'Dinheiro',
+          valor: 200,
+          mes_competencia: 6,
+          ano_competencia: 2026,
+          data_pagamento: '2026-06-10',
+        },
+        {
+          aba: 'PILATES MARINA',
+          modalidade: null,
+          forma: 'Espécie',
+          valor: 350,
+          mes_competencia: 6,
+          ano_competencia: 2026,
+          data_pagamento: '2026-06-12',
+        },
+        {
+          aba: 'OFICINA DESCONHECIDA',
+          modalidade: null,
+          forma: 'Dinheiro',
+          valor: 999,
+          mes_competencia: 6,
+          ano_competencia: 2026,
+          data_pagamento: '2026-06-12',
+        },
+      ],
+      catalog,
+      6,
+      2026,
+      'competencia',
+    );
+    const merged = mesclarValoresEntrada(extrato, dinheiro);
+    const data = dtoFromTemplate();
+    aplicarSyncCompletoSistema(data, merged, new Map());
+
+    assert.equal(linha(data, 'ent_parc_danca')?.valor, 1200);
+    assert.equal(linha(data, 'ent_parc_pilates_mari')?.valor, 350);
+    assert.equal(linha(data, 'sai_parc_danca')?.valor, 720);
+    assert.equal(
+      linha(data, 'sai_parc_pilates_mari')?.valor,
+      Math.round(0.55 * (350 + PILATES_MARI_AJUSTE_FIXO) * 100) / 100,
+    );
   });
 });

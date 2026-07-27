@@ -19,6 +19,7 @@ import { AluguelSalasPage } from './pages/AluguelSalasPage';
 import { ConciliacaoPagamentosPage } from './pages/ConciliacaoPagamentosPage';
 import { AssinaturasCreditoRecorrentePage } from './pages/AssinaturasCreditoRecorrentePage';
 import { FinancasAlunosPage } from './pages/FinancasAlunosPage';
+import { MatchesProvaveisPage } from './pages/MatchesProvaveisPage';
 import { CadastroAlunosResumoPage } from './pages/CadastroAlunosResumoPage';
 
 function HomeByRole() {
@@ -108,6 +109,14 @@ export default function App() {
             element={
               <RequireAuth roles={['admin']}>
                 <ValidacaoPagamentosDiariaPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="validacao/matches-provaveis"
+            element={
+              <RequireAuth roles={['admin']}>
+                <MatchesProvaveisPage />
               </RequireAuth>
             }
           />

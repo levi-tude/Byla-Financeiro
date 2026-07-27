@@ -381,8 +381,11 @@ export function ValidacaoPagamentosDiariaPage() {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const dataQuery = searchParams.get('data');
+  const bancoQuery = searchParams.get('banco');
+  const fluxoQuery = searchParams.get('fluxo');
   const veioDoCalendario = Boolean(dataQuery && /^\d{4}-\d{2}-\d{2}$/.test(dataQuery));
   const urlDataAppliedRef = useRef(false);
+  const urlDestaqueAppliedRef = useRef(false);
 
   const [nav, setNav] = usePersistedPageState('validacao-pagamentos', validacaoNavInitialState());
   const { data, aba, modalidade, mesCompetenciaFiltro } = nav;
@@ -464,6 +467,24 @@ export function ValidacaoPagamentosDiariaPage() {
       urlDataAppliedRef.current = true;
     }
   }, [searchParams, setNav]);
+
+  /** Destaca candidato vindo da lista de matches prováveis (?banco=&fluxo=). */
+  useEffect(() => {
+    if (urlDestaqueAppliedRef.current) return;
+    if (!bancoQuery || !fluxoQuery) return;
+    if (loading || !respostaFiltrada) return;
+    const possiveis = respostaFiltrada.validacao.itens_possivel_match;
+    const fluxoNorm = fluxoQuery.startsWith('fluxo::') ? fluxoQuery : `fluxo::${fluxoQuery}`;
+    const row = possiveis.find(
+      (x) =>
+        x.planilha.id === fluxoQuery ||
+        x.planilha.id === fluxoNorm ||
+        x.planilha.id.endsWith(fluxoQuery.replace(/^fluxo::/, '')),
+    );
+    if (!row) return;
+    setDraftMatches((prev) => ({ ...prev, [row.planilha.id]: bancoQuery }));
+    urlDestaqueAppliedRef.current = true;
+  }, [bancoQuery, fluxoQuery, loading, respostaFiltrada]);
 
   useEffect(() => {
     setDraftMatches({});
@@ -1380,7 +1401,18 @@ export function ValidacaoPagamentosDiariaPage() {
                   if (grupo.length === 1) {
                     const x = grupo[0];
                     return (
-                      <div key={x.planilha.id} className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                      <div
+                        key={x.planilha.id}
+                        className={`rounded-lg border p-3 ${
+                          (fluxoQuery &&
+                            (x.planilha.id === fluxoQuery ||
+                              x.planilha.id === `fluxo::${fluxoQuery.replace(/^fluxo::/, '')}` ||
+                              x.planilha.id.endsWith(fluxoQuery.replace(/^fluxo::/, '')))) ||
+                          draftMatches[x.planilha.id] === bancoQuery
+                            ? 'border-sky-400 bg-sky-50 ring-2 ring-sky-200'
+                            : 'border-amber-200 bg-amber-50'
+                        }`}
+                      >
                         <div className="text-sm text-amber-900">
                           <b>{x.planilha.aluno}</b> · {x.planilha.data} · {formatCurrency(x.planilha.valor)}
                         </div>

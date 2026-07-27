@@ -17,6 +17,7 @@ import assinaturasCreditoRecorrenteRoutes from './assinaturasCreditoRecorrente.j
 import financasAlunosRoutes from './financasAlunos.js';
 import cadastroAlunosRoutes from './cadastroAlunos.js';
 import conciliacaoRoutes from './conciliacao.js';
+import matchesProvaveisRoutes from './matchesProvaveis.js';
 import { createRelatoriosRouter } from './relatorios.js';
 import planilhaFluxoBylaRoutes from './planilhaFluxoByla.js';
 import fontesRoutes from './fontes.js';
@@ -113,6 +114,7 @@ router.use(
 router.use(
   [
     '/validacao-pagamentos-diaria',
+    '/validacao/matches-provaveis',
     '/calendario-financeiro',
     '/validacao-vinculos',
     '/conciliacao-vencimentos',
@@ -134,6 +136,7 @@ router.use(
     '/planilha-fluxo-byla/debug-range-completo',
     '/controle-caixa',
     '/migracao/fluxo/conferencia',
+    '/migracao/fluxo/recuperar-vinculos-orfaos',
     '/financas/alunos',
   ],
   requireRoles(['admin'])
@@ -145,6 +148,7 @@ router.use(assinaturasCreditoRecorrenteRoutes);
 router.use(financasAlunosRoutes);
 router.use(cadastroAlunosRoutes);
 router.use(conciliacaoRoutes);
+router.use(matchesProvaveisRoutes);
 router.use(createAluguelSalasRouter());
 
 function norm(s: unknown): string {
@@ -291,6 +295,34 @@ router.get('/migracao/fluxo/conferencia', async (req, res) => {
       errosLeituraPlanilha: errosPagamentos,
     },
   });
+});
+
+router.post('/migracao/fluxo/recuperar-vinculos-orfaos', async (req, res) => {
+  const ano = Number(req.query.ano ?? req.body?.ano ?? new Date().getFullYear());
+  const dryRun =
+    String(req.query.dryRun ?? req.body?.dryRun ?? 'false').toLowerCase() === 'true';
+  if (!Number.isFinite(ano) || ano < 2000) {
+    res.status(400).json({ error: 'Parâmetro ano inválido.' });
+    return;
+  }
+
+  const supabase = getSupabase();
+  if (!supabase) {
+    res.status(500).json({ error: 'Supabase não configurado no backend.' });
+    return;
+  }
+
+  try {
+    const { recuperarVinculosOrfaosFluxoAno } = await import(
+      '../services/recuperarVinculosOrfaosFluxo.js'
+    );
+    const report = await recuperarVinculosOrfaosFluxoAno(supabase, { ano, dryRun });
+    res.json({ ok: report.erros.length === 0, ...report });
+  } catch (e) {
+    res.status(500).json({
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
 });
 
 export default router;

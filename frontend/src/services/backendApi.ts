@@ -2202,6 +2202,64 @@ export async function getFinancasAlunos(
     : { mes, ano, grupos: [] };
 }
 
+/* ——— Matches prováveis (Validação — lista do mês) ——— */
+
+export type MatchesProvaveisApiItem = {
+  bucket: 'alto' | 'medio';
+  confianca: string;
+  score: number;
+  ambiguo: boolean;
+  n_para_1: boolean;
+  pode_confirmar: boolean;
+  planilha_ids: string[];
+  banco_id: string;
+  aluno: string;
+  aba: string;
+  modalidade: string;
+  forma: string;
+  data_fluxo: string;
+  data_banco: string;
+  valor_fluxo: number;
+  valor_banco: number;
+  pessoa_banco: string;
+  motivos: string[];
+  gap_2o: number | null;
+};
+
+export type MatchesProvaveisMesResponse = {
+  mes: number;
+  ano: number;
+  resumo: {
+    sem_vinculo: number;
+    alto: number;
+    medio: number;
+    baixo: number;
+    sem_candidato: number;
+    n1: number;
+    listados: number;
+  };
+  por_dia: Array<{
+    data_fluxo: string;
+    itens: MatchesProvaveisApiItem[];
+  }>;
+};
+
+export async function getMatchesProvaveisMes(
+  mes: number,
+  ano: number,
+): Promise<MatchesProvaveisMesResponse> {
+  if (!BASE_URL) throw new Error('VITE_BACKEND_URL não configurado');
+  const params = new URLSearchParams({ mes: String(mes), ano: String(ano) });
+  const res = await apiFetch(`/api/validacao/matches-provaveis?${params.toString()}`, {
+    method: 'GET',
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(await parseBackendError(res, text));
+  return text
+    ? (JSON.parse(text) as MatchesProvaveisMesResponse)
+    : { mes, ano, resumo: { sem_vinculo: 0, alto: 0, medio: 0, baixo: 0, sem_candidato: 0, n1: 0, listados: 0 }, por_dia: [] };
+}
+
 /* ——— Cadastro de alunos (resumo para secretária) ——— */
 
 export type CadastroAlunoVinculoStatus = 'validacao' | 'cadastro' | 'nenhum';

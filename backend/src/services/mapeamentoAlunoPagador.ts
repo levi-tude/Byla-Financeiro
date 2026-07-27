@@ -5,7 +5,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { alunoNormKey, type AlunoPagadorRegra } from '../logic/alunoPagadorMatch.js';
 import { normalizePessoa } from '../logic/normalizePessoa.js';
-import { fluxoUuidFromPlanilhaId } from '../logic/fluxoPagamentoFingerprint.js';
+import { fluxoUuidFromAnyPlanilhaId } from '../logic/fluxoPagamentoFingerprint.js';
 
 let tableAvailable: boolean | null = null;
 
@@ -113,7 +113,7 @@ export async function aprenderAlunoPagadorFromVinculo(
   planilhaId: string,
   bancoId: string,
 ): Promise<void> {
-  const fluxoId = fluxoUuidFromPlanilhaId(planilhaId);
+  const fluxoId = fluxoUuidFromAnyPlanilhaId(planilhaId);
   if (!fluxoId) return;
 
   const { data: fluxo, error: fluxoErr } = await supabase

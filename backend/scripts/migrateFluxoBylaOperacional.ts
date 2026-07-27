@@ -14,6 +14,8 @@ import { PlanilhaAlunosAdapter } from '../src/adapters/PlanilhaAlunosAdapter.js'
 import { getSupabase } from '../src/services/supabaseClient.js';
 import { lerPagamentosPorAbaEAno } from '../src/services/planilhaPagamentos.js';
 import { isEligibleSheet } from '../src/businessRules.js';
+import { loadFluxoPagamentosAno } from '../src/services/remapValidacaoVinculosFluxo.js';
+import { recuperarVinculosAposRemigracaoFluxo } from '../src/services/recuperarVinculosOrfaosFluxo.js';
 
 type AnyRow = Record<string, unknown>;
 
@@ -227,6 +229,19 @@ async function main() {
   // Remove o ano alvo para reprocessamento idempotente
   const inicioAno = `${ano}-01-01`;
   const fimAno = `${ano}-12-31`;
+
+  // Snapshot antes do delete — necessário para remap fingerprint dos vínculos
+  let oldPaymentsSnapshot: Awaited<ReturnType<typeof loadFluxoPagamentosAno>> = [];
+  try {
+    oldPaymentsSnapshot = await loadFluxoPagamentosAno(supabase, ano);
+  } catch (e) {
+    console.warn(
+      `Aviso: não foi possível snapshotar pagamentos antes da remigração: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    );
+  }
+
   const delYear = await supabase
     .from('fluxo_pagamentos_operacionais')
     .delete()
@@ -332,6 +347,22 @@ async function main() {
     }
   }
 
+  let remapVinculos: unknown = null;
+  if (oldPaymentsSnapshot.length > 0) {
+    try {
+      remapVinculos = await recuperarVinculosAposRemigracaoFluxo(supabase, {
+        ano,
+        oldPayments: oldPaymentsSnapshot,
+      });
+    } catch (e) {
+      console.warn(
+        `Aviso: remap de vínculos pós-remigração falhou: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      );
+    }
+  }
+
   console.log(
     JSON.stringify(
       {
@@ -344,6 +375,7 @@ async function main() {
         errosPagamentos,
         avisosPagamentos,
         avisosDatasCorrigidas: avisosDatasCorrigidas.slice(0, 100),
+        remapVinculos,
       },
       null,
       2
