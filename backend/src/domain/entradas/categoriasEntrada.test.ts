@@ -6,6 +6,8 @@ import {
   catalogoEntradasParceirosFromControleData,
   isCategoriaEntradaAluguelCoworking,
   isCategoriaEntradaParceiros,
+  preferStableEntradaBlocoKey,
+  preferStableEntradaTemplateKey,
   resolveCategoriaEntradaInCatalog,
 } from './categoriasEntrada.js';
 import { linhaTemplateKey } from '../despesas/categoriasSaida.js';
@@ -16,6 +18,10 @@ function fakeControleFromTemplate(): ControleCaixaReadDto {
   return {
     mes: 6,
     ano: 2026,
+    modo: 'sistema',
+    modosDisponiveis: ['sistema'],
+    somenteLeitura: false,
+    existe: true,
     abaRef: null,
     origem: 'template',
     updatedAt: null,
@@ -74,6 +80,26 @@ describe('catalogoEntradasFromControleData', () => {
     assert.ok(resolved);
     assert.equal(resolved?.label, 'Dança');
     assert.equal(resolved?.templateKey, `linha:${danca!.linhaId}`);
+  });
+
+  it('resolveCategoriaEntradaInCatalog recupera linha:uuid órfã via labelHint', () => {
+    const catalog = catalogoEntradasFromControleData(fakeControleFromTemplate());
+    const resolved = resolveCategoriaEntradaInCatalog(
+      catalog,
+      'linha:00000000-0000-0000-0000-000000000000',
+      'Dança',
+    );
+    assert.ok(resolved);
+    assert.equal(resolved?.label, 'Dança');
+  });
+
+  it('preferStableEntradaTemplateKey grava ent_parc_* mesmo com linha:uuid no catálogo', () => {
+    const catalog = catalogoEntradasFromControleData(fakeControleFromTemplate());
+    const danca = catalog.find((c) => c.label === 'Dança');
+    assert.ok(danca);
+    const orphan = { ...danca!, templateKey: linhaTemplateKey(null, danca!.linhaId) };
+    assert.equal(preferStableEntradaTemplateKey(orphan), 'ent_parc_danca');
+    assert.equal(preferStableEntradaBlocoKey({ ...orphan, blocoTemplateKey: `bloco:${orphan.blocoId}` }), 'entrada_parceiros');
   });
 
   it('catalogoEntradasParceirosFromControleData filtra só parceiros', () => {

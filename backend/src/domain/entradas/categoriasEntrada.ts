@@ -64,7 +64,8 @@ export async function loadCatalogoEntradasControleMes(
   mes: number,
   ano: number,
 ): Promise<CategoriaEntradaLinha[]> {
-  const result = await readControleCaixa(mes, ano);
+  // Catálogo de classificação usa o modo sistema (template keys estáveis).
+  const result = await readControleCaixa(mes, ano, 'sistema');
   if ('error' in result) throw new Error(result.error);
   return catalogoEntradasFromControleData(result.data);
 }
@@ -95,16 +96,59 @@ export const LEGACY_ENTRADA_TEMPLATE_KEY_LABELS: Record<string, string> = {
   ent_parc_bruna_gr: 'Bruna GR',
 };
 
+/** Preferência ao gravar regra: chave estável (não `linha:uuid` que morre no próximo sync). */
+const STABLE_ENTRADA_KEY_BY_LABEL: Record<string, string> = {
+  dança: 'ent_parc_danca',
+  danca: 'ent_parc_danca',
+  yoga: 'ent_parc_yoga',
+  'pilates mari': 'ent_parc_pilates_mari',
+  pilates: 'ent_parc_pilates_mari',
+  teatro: 'ent_parc_teatro',
+  'teatro infantil': 'ent_parc_teatro_infantil',
+  'bruna gr': 'ent_parc_bruna_gr',
+};
+
+export function stableEntradaTemplateKeyForLabel(label: string): string | null {
+  const norm = label.trim().toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+  const withCedilla = label.trim().toLowerCase();
+  return (
+    STABLE_ENTRADA_KEY_BY_LABEL[withCedilla] ??
+    STABLE_ENTRADA_KEY_BY_LABEL[norm] ??
+    null
+  );
+}
+
+/**
+ * Se a linha do catálogo só tem `linha:uuid`, devolve a chave estável do parceiro quando o rótulo for conhecido.
+ * Assim o mapeamento sobrevive a recriação do Controle.
+ */
+export function preferStableEntradaTemplateKey(cat: CategoriaEntradaLinha): string {
+  const raw = (cat.templateKey ?? '').trim();
+  if (raw && !raw.startsWith('linha:') && !raw.startsWith('legado:')) return raw;
+  return stableEntradaTemplateKeyForLabel(cat.label) ?? raw;
+}
+
+export function preferStableEntradaBlocoKey(cat: CategoriaEntradaLinha): string {
+  const raw = (cat.blocoTemplateKey ?? '').trim();
+  if (raw && !raw.startsWith('bloco:')) return raw;
+  if (isCategoriaEntradaParceiros(cat)) return 'entrada_parceiros';
+  if (isCategoriaEntradaAluguelCoworking(cat)) return 'entrada_aluguel_coworking';
+  return raw;
+}
+
 /**
  * Aceita chave do Controle (`linha:uuid`), chave estável (`ent_parc_danca`) ou rótulo legado.
- * Evita erro ao salvar classificação quando o mês no banco usa IDs diferentes das sugestões.
+ * `labelHint` recupera chaves órfãs após o Controle ser recriado (UUIDs antigos).
  */
 export function resolveCategoriaEntradaInCatalog(
   catalog: CategoriaEntradaLinha[],
   templateKey: string,
+  labelHint?: string | null,
 ): CategoriaEntradaLinha | null {
   const key = templateKey.trim();
-  if (!key) return null;
+  if (!key) {
+    return labelHint ? findCategoriaEntradaByLabel(catalog, labelHint) : null;
+  }
 
   const direct = findCategoriaEntradaInCatalog(catalog, key);
   if (direct) return direct;
@@ -117,32 +161,16 @@ export function resolveCategoriaEntradaInCatalog(
 
   if (key.startsWith('legado:')) {
     const labelGuess = key.slice('legado:'.length).replace(/_/g, ' ');
-    return findCategoriaEntradaByLabel(catalog, labelGuess);
+    const byLegado = findCategoriaEntradaByLabel(catalog, labelGuess);
+    if (byLegado) return byLegado;
+  }
+
+  if (labelHint) {
+    const byHint = findCategoriaEntradaByLabel(catalog, labelHint);
+    if (byHint) return byHint;
   }
 
   return null;
-}
-
-const STABLE_ENTRADA_KEY_BY_LABEL: Record<string, string> = {
-  dança: 'ent_parc_danca',
-  danca: 'ent_parc_danca',
-  yoga: 'ent_parc_yoga',
-  'pilates mari': 'ent_parc_pilates_mari',
-  pilates: 'ent_parc_pilates_mari',
-  teatro: 'ent_parc_teatro',
-  'teatro infantil': 'ent_parc_teatro_infantil',
-  'bruna gr': 'ent_parc_bruna_gr',
-};
-
-/** Chave estável de parceiro pelo rótulo (sobrevive a recriação do Controle). */
-export function stableEntradaTemplateKeyForLabel(label: string): string | null {
-  const norm = label.trim().toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
-  const withCedilla = label.trim().toLowerCase();
-  return (
-    STABLE_ENTRADA_KEY_BY_LABEL[withCedilla] ??
-    STABLE_ENTRADA_KEY_BY_LABEL[norm] ??
-    null
-  );
 }
 
 export function findCategoriaEntradaByLabel(

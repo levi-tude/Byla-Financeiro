@@ -3,6 +3,7 @@ import { buildControleCaixaTemplate } from '../domain/controleCaixa/template.js'
 import type { ControleLockedLevel, ControleTemplatePayload } from '../domain/controleCaixa/template.js';
 import {
   buildPayloadFromMesAnterior,
+  periodoUsavelParaHerdar,
   stripBlocoSaidasAluguel,
 } from '../domain/controleCaixa/mesAnterior.js';
 import {
@@ -10,6 +11,10 @@ import {
   type ControleModo,
 } from '../domain/controleCaixa/modo.js';
 import { persistControleCaixaModo } from './controleCaixaPersist.js';
+import {
+  dtoToControlePersistPayload,
+  ensureSistemaEstruturaCompleta,
+} from './controleCaixaEstrutura.js';
 
 type PeriodoRow = {
   id: string;
@@ -252,14 +257,41 @@ export async function loadControleCaixaPreferindo(
   return loadControleCaixaExisting(mes, ano, other);
 }
 
-/** Lê o Controle no modo indicado. Só auto-cria estrutura no modo sistema. */
+/** Lê o Controle no modo indicado. Só auto-cria / repara estrutura no modo sistema. */
 export async function readControleCaixa(
   mes: number,
   ano: number,
   modo: ControleModo = 'sistema',
 ): Promise<{ data: ControleCaixaReadDto } | { error: string }> {
   const existing = await loadControleCaixaExisting(mes, ano, modo);
-  if ('data' in existing) return existing;
+  if ('data' in existing) {
+    if (modo === 'oficial') return existing;
+
+    // Catálogo de Entradas/Despesas e a UI usam modo sistema — se estiver
+    // incompleto (só parceiros após sync) ou com template genérico legado,
+    // espelha o Oficial do mês (ou o template operacional) e persiste.
+    const repaired = await ensureSistemaEstruturaCompleta(
+      mes,
+      ano,
+      existing.data,
+      loadControleCaixaExisting,
+    );
+    if (!repaired.repaired) return { data: repaired.data };
+
+    const origem =
+      repaired.fonte === 'oficial' ? 'reparar_estrutura_oficial' : 'reparar_estrutura_template';
+    const persisted = await persistControleCaixaModo(
+      mes,
+      ano,
+      dtoToControlePersistPayload(repaired.data),
+      origem,
+      'sistema',
+    );
+    if ('error' in persisted) return { error: persisted.error };
+    const again = await loadControleCaixaExisting(mes, ano, 'sistema');
+    if ('data' in again) return again;
+    return { error: again.error };
+  }
   if (!('notFound' in existing) || !existing.notFound) {
     return { error: existing.error };
   }
@@ -272,12 +304,15 @@ export async function readControleCaixa(
   }
 
   const fromPrev = await buildPayloadFromMesAnterior(mes, ano, async (m, a) => {
-    // Prefere sistema com blocos; se vazio/ausente, tenta oficial do mesmo mês (planilha).
-    const r = await loadControleCaixaExisting(m, a, 'sistema');
-    if ('data' in r && r.data.blocos.length > 0) return r;
+    // Prefere oficial da planilha quando existir e for usável; senão sistema usável.
     const of = await loadControleCaixaExisting(m, a, 'oficial');
-    if ('data' in of && of.data.blocos.length > 0) return of;
-    if ('data' in r) return { error: 'Período sistema sem blocos.', notFound: true };
+    if ('data' in of && periodoUsavelParaHerdar(of.data)) return of;
+    const r = await loadControleCaixaExisting(m, a, 'sistema');
+    if ('data' in r && periodoUsavelParaHerdar(r.data)) return r;
+    if ('data' in of && of.data.blocos.length > 0) {
+      return { error: 'Período oficial incompleto/legado.', notFound: true };
+    }
+    if ('data' in r) return { error: 'Período sistema sem estrutura usável.', notFound: true };
     return { error: r.error, notFound: r.notFound };
   });
 

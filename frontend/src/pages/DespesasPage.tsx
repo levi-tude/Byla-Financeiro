@@ -343,7 +343,7 @@ export function DespesasPage() {
           blocos={porCategoriaBlocos}
           pendenteTotal={mostrarPendentePorCategoria ? (resumoQuery.data?.pendente.total ?? 0) : 0}
           pendenteQtd={mostrarPendentePorCategoria ? (resumoQuery.data?.pendente.qtd_transacoes ?? 0) : 0}
-          emptyMessage="Abra o Controle de Caixa deste mês para carregar as linhas de saída."
+          emptyMessage="Sem linhas de saída neste mês. Abra Controle de Caixa → modo Sistema (ele recria as categorias a partir da planilha Oficial)."
           valorTone="saida"
           mes={mes}
           ano={ano}
