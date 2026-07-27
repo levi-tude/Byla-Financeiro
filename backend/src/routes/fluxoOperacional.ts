@@ -9,7 +9,7 @@ import {
   agregarTotaisFluxoCompetencia,
   comparativoFluxoExtrato,
   enrichFluxoPagamentosComStatusExtrato,
-  indexVinculosPorPlanilha,
+  indexVinculosPorPagamentoIds,
   loadFluxoPagamentosCompetenciaMes,
   statusExtratoForFluxoPagamento,
 } from '../services/fluxoExtratoValidacaoService.js';
@@ -1029,11 +1029,9 @@ export default function createFluxoOperacionalRouter(): Router {
       .limit(25000);
     if (pagErr) return res.status(500).json({ error: pagErr.message });
 
-    const vinculosByPlanilha = new Map<string, { banco_id: string; id: string }>();
-    for (const m of mesesJanela) {
-      const vm = await indexVinculosPorPlanilha(m.mes, m.ano);
-      for (const [k, v] of vm) vinculosByPlanilha.set(k, v);
-    }
+    const vinculosByPlanilha = await indexVinculosPorPagamentoIds(
+      (pagamentosRows ?? []).map((p) => String(p.id)),
+    );
 
     const keyAluno = (aba: string, modalidade: string, linha: number, nome: string) =>
       `${normalizarAbaFluxo(aba).trim().toLowerCase()}|${modalidade.trim().toLowerCase()}|${linha}|${nome.trim().toLowerCase()}`;
@@ -1057,7 +1055,9 @@ export default function createFluxoOperacionalRouter(): Router {
           valorPago: valorAtual,
         });
       }
-      const st = statusExtratoForFluxoPagamento(String(p.id), vinculosByPlanilha).status_extrato;
+      const st = statusExtratoForFluxoPagamento(String(p.id), vinculosByPlanilha, {
+        forma: p.forma != null ? String(p.forma) : null,
+      }).status_extrato;
       const set = statusPorAlunoMes.get(k) ?? new Set<string>();
       set.add(st);
       statusPorAlunoMes.set(k, set);

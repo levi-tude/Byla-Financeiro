@@ -22,6 +22,10 @@ import { familiaPagamentoChave } from '../logic/gruposFamiliaPagamento.js';
 import { listMapeamentoAlunoPagadorAtivos } from '../services/mapeamentoAlunoPagador.js';
 import { carregarGruposFamiliaNoMatch } from '../services/gruposFamiliaPagamento.js';
 import { listVinculosDia } from '../services/validacaoVinculos.js';
+import {
+  mesclarVinculosComAutoGravados,
+  persistirConfirmadosAutomaticosValidacao,
+} from '../services/autoPersistirVinculosValidacao.js';
 import { mesAnoQuerySchema, parseQuery, validacaoPagamentosDiariaQuerySchema } from '../validation/apiQuery.js';
 import {
   getConciliacaoVencimentosMesData,
@@ -250,8 +254,24 @@ router.get('/validacao-pagamentos-diaria', async (req: Request, res: Response) =
 
     const mesRef = Number(dataStr.slice(5, 7));
     const vinculosDia = await listVinculosDia(dataStr, mesRef, ano).catch(() => []);
+    // Match inequívoco (1 candidato) → grava vínculo para o Fluxo/sticky alinharem com a Validação.
+    const autoPersist = await persistirConfirmadosAutomaticosValidacao({
+      dataRef: dataStr,
+      mes: mesRef,
+      ano,
+      confirmados: itensConfirmados.map((c) => ({
+        planilhaId: c.planilha.id,
+        bancoId: c.banco.id,
+      })),
+      vinculosExistentes: vinculosDia.map((v) => ({
+        planilha_id: v.planilha_id,
+        banco_id: v.banco_id,
+      })),
+      supabase,
+    }).catch(() => ({ gravados: [], erros: [] as string[] }));
+    const vinculosParaMatch = mesclarVinculosComAutoGravados(vinculosDia, autoPersist.gravados);
     const posVinculos = aplicarVinculosEExclusividadeBanco({
-      vinculos: vinculosDia.map((v) => ({ planilha_id: v.planilha_id, banco_id: v.banco_id })),
+      vinculos: vinculosParaMatch,
       planilhas: planilhaItens,
       bancoItens,
       confirmados: itensConfirmados,

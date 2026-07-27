@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { usePersistedPageState } from '../hooks/usePersistedPageState';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Topbar } from '../app/Topbar';
 import { useMonthYear } from '../context/MonthYearContext';
@@ -9,6 +10,7 @@ import {
   type ControleCaixaBloco,
   type ControleCaixaLinha,
   type ControleCaixaResponse,
+  type ControleModo,
   type VisaoControle,
 } from '../services/backendApi';
 import { useToast } from '../context/ToastContext';
@@ -79,7 +81,12 @@ function sumBloco(bloco: ControleCaixaBloco): number {
   return bloco.linhas.reduce((acc, linha) => acc + (linha.valor ?? 0), 0);
 }
 
-function linhaValorSomenteLeitura(bloco: ControleCaixaBloco, linha: ControleCaixaLinha): boolean {
+function linhaValorSomenteLeitura(
+  bloco: ControleCaixaBloco,
+  linha: ControleCaixaLinha,
+  modoOficial = false,
+): boolean {
+  if (modoOficial) return true;
   if (bloco.templateKey === 'saida_parceiros') return true;
   if (linha.valorTexto === 'calculado_repasse') return true;
   if (bloco.templateKey === 'entrada_parceiros' && linha.valorTexto === 'extrato_classificado') return true;
@@ -207,13 +214,49 @@ type DefaultEditDecision =
       description: string;
     };
 
+type ControleCaixaNavPersisted = {
+  modo: ControleModo;
+  visaoSync: VisaoControle;
+};
+
+const CONTROLE_CAIXA_NAV_INITIAL: ControleCaixaNavPersisted = {
+  modo: 'oficial',
+  visaoSync: 'competencia',
+};
+
+function patchControleCaixaNav<K extends keyof ControleCaixaNavPersisted>(
+  setNav: Dispatch<SetStateAction<ControleCaixaNavPersisted>>,
+  key: K,
+  value: SetStateAction<ControleCaixaNavPersisted[K]>,
+) {
+  setNav((prev) => ({
+    ...prev,
+    [key]: typeof value === 'function'
+      ? (value as (prev: ControleCaixaNavPersisted[K]) => ControleCaixaNavPersisted[K])(prev[key])
+      : value,
+  }));
+}
+
 export function ControleCaixaPage() {
   const { monthYear } = useMonthYear();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
+  const [nav, setNav] = usePersistedPageState('controle-caixa', CONTROLE_CAIXA_NAV_INITIAL);
+  const { modo, visaoSync } = nav;
+
+  const setModo = useCallback(
+    (value: SetStateAction<ControleModo>) => patchControleCaixaNav(setNav, 'modo', value),
+    [setNav],
+  );
+  const setVisaoSync = useCallback(
+    (value: SetStateAction<VisaoControle>) => patchControleCaixaNav(setNav, 'visaoSync', value),
+    [setNav],
+  );
+
   const [draft, setDraft] = useState<DraftState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [defaultEditDecision, setDefaultEditDecision] = useState<DefaultEditDecision>(null);
+  const [modoEscolhidoManual, setModoEscolhidoManual] = useState(false);
 
   const mesAnterior = useMemo(
     () => previousMonth(monthYear.mes, monthYear.ano),
@@ -222,16 +265,29 @@ export function ControleCaixaPage() {
   const prevLabel = labelMesAno(mesAnterior.mes, mesAnterior.ano);
   const relatorioMesHref = `/relatorios-ia?tipo=mensal_operacional&mes=${monthYear.mes}&ano=${monthYear.ano}`;
 
+  useEffect(() => {
+    setModo('oficial');
+    setModoEscolhidoManual(false);
+    setDraft(null);
+  }, [monthYear.mes, monthYear.ano]);
+
   const controleQuery = useQuery({
-    queryKey: ['controle-caixa', monthYear.mes, monthYear.ano],
-    queryFn: () => getControleCaixa(monthYear.mes, monthYear.ano),
+    queryKey: ['controle-caixa', monthYear.mes, monthYear.ano, modo],
+    queryFn: () => getControleCaixa(monthYear.mes, monthYear.ano, modo),
   });
 
   const controlePrevQuery = useQuery({
-    queryKey: ['controle-caixa', mesAnterior.mes, mesAnterior.ano],
-    queryFn: () => getControleCaixa(mesAnterior.mes, mesAnterior.ano),
+    queryKey: ['controle-caixa', mesAnterior.mes, mesAnterior.ano, modo],
+    queryFn: () => getControleCaixa(mesAnterior.mes, mesAnterior.ano, modo),
     staleTime: 5 * 60 * 1000,
   });
+
+  useEffect(() => {
+    if (!controleQuery.data || modoEscolhidoManual) return;
+    if (modo === 'oficial' && controleQuery.data.existe === false) {
+      setModo('sistema');
+    }
+  }, [controleQuery.data, modo, modoEscolhidoManual]);
 
   useEffect(() => {
     if (controleQuery.data) {
@@ -243,16 +299,28 @@ export function ControleCaixaPage() {
     window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   }, [monthYear.mes, monthYear.ano]);
 
+  const somenteLeitura = modo === 'oficial' || controleQuery.data?.somenteLeitura === true;
+
+  function escolherModo(next: ControleModo) {
+    setModoEscolhidoManual(true);
+    setModo(next);
+  }
+
   const saveMutation = useMutation({
     mutationFn: (state: DraftState) =>
-      putControleCaixa(monthYear.mes, monthYear.ano, {
-        abaRef: state.abaRef.trim() || null,
-        totais: totaisCalculados,
-        blocos: state.blocos,
-      }),
+      putControleCaixa(
+        monthYear.mes,
+        monthYear.ano,
+        {
+          abaRef: state.abaRef.trim() || null,
+          totais: totaisCalculados,
+          blocos: state.blocos,
+        },
+        'sistema',
+      ),
     onSuccess: async (data) => {
       setDraft(cloneState(data));
-      showToast('Alterações salvas no Supabase.', 'success');
+      showToast('Alterações salvas no Supabase (modo Sistema).', 'success');
       await queryClient.invalidateQueries({ queryKey: ['controle-caixa', monthYear.mes, monthYear.ano] });
       await queryClient.invalidateQueries({ queryKey: ['fluxo-completo', monthYear.mes, monthYear.ano] });
     },
@@ -262,13 +330,14 @@ export function ControleCaixaPage() {
   });
 
   const syncEntradasPermitido = mesPermiteSincronizarEntradasRepasses(monthYear.mes, monthYear.ano);
-  const [visaoSync, setVisaoSync] = useState<VisaoControle>('competencia');
 
   const syncEntradasMutation = useMutation({
     mutationFn: () => postControleCaixaSincronizarEntradas(monthYear.mes, monthYear.ano, visaoSync),
     onSuccess: async (data) => {
+      setModoEscolhidoManual(true);
+      setModo('sistema');
       setDraft(cloneState(data.controle));
-      showToast('Entradas e repasses sincronizados do extrato classificado.', 'success');
+      showToast('Entradas e repasses sincronizados no modo Sistema (oficial intacto).', 'success');
       await queryClient.invalidateQueries({ queryKey: ['controle-caixa', monthYear.mes, monthYear.ano] });
       await queryClient.invalidateQueries({ queryKey: ['entradas-resumo', monthYear.mes, monthYear.ano] });
     },
@@ -427,10 +496,34 @@ export function ControleCaixaPage() {
         subtitle="Comece pelo resumo fixo abaixo; expanda os blocos para lançar valores linha a linha."
         periodLabel={mesExtenso(monthYear.mes, monthYear.ano)}
       >
-        <p className="text-xs text-slate-600 dark:text-slate-400">
-          Os totais de entradas, saídas e lucro são calculados automaticamente a partir dos blocos.
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Fonte:</span>
+          {(
+            [
+              { id: 'oficial' as const, label: 'Oficial (planilha)' },
+              { id: 'sistema' as const, label: 'Sistema' },
+            ] as const
+          ).map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => escolherModo(opt.id)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+                modo === opt.id
+                  ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+                  : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-300'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
+          {modo === 'oficial'
+            ? 'Modo Oficial: valores migrados da planilha. Somente leitura — não mistura com a sincronização do extrato.'
+            : 'Modo Sistema: valores do extrato classificado e edições manuais. Totais deste modo não somam com o Oficial.'}
         </p>
-        {syncEntradasPermitido ? (
+        {modo === 'sistema' && syncEntradasPermitido ? (
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <span className="text-xs text-slate-600 dark:text-slate-400">Agregar por:</span>
             {(['caixa', 'competencia'] as const).map((v) => (
@@ -456,12 +549,13 @@ export function ControleCaixaPage() {
               {syncEntradasMutation.isPending ? 'Sincronizando…' : 'Sincronizar entradas e repasses'}
             </button>
           </div>
-        ) : (
+        ) : null}
+        {modo === 'sistema' && !syncEntradasPermitido ? (
           <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
             Sincronização automática a partir de junho/2026. Meses anteriores usam os valores manuais já
-            lançados no Controle.
+            lançados no Controle (modo Sistema).
           </p>
-        )}
+        ) : null}
       </FilterBar>
 
       {controleQuery.isLoading && <div className="text-sm text-gray-500">Carregando dados do mês...</div>}
@@ -472,7 +566,25 @@ export function ControleCaixaPage() {
         />
       )}
 
-      {draft && (
+      {draft && modo === 'oficial' && controleQuery.data?.existe === false ? (
+        <div className="rounded-xl border border-sky-200 bg-sky-50/80 p-5 dark:border-sky-800 dark:bg-sky-950/30">
+          <h2 className="text-sm font-semibold text-sky-950 dark:text-sky-100">Sem fechamento oficial neste mês</h2>
+          <p className="mt-1 text-sm text-sky-900/80 dark:text-sky-200/80">
+            Ainda não há dados migrados da planilha CONTROLE DE CAIXA para{' '}
+            {mesExtenso(monthYear.mes, monthYear.ano)}. O modo Sistema continua disponível com a
+            sincronização do extrato — os dois modos não se misturam.
+          </p>
+          <button
+            type="button"
+            onClick={() => escolherModo('sistema')}
+            className="mt-3 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white dark:bg-slate-100 dark:text-slate-900"
+          >
+            Abrir modo Sistema
+          </button>
+        </div>
+      ) : null}
+
+      {draft && !(modo === 'oficial' && controleQuery.data?.existe === false) && (
         <>
           <section
             className="sticky top-0 z-20 -mx-1 rounded-xl border border-slate-200 bg-white/95 p-3 shadow-md backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/95"
@@ -486,12 +598,23 @@ export function ControleCaixaPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <span
                   className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
-                    isDirty
-                      ? 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200'
-                      : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200'
+                    modo === 'oficial'
+                      ? 'bg-sky-100 text-sky-900 dark:bg-sky-950/50 dark:text-sky-200'
+                      : 'bg-violet-100 text-violet-900 dark:bg-violet-950/50 dark:text-violet-200'
                   }`}
                 >
-                  {isDirty ? 'Rascunho não salvo' : 'Salvo'}
+                  {modo === 'oficial' ? 'Oficial (planilha)' : 'Sistema'}
+                </span>
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
+                    somenteLeitura
+                      ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                      : isDirty
+                        ? 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200'
+                        : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200'
+                  }`}
+                >
+                  {somenteLeitura ? 'Somente leitura' : isDirty ? 'Rascunho não salvo' : 'Salvo'}
                 </span>
                 <span className="text-[11px] text-slate-500 dark:text-slate-400">{lastUpdateLabel}</span>
                 <Link
@@ -603,8 +726,12 @@ export function ControleCaixaPage() {
                 Aba de referência
                 <input
                   value={draft.abaRef}
-                  onChange={(e) => setDraft((prev) => (prev ? { ...prev, abaRef: e.target.value } : prev))}
-                  className="mt-1 w-full max-w-md rounded border border-slate-300 px-2 py-1.5 dark:border-slate-600 dark:bg-slate-800"
+                  readOnly={somenteLeitura}
+                  onChange={(e) => {
+                    if (somenteLeitura) return;
+                    setDraft((prev) => (prev ? { ...prev, abaRef: e.target.value } : prev));
+                  }}
+                  className="mt-1 w-full max-w-md rounded border border-slate-300 px-2 py-1.5 dark:border-slate-600 dark:bg-slate-800 read-only:bg-slate-50 dark:read-only:bg-slate-800/60"
                 />
               </label>
             </div>
@@ -619,62 +746,68 @@ export function ControleCaixaPage() {
                 </p>
               </div>
               <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setDraft((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            blocos: [
-                              ...prev.blocos,
-                              {
-                                tipo: 'entrada',
-                                titulo: 'Novo bloco de entrada',
-                                ordem: prev.blocos.length,
-                                templateKey: null,
-                                isDefault: false,
-                                isCustom: true,
-                                lockedLevel: 'none',
-                                linhas: [],
-                              },
-                            ],
-                          }
-                        : prev
-                    )
-                  }
-                  className="rounded border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm text-blue-700"
-                >
-                  + Bloco entrada
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setDraft((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            blocos: [
-                              ...prev.blocos,
-                              {
-                                tipo: 'saida',
-                                titulo: 'Novo bloco de saída',
-                                ordem: prev.blocos.length,
-                                templateKey: null,
-                                isDefault: false,
-                                isCustom: true,
-                                lockedLevel: 'none',
-                                linhas: [],
-                              },
-                            ],
-                          }
-                        : prev
-                    )
-                  }
-                  className="rounded border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm text-amber-700"
-                >
-                  + Bloco saída
-                </button>
+                {somenteLeitura ? (
+                  <span className="text-xs text-slate-500">Consulta do fechamento oficial — sem edição.</span>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDraft((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                blocos: [
+                                  ...prev.blocos,
+                                  {
+                                    tipo: 'entrada',
+                                    titulo: 'Novo bloco de entrada',
+                                    ordem: prev.blocos.length,
+                                    templateKey: null,
+                                    isDefault: false,
+                                    isCustom: true,
+                                    lockedLevel: 'none',
+                                    linhas: [],
+                                  },
+                                ],
+                              }
+                            : prev
+                        )
+                      }
+                      className="rounded border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm text-blue-700"
+                    >
+                      + Bloco entrada
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDraft((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                blocos: [
+                                  ...prev.blocos,
+                                  {
+                                    tipo: 'saida',
+                                    titulo: 'Novo bloco de saída',
+                                    ordem: prev.blocos.length,
+                                    templateKey: null,
+                                    isDefault: false,
+                                    isCustom: true,
+                                    lockedLevel: 'none',
+                                    linhas: [],
+                                  },
+                                ],
+                              }
+                            : prev
+                        )
+                      }
+                      className="rounded border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm text-amber-700"
+                    >
+                      + Bloco saída
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 
@@ -801,10 +934,10 @@ export function ControleCaixaPage() {
                       />
                       <input
                         value={formatNullableCurrency(linha.valor)}
-                        readOnly={linhaValorSomenteLeitura(bloco, linha)}
+                        readOnly={linhaValorSomenteLeitura(bloco, linha, somenteLeitura)}
                         title={linhaValorHint(bloco, linha)}
                         onChange={(e) => {
-                          if (linhaValorSomenteLeitura(bloco, linha)) return;
+                          if (linhaValorSomenteLeitura(bloco, linha, somenteLeitura)) return;
                           setDraft((prev) => {
                             if (!prev) return prev;
                             const blocos = [...prev.blocos];
@@ -819,7 +952,7 @@ export function ControleCaixaPage() {
                           });
                         }}
                         className={`w-full shrink-0 rounded border px-2 py-1.5 text-sm tabular-nums sm:w-40 dark:border-slate-600 ${
-                          linhaValorSomenteLeitura(bloco, linha)
+                          linhaValorSomenteLeitura(bloco, linha, somenteLeitura)
                             ? 'cursor-not-allowed border-slate-200 bg-slate-100 dark:border-slate-700 dark:bg-slate-800/80'
                             : 'border-slate-300 bg-white dark:bg-slate-800'
                         }`}
@@ -892,30 +1025,32 @@ export function ControleCaixaPage() {
             ))}
           </section>
 
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setDraft(createDefaultDraft())}
-              className="rounded border border-slate-300 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-700"
-            >
-              Restaurar estrutura padrão
-            </button>
-            <button
-              type="button"
-              onClick={() => setDraft(controleQuery.data ? cloneState(controleQuery.data) : null)}
-              className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
-            >
-              Descartar rascunho
-            </button>
-            <button
-              type="button"
-              disabled={!isDirty || saveMutation.isPending}
-              onClick={() => draft && saveMutation.mutate(draft)}
-              className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-            >
-              {saveMutation.isPending ? 'Salvando...' : 'Salvar no Supabase'}
-            </button>
-          </div>
+          {!somenteLeitura ? (
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setDraft(createDefaultDraft())}
+                className="rounded border border-slate-300 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-700"
+              >
+                Restaurar estrutura padrão
+              </button>
+              <button
+                type="button"
+                onClick={() => setDraft(controleQuery.data ? cloneState(controleQuery.data) : null)}
+                className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
+              >
+                Descartar rascunho
+              </button>
+              <button
+                type="button"
+                disabled={!isDirty || saveMutation.isPending}
+                onClick={() => draft && saveMutation.mutate(draft)}
+                className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {saveMutation.isPending ? 'Salvando...' : 'Salvar no Supabase'}
+              </button>
+            </div>
+          ) : null}
         </>
       )}
 

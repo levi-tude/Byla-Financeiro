@@ -70,6 +70,10 @@ export function catalogoSaidasTemplatePadrao(): CategoriaSaidaLinha[] {
   const fake: ControleCaixaReadDto = {
     mes: 0,
     ano: 0,
+    modo: 'sistema',
+    modosDisponiveis: ['sistema'],
+    somenteLeitura: false,
+    existe: false,
     abaRef: null,
     origem: 'template',
     updatedAt: null,

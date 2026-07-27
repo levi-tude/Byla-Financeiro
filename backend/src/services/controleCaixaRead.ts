@@ -1,15 +1,21 @@
 import { getSupabase } from './supabaseClient.js';
-import { buildControleCaixaTemplate, type ControleLockedLevel } from '../domain/controleCaixa/template.js';
-import type { ControleTemplatePayload } from '../domain/controleCaixa/template.js';
+import { buildControleCaixaTemplate } from '../domain/controleCaixa/template.js';
+import type { ControleLockedLevel, ControleTemplatePayload } from '../domain/controleCaixa/template.js';
 import {
   buildPayloadFromMesAnterior,
   stripBlocoSaidasAluguel,
 } from '../domain/controleCaixa/mesAnterior.js';
+import {
+  CONTROLE_MODOS,
+  type ControleModo,
+} from '../domain/controleCaixa/modo.js';
+import { persistControleCaixaModo } from './controleCaixaPersist.js';
 
 type PeriodoRow = {
   id: string;
   mes: number;
   ano: number;
+  modo: ControleModo;
   aba_ref: string | null;
   entrada_total: number | null;
   saida_total: number | null;
@@ -17,6 +23,7 @@ type PeriodoRow = {
   saida_parceiros_total: number | null;
   saida_fixas_total: number | null;
   saida_soma_secoes_principais: number | null;
+  origem: string | null;
   updated_at: string | null;
 };
 
@@ -72,6 +79,10 @@ export type ControleCaixaBlocoDto = {
 export type ControleCaixaReadDto = {
   mes: number;
   ano: number;
+  modo: ControleModo;
+  modosDisponiveis: ControleModo[];
+  somenteLeitura: boolean;
+  existe: boolean;
   abaRef: string | null;
   origem: string;
   updatedAt: string | null;
@@ -86,90 +97,70 @@ export type ControleCaixaReadDto = {
   blocos: ControleCaixaBlocoDto[];
 };
 
-async function persistControleCaixaTemplate(
-  mes: number,
-  ano: number,
-  payload: ControleTemplatePayload,
-  origem: string,
-): Promise<{ ok: true } | { error: string }> {
-  const supabase = getSupabase();
-  if (!supabase) return { error: 'Supabase não configurado no backend.' };
-
-  const { data: periodo, error: periodoErr } = await supabase
-    .from('controle_caixa_periodos')
-    .upsert(
-      {
-        mes,
-        ano,
-        aba_ref: payload.abaRef ?? null,
-        entrada_total: payload.totais.entradaTotal ?? null,
-        saida_total: payload.totais.saidaTotal ?? null,
-        lucro_total: payload.totais.lucroTotal ?? null,
-        saida_parceiros_total: payload.totais.saidaParceirosTotal ?? null,
-        saida_fixas_total: payload.totais.saidaFixasTotal ?? null,
-        saida_soma_secoes_principais: payload.totais.saidaSomaSecoesPrincipais ?? null,
-        origem,
-      },
-      { onConflict: 'mes,ano' },
-    )
-    .select('id')
-    .single<{ id: string }>();
-  if (periodoErr || !periodo) return { error: periodoErr?.message ?? 'Falha ao salvar período.' };
-
-  const periodoId = periodo.id;
-  const delBlocos = await supabase.from('controle_caixa_blocos').delete().eq('periodo_id', periodoId);
-  if (delBlocos.error) return { error: delBlocos.error.message };
-
-  for (const bloco of payload.blocos) {
-    const { data: blocoRow, error: blocoErr } = await supabase
-      .from('controle_caixa_blocos')
-      .insert({
-        periodo_id: periodoId,
-        tipo: bloco.tipo,
-        titulo: bloco.titulo,
-        ordem: bloco.ordem,
-        template_key: bloco.templateKey ?? null,
-        is_default: bloco.isDefault ?? false,
-        is_custom: bloco.isCustom ?? true,
-        locked_level: bloco.lockedLevel ?? 'none',
-      })
-      .select('id')
-      .single<{ id: string }>();
-    if (blocoErr || !blocoRow) return { error: blocoErr?.message ?? 'Falha ao salvar bloco.' };
-    if (bloco.linhas.length === 0) continue;
-    const insLinhas = await supabase.from('controle_caixa_linhas').insert(
-      bloco.linhas.map((linha) => ({
-        bloco_id: blocoRow.id,
-        label: linha.label,
-        valor: linha.valor ?? null,
-        valor_texto: linha.valorTexto ?? null,
-        ordem: linha.ordem,
-        template_key: linha.templateKey ?? null,
-        is_default: linha.isDefault ?? false,
-        is_custom: linha.isCustom ?? true,
-        locked_level: linha.lockedLevel ?? 'none',
-      })),
-    );
-    if (insLinhas.error) return { error: insLinhas.error.message };
-  }
-  return { ok: true };
+function emptyControleDto(mes: number, ano: number, modo: ControleModo, modosDisponiveis: ControleModo[]): ControleCaixaReadDto {
+  return {
+    mes,
+    ano,
+    modo,
+    modosDisponiveis,
+    somenteLeitura: modo === 'oficial',
+    existe: false,
+    abaRef: null,
+    origem: 'ausente',
+    updatedAt: null,
+    totais: {
+      entradaTotal: null,
+      saidaTotal: null,
+      lucroTotal: null,
+      saidaParceirosTotal: null,
+      saidaFixasTotal: null,
+      saidaSomaSecoesPrincipais: null,
+    },
+    blocos: [],
+  };
 }
 
-/** Lê período existente — não cria template automático. */
+export async function listControleModosDisponiveis(
+  mes: number,
+  ano: number,
+): Promise<{ modos: ControleModo[] } | { error: string }> {
+  const supabase = getSupabase();
+  if (!supabase) return { error: 'Supabase não configurado no backend.' };
+  const { data, error } = await supabase
+    .from('controle_caixa_periodos')
+    .select('modo')
+    .eq('mes', mes)
+    .eq('ano', ano);
+  if (error) return { error: error.message };
+  const set = new Set<ControleModo>();
+  for (const row of data ?? []) {
+    const m = (row as { modo?: string }).modo;
+    if (m === 'oficial' || m === 'sistema') set.add(m);
+  }
+  return { modos: CONTROLE_MODOS.filter((m) => set.has(m)) };
+}
+
+/** Lê período existente no modo indicado — não cria template automático. */
 export async function loadControleCaixaExisting(
   mes: number,
   ano: number,
+  modo: ControleModo = 'sistema',
 ): Promise<{ data: ControleCaixaReadDto } | { error: string; notFound?: true }> {
   const supabase = getSupabase();
   if (!supabase) return { error: 'Supabase não configurado no backend.' };
 
+  const modosRes = await listControleModosDisponiveis(mes, ano);
+  if ('error' in modosRes) return { error: modosRes.error };
+  const modosDisponiveis = modosRes.modos;
+
   const { data: periodo, error: periodoErr } = await supabase
     .from('controle_caixa_periodos')
     .select(
-      'id, mes, ano, aba_ref, entrada_total, saida_total, lucro_total, saida_parceiros_total, saida_fixas_total, saida_soma_secoes_principais, updated_at',
+      'id, mes, ano, modo, aba_ref, entrada_total, saida_total, lucro_total, saida_parceiros_total, saida_fixas_total, saida_soma_secoes_principais, origem, updated_at',
     )
     .eq('mes', mes)
     .eq('ano', ano)
+    .eq('modo', modo)
     .maybeSingle<PeriodoRow>();
   if (periodoErr) return { error: periodoErr.message };
   if (!periodo) return { error: 'Período não encontrado.', notFound: true };
@@ -204,8 +195,12 @@ export async function loadControleCaixaExisting(
     data: {
       mes: periodo.mes,
       ano: periodo.ano,
+      modo: (periodo.modo === 'oficial' ? 'oficial' : 'sistema') as ControleModo,
+      modosDisponiveis,
+      somenteLeitura: periodo.modo === 'oficial',
+      existe: true,
       abaRef: periodo.aba_ref,
-      origem: 'supabase',
+      origem: periodo.origem ?? 'supabase',
       updatedAt: periodo.updated_at,
       totais: {
         entradaTotal: periodo.entrada_total,
@@ -242,26 +237,53 @@ export async function loadControleCaixaExisting(
   };
 }
 
-/** Lê o Controle de Caixa do mês (cria a partir do mês anterior se ainda não existir). */
+/**
+ * Prefere o modo pedido; se ausente, tenta o outro (útil para catálogo / fluxo legado).
+ */
+export async function loadControleCaixaPreferindo(
+  mes: number,
+  ano: number,
+  prefer: ControleModo,
+): Promise<{ data: ControleCaixaReadDto } | { error: string; notFound?: true }> {
+  const primary = await loadControleCaixaExisting(mes, ano, prefer);
+  if ('data' in primary) return primary;
+  if (!primary.notFound) return primary;
+  const other: ControleModo = prefer === 'oficial' ? 'sistema' : 'oficial';
+  return loadControleCaixaExisting(mes, ano, other);
+}
+
+/** Lê o Controle no modo indicado. Só auto-cria estrutura no modo sistema. */
 export async function readControleCaixa(
   mes: number,
   ano: number,
+  modo: ControleModo = 'sistema',
 ): Promise<{ data: ControleCaixaReadDto } | { error: string }> {
-  const existing = await loadControleCaixaExisting(mes, ano);
+  const existing = await loadControleCaixaExisting(mes, ano, modo);
   if ('data' in existing) return existing;
   if (!('notFound' in existing) || !existing.notFound) {
     return { error: existing.error };
   }
 
+  const modosRes = await listControleModosDisponiveis(mes, ano);
+  if ('error' in modosRes) return { error: modosRes.error };
+
+  if (modo === 'oficial') {
+    return { data: emptyControleDto(mes, ano, 'oficial', modosRes.modos) };
+  }
+
   const fromPrev = await buildPayloadFromMesAnterior(mes, ano, async (m, a) => {
-    const r = await loadControleCaixaExisting(m, a);
-    if ('data' in r) return r;
-    return { error: r.error };
+    // Prefere sistema com blocos; se vazio/ausente, tenta oficial do mesmo mês (planilha).
+    const r = await loadControleCaixaExisting(m, a, 'sistema');
+    if ('data' in r && r.data.blocos.length > 0) return r;
+    const of = await loadControleCaixaExisting(m, a, 'oficial');
+    if ('data' in of && of.data.blocos.length > 0) return of;
+    if ('data' in r) return { error: 'Período sistema sem blocos.', notFound: true };
+    return { error: r.error, notFound: r.notFound };
   });
 
   const payload = stripBlocoSaidasAluguel(fromPrev ?? buildControleCaixaTemplate());
   const origem = fromPrev ? 'mes_anterior' : 'template_fallback';
-  const ensured = await persistControleCaixaTemplate(mes, ano, payload, origem);
+  const ensured = await persistControleCaixaModo(mes, ano, payload as ControleTemplatePayload, origem, 'sistema');
   if ('error' in ensured) return { error: ensured.error };
-  return readControleCaixa(mes, ano);
+  return readControleCaixa(mes, ano, 'sistema');
 }

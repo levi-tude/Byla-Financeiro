@@ -123,6 +123,28 @@ export function resolveCategoriaEntradaInCatalog(
   return null;
 }
 
+const STABLE_ENTRADA_KEY_BY_LABEL: Record<string, string> = {
+  dança: 'ent_parc_danca',
+  danca: 'ent_parc_danca',
+  yoga: 'ent_parc_yoga',
+  'pilates mari': 'ent_parc_pilates_mari',
+  pilates: 'ent_parc_pilates_mari',
+  teatro: 'ent_parc_teatro',
+  'teatro infantil': 'ent_parc_teatro_infantil',
+  'bruna gr': 'ent_parc_bruna_gr',
+};
+
+/** Chave estável de parceiro pelo rótulo (sobrevive a recriação do Controle). */
+export function stableEntradaTemplateKeyForLabel(label: string): string | null {
+  const norm = label.trim().toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+  const withCedilla = label.trim().toLowerCase();
+  return (
+    STABLE_ENTRADA_KEY_BY_LABEL[withCedilla] ??
+    STABLE_ENTRADA_KEY_BY_LABEL[norm] ??
+    null
+  );
+}
+
 export function findCategoriaEntradaByLabel(
   catalog: CategoriaEntradaLinha[],
   label: string,
