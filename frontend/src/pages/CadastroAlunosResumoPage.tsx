@@ -10,6 +10,7 @@ import {
   type CadastroAlunoItem,
   type CadastroAlunoSecao,
   type CadastroAlunoCadastroFiltro,
+  type CadastroAlunoRegimeFiltro,
   type CadastroAlunoVinculoFiltro,
   type MeioPagamentoAluno,
   type MeioPagamentoAlunoFiltro,
@@ -35,10 +36,12 @@ type PageFilters = {
   modalidade: string;
   vinculo: CadastroAlunoVinculoFiltro;
   cadastro: CadastroAlunoCadastroFiltro;
+  regime: CadastroAlunoRegimeFiltro;
   meio: MeioPagamentoAlunoFiltro;
   diaVencimento: string;
   mostrarComVinculo: boolean;
   mostrarSemVinculo: boolean;
+  mostrarBolsaExcecao: boolean;
 };
 
 const INITIAL_FILTERS: PageFilters = {
@@ -46,10 +49,12 @@ const INITIAL_FILTERS: PageFilters = {
   modalidade: '',
   vinculo: 'todos',
   cadastro: 'todos',
+  regime: 'todos',
   meio: 'todos',
   diaVencimento: '',
   mostrarComVinculo: true,
   mostrarSemVinculo: true,
+  mostrarBolsaExcecao: true,
 };
 
 function parseDiaVencimentoFiltro(value: string): number | 'sem' | undefined {
@@ -66,19 +71,24 @@ function pagadorExibicao(item: CadastroAlunoItem): string {
   return item.pagador_cadastro ?? '—';
 }
 
-function montarTextoLista(secoes: CadastroAlunoSecao[], somenteSemVinculo: boolean): string {
+function montarTextoLista(
+  secoes: CadastroAlunoSecao[],
+  modo: 'completo' | 'sem_vinculo' | 'bolsa_excecao',
+): string {
   const linhas: string[] = [
     'Lista de alunos — Espaço Byla',
-    somenteSemVinculo
-      ? 'Alunos SEM vínculo na Validação (precisam confirmar pagamento no extrato)'
-      : 'Todos os alunos por aba e modalidade',
+    modo === 'sem_vinculo'
+      ? 'Alunos SEM vínculo na Validação (precisam confirmar pagamento no extrato) — sem bolsa/exceção'
+      : modo === 'bolsa_excecao'
+        ? 'Alunos em Bolsa ou Exceção (sem cobrança)'
+        : 'Todos os alunos por aba e modalidade',
     '',
   ];
 
   for (const secao of secoes) {
     linhas.push(`=== ${secao.aba} / ${secao.modalidade} ===`);
     linhas.push(
-      `Total: ${secao.total} | Com vínculo: ${secao.com_vinculo} | Sem vínculo: ${secao.sem_vinculo}`,
+      `Total: ${secao.total} | Com vínculo: ${secao.com_vinculo} | Sem vínculo: ${secao.sem_vinculo} | Bolsa/Exceção: ${secao.bolsa_excecao ?? 0}`,
     );
     if (secao.por_forma.length > 0) {
       linhas.push(
@@ -88,12 +98,16 @@ function montarTextoLista(secoes: CadastroAlunoSecao[], somenteSemVinculo: boole
     }
     linhas.push('');
 
-    const blocos: Array<{ titulo: string; itens: CadastroAlunoItem[] }> = somenteSemVinculo
-      ? [{ titulo: 'SEM VÍNCULO', itens: secao.alunos_sem_vinculo }]
-      : [
-          { titulo: 'SEM VÍNCULO', itens: secao.alunos_sem_vinculo },
-          { titulo: 'COM VÍNCULO', itens: secao.alunos_com_vinculo },
-        ];
+    const blocos: Array<{ titulo: string; itens: CadastroAlunoItem[] }> =
+      modo === 'sem_vinculo'
+        ? [{ titulo: 'SEM VÍNCULO', itens: secao.alunos_sem_vinculo }]
+        : modo === 'bolsa_excecao'
+          ? [{ titulo: 'BOLSA / EXCEÇÃO', itens: secao.alunos_bolsa_excecao ?? [] }]
+          : [
+              { titulo: 'SEM VÍNCULO', itens: secao.alunos_sem_vinculo },
+              { titulo: 'COM VÍNCULO', itens: secao.alunos_com_vinculo },
+              { titulo: 'BOLSA / EXCEÇÃO', itens: secao.alunos_bolsa_excecao ?? [] },
+            ];
 
     for (const bloco of blocos) {
       if (bloco.itens.length === 0) continue;
@@ -101,9 +115,13 @@ function montarTextoLista(secoes: CadastroAlunoSecao[], somenteSemVinculo: boole
       for (const a of bloco.itens) {
         const forma = a.forma_habitual ?? 'forma não registrada';
         const pagador = pagadorExibicao(a);
+        const regime =
+          a.regime_cobranca && a.regime_cobranca !== 'normal'
+            ? ` | ${a.regime_cobranca === 'bolsa' ? 'Bolsa' : 'Exceção'}`
+            : '';
         const pend = a.cadastro_pendencias.length ? ` | pendências: ${a.cadastro_pendencias.join(', ')}` : '';
         const familia = a.grupo_familia ? ` | família: ${a.grupo_familia}` : '';
-        linhas.push(`- ${a.aluno_nome} | ${forma} | pagador: ${pagador}${pend}${familia}`);
+        linhas.push(`- ${a.aluno_nome} | ${forma} | pagador: ${pagador}${regime}${pend}${familia}`);
       }
       linhas.push('');
     }
@@ -123,6 +141,7 @@ export function CadastroAlunosResumoPage() {
       filters.modalidade,
       filters.vinculo,
       filters.cadastro,
+      filters.regime,
       filters.meio,
       filters.diaVencimento,
     ],
@@ -132,6 +151,7 @@ export function CadastroAlunosResumoPage() {
         modalidade: filters.modalidade || undefined,
         vinculo: filters.vinculo,
         cadastro: filters.cadastro,
+        regime: filters.regime,
         meio: filters.meio,
         diaVencimento: parseDiaVencimentoFiltro(filters.diaVencimento),
         ativo: true,
@@ -157,8 +177,14 @@ export function CadastroAlunosResumoPage() {
       ...secao,
       alunos_com_vinculo: filters.mostrarComVinculo ? secao.alunos_com_vinculo : [],
       alunos_sem_vinculo: filters.mostrarSemVinculo ? secao.alunos_sem_vinculo : [],
+      alunos_bolsa_excecao: filters.mostrarBolsaExcecao ? secao.alunos_bolsa_excecao ?? [] : [],
     }));
-  }, [query.data?.secoes, filters.mostrarComVinculo, filters.mostrarSemVinculo]);
+  }, [
+    query.data?.secoes,
+    filters.mostrarComVinculo,
+    filters.mostrarSemVinculo,
+    filters.mostrarBolsaExcecao,
+  ]);
 
   const chips: FilterChip[] = useMemo(() => {
     const c: FilterChip[] = [];
@@ -179,6 +205,19 @@ export function CadastroAlunosResumoPage() {
         onRemove: () => setFilters((f) => ({ ...f, cadastro: 'todos' })),
       });
     }
+    if (filters.regime !== 'todos') {
+      const regimeLabel: Record<Exclude<CadastroAlunoRegimeFiltro, 'todos'>, string> = {
+        normal: 'Cobrança normal',
+        bolsa: 'Bolsa',
+        excecao: 'Exceção',
+        bolsa_excecao: 'Bolsa ou Exceção',
+      };
+      c.push({
+        id: 'regime',
+        label: regimeLabel[filters.regime],
+        onRemove: () => setFilters((f) => ({ ...f, regime: 'todos' })),
+      });
+    }
     if (filters.meio !== 'todos') {
       c.push({
         id: 'meio',
@@ -197,10 +236,10 @@ export function CadastroAlunosResumoPage() {
       });
     }
     return c;
-  }, [filters.vinculo, filters.cadastro, filters.meio, filters.diaVencimento, setFilters]);
+  }, [filters.vinculo, filters.cadastro, filters.regime, filters.meio, filters.diaVencimento, setFilters]);
 
-  async function copiarLista(somenteSemVinculo: boolean) {
-    const texto = montarTextoLista(secoesVisiveis, somenteSemVinculo);
+  async function copiarLista(modo: 'completo' | 'sem_vinculo' | 'bolsa_excecao') {
+    const texto = montarTextoLista(secoesVisiveis, modo);
     await navigator.clipboard.writeText(texto);
     setCopiado(true);
     window.setTimeout(() => setCopiado(false), 2500);
@@ -294,6 +333,23 @@ export function CadastroAlunosResumoPage() {
           </label>
 
           <label className="flex flex-col gap-1 text-xs text-slate-600 dark:text-slate-400">
+            Cobrança
+            <select
+              className="min-w-[160px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+              value={filters.regime}
+              onChange={(e) =>
+                setFilters((f) => ({ ...f, regime: e.target.value as CadastroAlunoRegimeFiltro }))
+              }
+            >
+              <option value="todos">Todos</option>
+              <option value="normal">Normal</option>
+              <option value="bolsa">Bolsa</option>
+              <option value="excecao">Exceção</option>
+              <option value="bolsa_excecao">Bolsa ou Exceção</option>
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-xs text-slate-600 dark:text-slate-400">
             Forma (meio)
             <select
               className="min-w-[160px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
@@ -336,14 +392,21 @@ export function CadastroAlunosResumoPage() {
             <button
               type="button"
               className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
-              onClick={() => copiarLista(true)}
+              onClick={() => copiarLista('sem_vinculo')}
             >
               {copiado ? 'Copiado!' : 'Copiar só sem vínculo'}
             </button>
             <button
               type="button"
               className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
-              onClick={() => copiarLista(false)}
+              onClick={() => copiarLista('bolsa_excecao')}
+            >
+              Copiar bolsa/exceção
+            </button>
+            <button
+              type="button"
+              className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
+              onClick={() => copiarLista('completo')}
             >
               Copiar lista completa
             </button>
@@ -379,10 +442,15 @@ export function CadastroAlunosResumoPage() {
 
       {query.data ? (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <ResumoCard label="Alunos ativos" value={query.data.totais.alunos} />
             <ResumoCard label="Com vínculo na Validação" value={query.data.totais.com_vinculo} tone="ok" />
             <ResumoCard label="Sem vínculo na Validação" value={query.data.totais.sem_vinculo} tone="warn" />
+            <ResumoCard
+              label="Bolsa / Exceção"
+              value={query.data.totais.bolsa_excecao ?? 0}
+              tone="muted"
+            />
             <ResumoCard
               label="Cadastro incompleto"
               value={query.data.totais.cadastro_incompleto}
@@ -487,7 +555,7 @@ function SecaoModalidade({ secao }: { secao: CadastroAlunoSecao }) {
           </h2>
           <p className="text-sm text-slate-600 dark:text-slate-400">
             {secao.total} alunos · {secao.com_vinculo} com vínculo · {secao.sem_vinculo} sem vínculo ·{' '}
-            {secao.cadastro_incompleto} cadastro incompleto
+            {secao.bolsa_excecao ?? 0} bolsa/exceção · {secao.cadastro_incompleto} cadastro incompleto
           </p>
         </div>
         {secao.por_forma.length > 0 ? (
@@ -504,9 +572,10 @@ function SecaoModalidade({ secao }: { secao: CadastroAlunoSecao }) {
         ) : null}
       </header>
 
-      <div className="grid gap-4 p-4 lg:grid-cols-2">
+      <div className="grid gap-4 p-4 lg:grid-cols-3">
         <ListaAlunos titulo="Sem vínculo na Validação" itens={secao.alunos_sem_vinculo} destaque />
         <ListaAlunos titulo="Com vínculo na Validação" itens={secao.alunos_com_vinculo} />
+        <ListaAlunos titulo="Bolsa / Exceção" itens={secao.alunos_bolsa_excecao ?? []} />
       </div>
     </section>
   );
@@ -552,6 +621,10 @@ function ListaAlunos({
               <span>Meio: {MEIO_LABEL[a.meio]}</span>
               <span>Pagador: {pagadorExibicao(a)}</span>
               <span>{VINCULO_STATUS_LABEL[a.vinculo_status]}</span>
+              {a.regime_cobranca === 'bolsa' ? <span className="font-medium text-sky-700 dark:text-sky-300">Bolsa</span> : null}
+              {a.regime_cobranca === 'excecao' ? (
+                <span className="font-medium text-violet-700 dark:text-violet-300">Exceção</span>
+              ) : null}
               {a.dia_vencimento != null ? (
                 <span>Venc: dia {a.dia_vencimento}</span>
               ) : a.venc ? (

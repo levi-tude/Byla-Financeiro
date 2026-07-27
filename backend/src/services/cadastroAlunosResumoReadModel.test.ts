@@ -52,6 +52,66 @@ test('montarCadastroAlunosResumo: pagador no Fluxo não conta como vínculo da V
   assert.equal(result.secoes[0].alunos_sem_vinculo[0].pagador_cadastro, 'PIX Ana');
 });
 
+test('montarCadastroAlunosResumo: bolsa/exceção ficam fora de sem vínculo', () => {
+  const result = montarCadastroAlunosResumo({
+    alunos: [
+      {
+        id: 'a1',
+        aba: 'DANÇA',
+        modalidade: 'Jazz',
+        linha_planilha: 1,
+        aluno_nome: 'Diana Bolsa Ficticia',
+        wpp: null,
+        responsaveis: null,
+        plano: 'Mensal',
+        regime_cobranca: 'bolsa',
+        venc: null,
+        valor_referencia: null,
+        pagador_pix: null,
+        ativo: true,
+      },
+      {
+        id: 'a2',
+        aba: 'DANÇA',
+        modalidade: 'Jazz',
+        linha_planilha: 2,
+        aluno_nome: 'Elena Excecao Ficticia',
+        wpp: '71999990099',
+        responsaveis: 'Elena',
+        plano: 'Mensal',
+        regime_cobranca: 'excecao',
+        venc: null,
+        valor_referencia: null,
+        pagador_pix: null,
+        ativo: true,
+      },
+      {
+        id: 'a3',
+        aba: 'DANÇA',
+        modalidade: 'Jazz',
+        linha_planilha: 3,
+        aluno_nome: 'Bruno Sem Vinculo',
+        wpp: '71999990001',
+        responsaveis: 'Pai Bruno',
+        plano: 'Mensal',
+        venc: '10',
+        valor_referencia: 200,
+        pagador_pix: null,
+        ativo: true,
+      },
+    ],
+    formaPorAluno: new Map(),
+    stickyByAluno: new Map(),
+    alunosComVinculoValidacao: new Set(),
+    gruposFamilia: [],
+  });
+
+  assert.equal(result.totais.bolsa_excecao, 2);
+  assert.equal(result.totais.sem_vinculo, 1);
+  assert.equal(result.secoes[0].alunos_bolsa_excecao.length, 2);
+  assert.equal(result.secoes[0].alunos_sem_vinculo[0].aluno_nome, 'Bruno Sem Vinculo');
+});
+
 test('montarCadastroAlunosResumo: sticky da Validação conta como com vínculo', () => {
   const result = montarCadastroAlunosResumo({
     alunos: [

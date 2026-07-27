@@ -1,9 +1,15 @@
+import {
+  resolverRegimeCobranca,
+  type RegimeCobrancaAluno,
+} from './regimeCobrancaAluno.js';
+
 export type ConciliacaoPagamentoStatus =
   | 'em_dia'
   | 'atrasado'
   | 'pendente'
   | 'sem_vencimento'
-  | 'bolsa';
+  | 'bolsa'
+  | 'excecao';
 
 export function parseDiaVencimentoCadastro(venc: string | null | undefined): number | null {
   const raw = String(venc ?? '').trim();
@@ -17,13 +23,9 @@ export function parseDiaVencimentoCadastro(venc: string | null | undefined): num
   return n;
 }
 
+/** @deprecated Prefer resolverRegimeCobranca / alunoSemCobrancaObrigatoria. */
 export function isPlanoBolsaConciliacao(plano: string | null | undefined): boolean {
-  const n = String(plano ?? '')
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-    .trim()
-    .toLowerCase();
-  return n === 'bolsa' || n.includes('bolsa');
+  return resolverRegimeCobranca({ plano }) === 'bolsa';
 }
 
 export function classificarStatusConciliacao(input: {
@@ -31,9 +33,15 @@ export function classificarStatusConciliacao(input: {
   dataCreditoIso: string | null;
   mes: number;
   ano: number;
-  planoBolsa: boolean;
+  /** Preferir `regime`; `planoBolsa` mantido por compatibilidade. */
+  regime?: RegimeCobrancaAluno;
+  planoBolsa?: boolean;
 }): ConciliacaoPagamentoStatus {
-  if (input.planoBolsa) return 'bolsa';
+  const regime =
+    input.regime ??
+    (input.planoBolsa ? 'bolsa' : 'normal');
+  if (regime === 'bolsa') return 'bolsa';
+  if (regime === 'excecao') return 'excecao';
   if (input.diaVencimento == null) return 'sem_vencimento';
   const iso = (input.dataCreditoIso ?? '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return 'pendente';

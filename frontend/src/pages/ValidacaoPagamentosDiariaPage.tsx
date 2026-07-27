@@ -647,6 +647,12 @@ export function ValidacaoPagamentosDiariaPage() {
         void queryClient.invalidateQueries({ queryKey: ['credito-recorrente-sugestoes'] });
       }
       void queryClient.invalidateQueries({ queryKey: ['alertas-vendas'] });
+      // Mesma fonte de verdade (validacao_pagamentos_vinculos) — evita Matches/Fluxo “Pend. extrato” stale
+      void queryClient.invalidateQueries({ queryKey: ['matches-provaveis'] });
+      void queryClient.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos'] });
+      void queryClient.invalidateQueries({ queryKey: ['cadastro-alunos-resumo'] });
+      void queryClient.invalidateQueries({ queryKey: ['financas-alunos'] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacao-pagamentos'] });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -663,6 +669,11 @@ export function ValidacaoPagamentosDiariaPage() {
         delete next[planilhaId];
         return next;
       });
+      void queryClient.invalidateQueries({ queryKey: ['matches-provaveis'] });
+      void queryClient.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos'] });
+      void queryClient.invalidateQueries({ queryKey: ['cadastro-alunos-resumo'] });
+      void queryClient.invalidateQueries({ queryKey: ['financas-alunos'] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacao-pagamentos'] });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -686,6 +697,11 @@ export function ValidacaoPagamentosDiariaPage() {
       });
       await queryClient.invalidateQueries({ queryKey: ['credito-recorrente-sugestoes', mesData, anoData] });
       void queryClient.invalidateQueries({ queryKey: ['alertas-vendas', mesData, anoData] });
+      void queryClient.invalidateQueries({ queryKey: ['matches-provaveis'] });
+      void queryClient.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos'] });
+      void queryClient.invalidateQueries({ queryKey: ['cadastro-alunos-resumo'] });
+      void queryClient.invalidateQueries({ queryKey: ['financas-alunos'] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacao-pagamentos'] });
       setReloadDiaToken((n) => n + 1);
       if (dataRef !== data) setData(dataRef);
     } catch (e) {

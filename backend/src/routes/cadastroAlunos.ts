@@ -5,6 +5,7 @@ import type { MeioPagamentoAluno } from '../logic/meioPagamentoVinculo.js';
 import type {
   CadastroAlunoCadastroFiltro,
   CadastroAlunoDiaVencimentoFiltro,
+  CadastroAlunoRegimeFiltro,
   CadastroAlunoVinculoFiltro,
 } from '../services/cadastroAlunosResumoReadModel.js';
 
@@ -19,7 +20,7 @@ router.get('/cadastro-alunos/resumo', async (req: Request, res: Response) => {
     const parsed = parseQuery(cadastroAlunosResumoQuerySchema, req.query as Record<string, unknown>);
     if (!parsed.ok) return res.status(400).json({ error: parsed.message });
 
-    const { aba, modalidade, vinculo, cadastro, meio, dia_vencimento, ativo } = parsed.data;
+    const { aba, modalidade, vinculo, cadastro, regime, meio, dia_vencimento, ativo } = parsed.data;
     const filtroMeio: MeioPagamentoAluno | undefined =
       meio === 'todos' ? undefined : (meio as MeioPagamentoAluno);
     const filtroDiaVencimento: CadastroAlunoDiaVencimentoFiltro | undefined =
@@ -30,6 +31,7 @@ router.get('/cadastro-alunos/resumo', async (req: Request, res: Response) => {
       filtroModalidade: modalidade,
       filtroVinculo: vinculo as CadastroAlunoVinculoFiltro,
       filtroCadastro: cadastro as CadastroAlunoCadastroFiltro,
+      filtroRegime: regime as CadastroAlunoRegimeFiltro,
       filtroMeio,
       filtroDiaVencimento,
       somenteAtivos: ativo !== 'false',

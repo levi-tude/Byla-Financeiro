@@ -25,6 +25,19 @@ test('statusExtratoForFluxoPagamento: sem vínculo = pendente', () => {
   assert.equal(st.banco_id, null);
 });
 
+test('statusExtratoForFluxoPagamento: bolsa/exceção não entram como pendente', () => {
+  const bolsa = statusExtratoForFluxoPagamento('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', new Map(), {
+    forma: 'PIX',
+    regime: 'bolsa',
+  });
+  assert.equal(bolsa.status_extrato, 'bolsa');
+  const ex = statusExtratoForFluxoPagamento('ffffffff-ffff-4fff-8fff-ffffffffffff', new Map(), {
+    forma: 'PIX',
+    regime: 'excecao',
+  });
+  assert.equal(ex.status_extrato, 'excecao');
+});
+
 test('statusExtratoForFluxoPagamento: dinheiro conta como validado sem extrato', () => {
   const st = statusExtratoForFluxoPagamento(
     'cccccccc-cccc-4ccc-8ccc-cccccccccccc',

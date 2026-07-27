@@ -12,10 +12,10 @@ import {
 } from '../logic/conciliacaoPagamentoMatch.js';
 import {
   classificarStatusConciliacao,
-  isPlanoBolsaConciliacao,
   parseDiaVencimentoCadastro,
   type ConciliacaoPagamentoStatus,
 } from '../logic/conciliacaoStatusExtrato.js';
+import { resolverRegimeCobranca } from '../logic/regimeCobrancaAluno.js';
 import {
   inferirMeioPagamentoFluxo,
   inferirMeioPagamentoVinculo,
@@ -60,6 +60,7 @@ export type FinancasAlunoAlunoFixture = {
   aluno_nome: string;
   venc: string | null;
   plano: string | null;
+  regime_cobranca?: string | null;
 };
 
 export type FinancasAlunoFluxoFixture = {
@@ -278,7 +279,10 @@ export function agruparFinancasAlunos(input: {
       dataCreditoIso: dataBanco,
       mes,
       ano,
-      planoBolsa: isPlanoBolsaConciliacao(alunoCadastro?.plano),
+      regime: resolverRegimeCobranca({
+        regime_cobranca: alunoCadastro?.regime_cobranca,
+        plano: alunoCadastro?.plano,
+      }),
     });
 
     const aluno = String(pag.aluno_nome ?? '');
@@ -353,7 +357,7 @@ export async function montarFinancasAlunos(
 
   const { data: alunosRows, error: alunosErr } = await supabase
     .from('fluxo_alunos_operacionais')
-    .select('aba, aluno_nome, venc, plano')
+    .select('aba, aluno_nome, venc, plano, regime_cobranca')
     .eq('ativo', true)
     .limit(10000);
   if (alunosErr) throw new Error(alunosErr.message);
@@ -364,6 +368,7 @@ export async function montarFinancasAlunos(
       aluno_nome: String(r.aluno_nome ?? ''),
       venc: r.venc != null ? String(r.venc) : null,
       plano: r.plano != null ? String(r.plano) : null,
+      regime_cobranca: r.regime_cobranca != null ? String(r.regime_cobranca) : null,
     }),
   );
 

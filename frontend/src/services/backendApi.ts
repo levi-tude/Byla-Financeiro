@@ -312,6 +312,8 @@ export interface FluxoOperacionalAluno {
   wpp: string | null;
   responsaveis: string | null;
   plano: string | null;
+  /** normal | bolsa | excecao — sem cobrança obrigatória quando bolsa/excecao. */
+  regime_cobranca?: 'normal' | 'bolsa' | 'excecao' | null;
   matricula: string | null;
   fim: string | null;
   venc: string | null;
@@ -345,6 +347,7 @@ export interface FluxoOperacionalAlunoPayload {
   wpp?: string | null;
   responsaveis?: string | null;
   plano?: string | null;
+  regimeCobranca?: 'normal' | 'bolsa' | 'excecao';
   matricula?: string | null;
   fim?: string | null;
   venc?: string | null;
@@ -460,7 +463,7 @@ export interface FluxoOperacionalPagamento {
   aluno_valor_referencia?: number | null;
   aluno_responsaveis?: string | null;
   aluno_pagador_pix?: string | null;
-  status_extrato?: 'validado' | 'pendente' | 'divergente' | 'sem_lancamento';
+  status_extrato?: 'validado' | 'pendente' | 'divergente' | 'sem_lancamento' | 'bolsa' | 'excecao';
   planilha_id?: string;
   banco_id?: string | null;
   vinculo_id?: string | null;
@@ -2153,7 +2156,8 @@ export type FinancasAlunoConciliacaoStatus =
   | 'atrasado'
   | 'pendente'
   | 'sem_vencimento'
-  | 'bolsa';
+  | 'bolsa'
+  | 'excecao';
 export type FinancasAlunoVinculoFiltro = 'todos' | 'vinculado' | 'sem_vinculo';
 
 export type FinancasAlunoPagamento = {
@@ -2265,6 +2269,7 @@ export async function getMatchesProvaveisMes(
 export type CadastroAlunoVinculoStatus = 'validacao' | 'cadastro' | 'nenhum';
 export type CadastroAlunoVinculoFiltro = 'todos' | 'com_vinculo' | 'sem_vinculo';
 export type CadastroAlunoCadastroFiltro = 'todos' | 'completo' | 'incompleto';
+export type CadastroAlunoRegimeFiltro = 'todos' | 'normal' | 'bolsa' | 'excecao' | 'bolsa_excecao';
 export type CadastroAlunoDiaVencimentoFiltro = number | 'sem';
 
 export type CadastroAlunoItem = {
@@ -2273,6 +2278,7 @@ export type CadastroAlunoItem = {
   aba: string;
   modalidade: string;
   plano: string | null;
+  regime_cobranca: 'normal' | 'bolsa' | 'excecao';
   venc: string | null;
   dia_vencimento: number | null;
   ativo: boolean;
@@ -2298,11 +2304,13 @@ export type CadastroAlunoSecao = {
   total: number;
   com_vinculo: number;
   sem_vinculo: number;
+  bolsa_excecao: number;
   cadastro_completo: number;
   cadastro_incompleto: number;
   por_forma: CadastroAlunoFormaContagem[];
   alunos_com_vinculo: CadastroAlunoItem[];
   alunos_sem_vinculo: CadastroAlunoItem[];
+  alunos_bolsa_excecao: CadastroAlunoItem[];
 };
 
 export type CadastroAlunosResumoResponse = {
@@ -2311,6 +2319,7 @@ export type CadastroAlunosResumoResponse = {
     ativos: number;
     com_vinculo: number;
     sem_vinculo: number;
+    bolsa_excecao: number;
     cadastro_completo: number;
     cadastro_incompleto: number;
     sem_vencimento_cadastrado: number;
@@ -2326,6 +2335,7 @@ export async function getCadastroAlunosResumo(params?: {
   modalidade?: string;
   vinculo?: CadastroAlunoVinculoFiltro;
   cadastro?: CadastroAlunoCadastroFiltro;
+  regime?: CadastroAlunoRegimeFiltro;
   meio?: MeioPagamentoAlunoFiltro;
   diaVencimento?: CadastroAlunoDiaVencimentoFiltro;
   ativo?: boolean;
@@ -2336,6 +2346,7 @@ export async function getCadastroAlunosResumo(params?: {
   if (params?.modalidade) qs.set('modalidade', params.modalidade);
   if (params?.vinculo) qs.set('vinculo', params.vinculo);
   if (params?.cadastro) qs.set('cadastro', params.cadastro);
+  if (params?.regime) qs.set('regime', params.regime);
   if (params?.meio) qs.set('meio', params.meio);
   if (params?.diaVencimento != null) {
     qs.set('dia_vencimento', String(params.diaVencimento));
@@ -2353,6 +2364,7 @@ export async function getCadastroAlunosResumo(params?: {
           ativos: 0,
           com_vinculo: 0,
           sem_vinculo: 0,
+          bolsa_excecao: 0,
           cadastro_completo: 0,
           cadastro_incompleto: 0,
           sem_vencimento_cadastrado: 0,
@@ -2544,7 +2556,8 @@ export type ConciliacaoPagamentoStatus =
   | 'atrasado'
   | 'pendente'
   | 'sem_vencimento'
-  | 'bolsa';
+  | 'bolsa'
+  | 'excecao';
 
 export type ConciliacaoPagamentosResponse = {
   mes: number;
@@ -2555,6 +2568,7 @@ export type ConciliacaoPagamentosResponse = {
     pendente: number;
     sem_vencimento: number;
     bolsa: number;
+    excecao: number;
     total: number;
   };
   itens: Array<{

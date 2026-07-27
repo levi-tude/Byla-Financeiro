@@ -77,6 +77,20 @@ function badgeStatusExtrato(st?: FluxoOperacionalPagamento['status_extrato']) {
       </span>
     );
   }
+  if (st === 'bolsa') {
+    return (
+      <span className="font-medium text-sky-700 dark:text-sky-300" title="Aluno em bolsa — sem cobrança">
+        Bolsa
+      </span>
+    );
+  }
+  if (st === 'excecao') {
+    return (
+      <span className="font-medium text-violet-700 dark:text-violet-300" title="Exceção — sem cobrança">
+        Exceção
+      </span>
+    );
+  }
   if (st === 'pendente') {
     return (
       <span className="font-medium text-amber-700 dark:text-amber-300" title="Lançamento no fluxo sem vínculo no extrato">
@@ -231,6 +245,26 @@ function isPlanoBolsa(plano: string | null | undefined): boolean {
   return normalized === 'bolsa' || normalized.includes('bolsa');
 }
 
+function resolverRegimeAluno(a: {
+  regime_cobranca?: string | null;
+  plano?: string | null;
+}): 'normal' | 'bolsa' | 'excecao' {
+  const r = String(a.regime_cobranca ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '');
+  if (r === 'bolsa') return 'bolsa';
+  if (r === 'excecao') return 'excecao';
+  if (isPlanoBolsa(a.plano)) return 'bolsa';
+  return 'normal';
+}
+
+function alunoSemCobranca(a: { regime_cobranca?: string | null; plano?: string | null }): boolean {
+  const r = resolverRegimeAluno(a);
+  return r === 'bolsa' || r === 'excecao';
+}
+
 function ignoradosPendenciaDoAluno(a: FluxoOperacionalAluno): Set<FluxoPendenciaCampoIgnoravel> {
   const raw = a.pendencia_campos_ignorados;
   const allow = new Set<string>(['wpp', 'responsaveis', 'venc', 'valor_ref', 'pagador_pix', 'plano']);
@@ -249,22 +283,25 @@ function camposCadastroFaltantes(a: FluxoOperacionalAluno): string[] {
   const r: string[] = [];
   if (!ign.has('wpp') && !String(a.wpp ?? '').trim()) r.push('WhatsApp');
   if (!ign.has('responsaveis') && !(a.responsaveis_exibicao?.trim() || a.responsaveis?.trim())) r.push('Responsáveis');
-  if (!ign.has('venc') && !(a.venc_exibicao?.trim() || a.venc?.trim())) r.push('Vencimento');
-  const planoBolsa = isPlanoBolsa(a.plano);
-  if (!ign.has('valor_ref') && !planoBolsa) {
+  const semCobranca = alunoSemCobranca(a);
+  if (!ign.has('venc') && !semCobranca && !(a.venc_exibicao?.trim() || a.venc?.trim())) r.push('Vencimento');
+  if (!ign.has('valor_ref') && !semCobranca) {
     if (a.valor_mensal_origem === 'planilha_bruta' || a.valor_mensal_origem === 'ultimo_pagamento') {
       r.push('Valor ref. (confirmar no cadastro)');
     } else if (a.valor_referencia == null && a.valor_mensal_exibicao == null) {
       r.push('Valor ref.');
     }
   }
-  if (!ign.has('pagador_pix') && !(a.pagador_pix_exibicao?.trim() || a.pagador_pix?.trim())) r.push('Pagador PIX');
-  if (!ign.has('plano') && !String(a.plano ?? '').trim()) r.push('Plano');
+  if (!ign.has('pagador_pix') && !semCobranca && !(a.pagador_pix_exibicao?.trim() || a.pagador_pix?.trim())) {
+    r.push('Pagador PIX');
+  }
+  if (!ign.has('plano') && !semCobranca && !String(a.plano ?? '').trim()) r.push('Plano');
   return r;
 }
 
 function pendenciasParaExibir(l: LinhaUnificadaFluxo): string[] {
   if (l.kind === 'sem_pagamento_no_mes') {
+    if (alunoSemCobranca(l.aluno)) return camposCadastroFaltantes(l.aluno);
     return [...camposCadastroFaltantes(l.aluno), 'Pagamento do mês não lançado'];
   }
   if (!l.aluno) return ['Cadastro do aluno ausente — criar vínculo'];
@@ -272,7 +309,10 @@ function pendenciasParaExibir(l: LinhaUnificadaFluxo): string[] {
 }
 
 function temPendenciaTrabalho(l: LinhaUnificadaFluxo): boolean {
-  if (l.kind === 'sem_pagamento_no_mes') return true;
+  if (l.kind === 'sem_pagamento_no_mes') {
+    if (alunoSemCobranca(l.aluno)) return camposCadastroFaltantes(l.aluno).length > 0;
+    return true;
+  }
   if (l.kind === 'com_pagamento' && !l.aluno) return true;
   if (l.kind === 'com_pagamento' && l.aluno) return camposCadastroFaltantes(l.aluno).length > 0;
   return false;
@@ -323,6 +363,7 @@ type FormState = {
   wpp: string;
   responsaveis: string;
   plano: string;
+  regimeCobranca: 'normal' | 'bolsa' | 'excecao';
   matricula: string;
   venc: string;
   valorReferencia: string;
@@ -340,6 +381,7 @@ function initialForm(): FormState {
     wpp: '',
     responsaveis: '',
     plano: '',
+    regimeCobranca: 'normal',
     matricula: '',
     venc: '',
     valorReferencia: '',
@@ -362,6 +404,7 @@ function alunoMescladoFormComBase(base: FluxoOperacionalAluno, form: FormState):
     pagador_pix: form.pagadorPix.trim() || null,
     pagador_pix_exibicao: null,
     plano: form.plano.trim() || null,
+    regime_cobranca: form.regimeCobranca,
     valor_referencia: Number.isFinite(parsedValor as number) ? (parsedValor as number) : null,
   };
 }
@@ -406,6 +449,7 @@ function toPayload(form: FormState): FluxoOperacionalAlunoPayload {
     wpp: form.wpp.trim() || null,
     responsaveis: form.responsaveis.trim() || null,
     plano: form.plano.trim() || null,
+    regimeCobranca: form.regimeCobranca,
     matricula: form.matricula.trim() || null,
     venc: form.venc.trim() || null,
     valorReferencia: Number.isFinite(valor as number) ? valor : null,
@@ -424,6 +468,7 @@ function toForm(item: FluxoOperacionalAluno): FormState {
     wpp: item.wpp ?? '',
     responsaveis: item.responsaveis ?? '',
     plano: item.plano ?? '',
+    regimeCobranca: resolverRegimeAluno(item),
     matricula: item.matricula ?? '',
     venc: item.venc ?? '',
     valorReferencia: item.valor_referencia != null ? formatBrl(item.valor_referencia) : '',
@@ -967,8 +1012,8 @@ export function FluxoCaixaOperacionalPage() {
       const key = `${normalizarAbaMulti(a.aba)}\u0000${a.modalidade}\u0000${a.linha_planilha}\u0000${a.aluno_nome.toLowerCase()}`;
       const venceuDia = Number(String(a.venc_exibicao ?? a.venc ?? '').replace(/\D/g, ''));
       const temPagamentoMes = pagamentosMes.has(key);
-      const planoBolsa = isPlanoBolsa(a.plano);
-      if (!planoBolsa && !temPagamentoMes && Number.isFinite(venceuDia) && venceuDia >= 1 && venceuDia <= 31) {
+      const semCobranca = alunoSemCobranca(a);
+      if (!semCobranca && !temPagamentoMes && Number.isFinite(venceuDia) && venceuDia >= 1 && venceuDia <= 31) {
         if (hoje.getDate() > venceuDia) pagamentoPendencias.push(a);
         if (hoje.getDate() === venceuDia) cobrancaHoje.push(a);
         if (hoje.getDate() + 1 === venceuDia) cobrancaVenceAmanha.push(a);
@@ -1704,6 +1749,7 @@ export function FluxoCaixaOperacionalPage() {
       wpp: item.whatsapp ?? '',
       responsaveis: item.responsaveis ?? '',
       plano: item.plano ?? '',
+      regimeCobranca: 'normal',
       venc: item.vencimento ?? '',
       valorReferencia: item.valorReferencia != null ? formatBrl(item.valorReferencia) : '',
       pagadorPix: item.pagadorPix ?? '',
@@ -3786,6 +3832,26 @@ export function FluxoCaixaOperacionalPage() {
                   ) : null}
                 </select>
               </div>
+              <label className="text-xs text-slate-600 dark:text-slate-300">
+                Cobrança
+                <select
+                  className="select-with-chevron mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900"
+                  value={form.regimeCobranca}
+                  onChange={(e) =>
+                    setForm((p) => ({
+                      ...p,
+                      regimeCobranca: e.target.value as 'normal' | 'bolsa' | 'excecao',
+                    }))
+                  }
+                >
+                  <option value="normal">Normal (mensalidade)</option>
+                  <option value="bolsa">Bolsa — sem cobrança</option>
+                  <option value="excecao">Exceção — sem cobrança</option>
+                </select>
+                <span className="mt-0.5 block text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                  Bolsa/Exceção não entram em Pend. extrato, Matches nem Conciliação como pendente.
+                </span>
+              </label>
               <label className="text-xs text-slate-600">
                 Matrícula
                 <input
@@ -3830,7 +3896,7 @@ export function FluxoCaixaOperacionalPage() {
                       alunoModalDestacarPendencias && rotulosPendenciaNoModalCadastro.has('valorReferencia'),
                     )}
                   </label>
-                  {editId && !isPlanoBolsa(form.plano) ? (
+                  {editId && !alunoSemCobranca({ regime_cobranca: form.regimeCobranca, plano: form.plano }) ? (
                     <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[11px] font-normal text-slate-600 dark:text-slate-400">
                       <input
                         type="checkbox"
@@ -4214,8 +4280,10 @@ export function FluxoCaixaOperacionalPage() {
                   Valor referência / exibido
                 </dt>
                 <dd>
-                  {isPlanoBolsa(cobrancaAlunoEfetivo.plano)
-                    ? 'Plano bolsa — sem mensalidade'
+                  {alunoSemCobranca(cobrancaAlunoEfetivo)
+                    ? resolverRegimeAluno(cobrancaAlunoEfetivo) === 'excecao'
+                      ? 'Exceção — sem mensalidade'
+                      : 'Bolsa — sem mensalidade'
                     : formatBrl(
                         cobrancaAlunoEfetivo.valor_mensal_exibicao ?? cobrancaAlunoEfetivo.valor_referencia ?? null,
                       )}
@@ -4223,10 +4291,13 @@ export function FluxoCaixaOperacionalPage() {
               </div>
             </dl>
 
-            {isPlanoBolsa(cobrancaAlunoEfetivo.plano) ? (
+            {alunoSemCobranca(cobrancaAlunoEfetivo) ? (
               <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
-                Este aluno está em <strong>bolsa</strong>: não há cobrança de mensalidade. Use o cadastro se precisar
-                ajustar dados de contato.
+                Este aluno está marcado como{' '}
+                <strong>
+                  {resolverRegimeAluno(cobrancaAlunoEfetivo) === 'excecao' ? 'exceção' : 'bolsa'}
+                </strong>
+                : não há cobrança de mensalidade. Use o cadastro se precisar ajustar dados de contato.
               </p>
             ) : null}
 
@@ -4283,10 +4354,10 @@ export function FluxoCaixaOperacionalPage() {
             <div className="mt-5 flex flex-wrap gap-2 border-t border-slate-100 pt-4 dark:border-slate-700">
               <button
                 type="button"
-                disabled={isPlanoBolsa(cobrancaAlunoEfetivo.plano)}
+                disabled={alunoSemCobranca(cobrancaAlunoEfetivo)}
                 title={
-                  isPlanoBolsa(cobrancaAlunoEfetivo.plano)
-                    ? 'Plano bolsa — não lançar mensalidade'
+                  alunoSemCobranca(cobrancaAlunoEfetivo)
+                    ? 'Bolsa/exceção — não lançar mensalidade'
                     : 'Abrir formulário de pagamento do mês'
                 }
                 onClick={() => lancarPagamentoDesdeCobranca(cobrancaAlunoEfetivo)}

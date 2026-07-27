@@ -61,6 +61,10 @@ export function MatchesProvaveisPage() {
     onSuccess: async () => {
       showToast('Vínculo confirmado.', 'success');
       await queryClient.invalidateQueries({ queryKey: ['matches-provaveis', mes, ano] });
+      void queryClient.invalidateQueries({ queryKey: ['fluxo-operacional-pagamentos'] });
+      void queryClient.invalidateQueries({ queryKey: ['cadastro-alunos-resumo'] });
+      void queryClient.invalidateQueries({ queryKey: ['financas-alunos'] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacao-pagamentos'] });
     },
     onError: (e: unknown) => {
       showToast(e instanceof Error ? e.message : String(e), 'error');
