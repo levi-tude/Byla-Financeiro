@@ -85,6 +85,37 @@ export async function listVinculosPorPlanilhaIds(planilhaIds: string[]): Promise
   return Array.from(mem.values()).filter((v) => lookup.has(normalizePlanilhaId(v.planilha_id)));
 }
 
+/**
+ * Vínculos `fluxo::*` cujo pagamento UUID não está em `pagamentosVivosIds`.
+ * Usado para recuperar Cadastro/sticky após remigração sem remap.
+ */
+export async function listVinculosOrfaosFluxo(
+  pagamentosVivosIds: Iterable<string>,
+): Promise<VinculoPagamento[]> {
+  const vivos = new Set(
+    [...pagamentosVivosIds].map((id) => String(id).trim()).filter(Boolean),
+  );
+
+  const supabase = getSupabase();
+  if (supabase) {
+    const { data: rows, error } = await supabase
+      .from('validacao_pagamentos_vinculos')
+      .select('id, data_ref, mes, ano, banco_id, planilha_id, observacao, created_at, updated_at')
+      .like('planilha_id', 'fluxo::%')
+      .limit(5000);
+    if (error) throw new Error(error.message);
+    return ((rows ?? []) as VinculoPagamento[]).filter((v) => {
+      const uuid = fluxoUuidFromAnyPlanilhaId(v.planilha_id);
+      return Boolean(uuid) && !vivos.has(uuid!);
+    });
+  }
+
+  return Array.from(mem.values()).filter((v) => {
+    const uuid = fluxoUuidFromAnyPlanilhaId(v.planilha_id);
+    return Boolean(uuid) && !vivos.has(uuid!);
+  });
+}
+
 export async function upsertVinculosDia(
   data: string,
   mes: number,

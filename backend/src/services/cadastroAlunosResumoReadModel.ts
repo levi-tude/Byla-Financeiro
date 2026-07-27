@@ -12,10 +12,15 @@ import {
 } from '../logic/fluxoPagamentoFingerprint.js';
 import { inferirMeioPagamentoFluxo, type MeioPagamentoAluno } from '../logic/meioPagamentoVinculo.js';
 import { normalizeText } from '../logic/conciliacaoTexto.js';
+import { casarVinculosOrfaosPorDataValor } from '../logic/vinculosOrfaosHeuristica.js';
 import { getSupabase } from './supabaseClient.js';
 import { listMapeamentoAlunoPagadorAtivos } from './mapeamentoAlunoPagador.js';
 import { listGruposFamiliaPagamentoAtivos } from './gruposFamiliaPagamento.js';
-import { listVinculosPorPlanilhaIds, type VinculoPagamento } from './validacaoVinculos.js';
+import {
+  listVinculosOrfaosFluxo,
+  listVinculosPorPlanilhaIds,
+  type VinculoPagamento,
+} from './validacaoVinculos.js';
 
 /** validacao = confirmado na Validação (sticky ou vínculo extrato); cadastro = só pagador no Fluxo. */
 export type CadastroAlunoVinculoStatus = 'validacao' | 'cadastro' | 'nenhum';
@@ -114,6 +119,7 @@ type PagamentoRow = {
   aluno_nome: string;
   forma: string | null;
   data_pagamento: string | null;
+  valor?: number | null;
 };
 
 function alunoMatchKey(aba: string, linha: number, alunoNome: string): string {
@@ -144,6 +150,34 @@ function montarAlunosComVinculoValidacao(
     if (alunoKey) out.add(alunoKey);
   }
   return out;
+}
+
+/** Atribui órfãos 1:1 (data±1 + valor) aos alunoKeys do Cadastro — só leitura. */
+export function atribuirOrfaosAoCadastro(args: {
+  pagamentos: PagamentoRow[];
+  orfaos: Array<{ planilha_id: string; data_ref: string; valor: number; pessoa_banco?: string | null }>;
+}): { alunoKeys: Set<string>; pagadorPorAlunoNorm: Map<string, string> } {
+  const pagamentos = args.pagamentos.map((p) => ({
+    id: String(p.id),
+    alunoKey: alunoMatchKey(String(p.aba), Number(p.linha_planilha), String(p.aluno_nome)),
+    data_pagamento: p.data_pagamento,
+    valor: Number(p.valor ?? 0),
+  }));
+  const matches = casarVinculosOrfaosPorDataValor({
+    orfaos: args.orfaos,
+    pagamentos,
+  });
+  const alunoKeys = new Set<string>();
+  const pagadorPorAlunoNorm = new Map<string, string>();
+  for (const m of matches) {
+    alunoKeys.add(m.alunoKey);
+    if (!m.pessoa_banco) continue;
+    const pag = args.pagamentos.find((p) => String(p.id) === m.newPagamentoId);
+    if (!pag) continue;
+    const k = alunoNormKey(pag.aluno_nome);
+    if (k && !pagadorPorAlunoNorm.has(k)) pagadorPorAlunoNorm.set(k, m.pessoa_banco);
+  }
+  return { alunoKeys, pagadorPorAlunoNorm };
 }
 
 function resolverVinculoPagador(
@@ -441,7 +475,7 @@ export async function getCadastroAlunosResumo(params: {
       .limit(8000),
     supabase
       .from('fluxo_pagamentos_operacionais')
-      .select('id, aba, linha_planilha, aluno_nome, forma, data_pagamento')
+      .select('id, aba, linha_planilha, aluno_nome, forma, data_pagamento, valor')
       .order('data_pagamento', { ascending: false })
       .limit(20000),
     listMapeamentoAlunoPagadorAtivos(supabase).catch(() => []),
@@ -522,11 +556,54 @@ export async function getCadastroAlunosResumo(params: {
       (row as { data_pagamento?: string | null }).data_pagamento != null
         ? String((row as { data_pagamento: string }).data_pagamento)
         : null,
+    valor:
+      (row as { valor?: number | null }).valor != null
+        ? Number((row as { valor: number }).valor)
+        : null,
   })) as PagamentoRow[];
 
   const planilhaIds = pagamentos.flatMap((p) => [p.id, planilhaIdFromFluxoUuid(p.id)]);
   const vinculos = await listVinculosPorPlanilhaIds(planilhaIds).catch(() => []);
   const alunosComVinculoValidacao = montarAlunosComVinculoValidacao(pagamentos, vinculos);
+
+  // Órfãos pós-remigração: Cadastro não via o vínculo porque o UUID do pagamento mudou.
+  const orfaos = await listVinculosOrfaosFluxo(pagamentos.map((p) => p.id)).catch(() => []);
+  if (orfaos.length > 0) {
+    const bancoIds = [...new Set(orfaos.map((v) => String(v.banco_id)).filter(Boolean))];
+    const pessoaPorBanco = new Map<string, { pessoa: string; valor: number }>();
+    const CHUNK = 200;
+    for (let i = 0; i < bancoIds.length; i += CHUNK) {
+      const slice = bancoIds.slice(i, i + CHUNK);
+      const { data: txs, error: txErr } = await supabase
+        .from('transacoes')
+        .select('id, pessoa, valor')
+        .in('id', slice);
+      if (txErr) break;
+      for (const t of txs ?? []) {
+        pessoaPorBanco.set(String((t as { id: string }).id), {
+          pessoa: String((t as { pessoa?: string }).pessoa ?? '').trim(),
+          valor: Number((t as { valor?: number }).valor ?? 0),
+        });
+      }
+    }
+    const { alunoKeys, pagadorPorAlunoNorm } = atribuirOrfaosAoCadastro({
+      pagamentos,
+      orfaos: orfaos.map((v) => {
+        const tx = pessoaPorBanco.get(String(v.banco_id));
+        return {
+          planilha_id: v.planilha_id,
+          data_ref: v.data_ref,
+          valor: tx?.valor ?? 0,
+          pessoa_banco: tx?.pessoa ?? null,
+        };
+      }),
+    });
+    for (const k of alunoKeys) alunosComVinculoValidacao.add(k);
+    for (const [alunoNorm, pessoa] of pagadorPorAlunoNorm) {
+      if (!stickyByAluno.has(alunoNorm) && pessoa) stickyByAluno.set(alunoNorm, pessoa);
+    }
+  }
+
   const formaPorAluno = montarFormaHabitualPorAluno(pagamentos);
 
   return montarCadastroAlunosResumo({

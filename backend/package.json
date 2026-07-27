@@ -24,7 +24,8 @@
     "migrate:controle-mes": "tsx scripts/migrateControleCaixaMes.ts",
     "ensure:controle-mes": "tsx scripts/ensureControleMes.ts",
     "migrate:fluxo-operacional": "tsx scripts/migrateFluxoBylaOperacional.ts",
-    "validate:fluxo-migracao": "tsx scripts/validateFluxoMigracao.ts"
+    "validate:fluxo-migracao": "tsx scripts/validateFluxoMigracao.ts",
+    "recuperar:vinculos-orfaos": "tsx scripts/recuperarVinculosOrfaosFluxo.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

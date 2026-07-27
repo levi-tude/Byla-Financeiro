@@ -14,6 +14,7 @@ const adminRoutes = new Set<string>([
   '/controle-caixa',
   '/calendario-financeiro',
   '/validacao-pagamentos-diaria',
+  '/validacao/matches-provaveis',
 ]);
 
 function normalizeRoute(path: string): string {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { montarCadastroAlunosResumo } from './cadastroAlunosResumoReadModel.js';
+import { atribuirOrfaosAoCadastro, montarCadastroAlunosResumo } from './cadastroAlunosResumoReadModel.js';
 
 test('montarCadastroAlunosResumo: pagador no Fluxo não conta como vínculo da Validação', () => {
   const result = montarCadastroAlunosResumo({
@@ -108,6 +108,32 @@ test('montarCadastroAlunosResumo: vínculo confirmado na Validação conta mesmo
   assert.equal(result.totais.com_vinculo, 1);
   assert.equal(result.secoes[0].alunos_com_vinculo[0].vinculo_status, 'validacao');
   assert.equal(result.secoes[0].alunos_com_vinculo[0].pagador_cadastro, 'PIX Diana');
+});
+
+test('atribuirOrfaosAoCadastro: órfão 1:1 marca alunoKey e pagador', () => {
+  const { alunoKeys, pagadorPorAlunoNorm } = atribuirOrfaosAoCadastro({
+    pagamentos: [
+      {
+        id: 'new-demo',
+        aba: 'PILATES',
+        linha_planilha: 4,
+        aluno_nome: 'Aluno Demo Silva',
+        forma: 'PIX',
+        data_pagamento: '2026-05-04',
+        valor: 250,
+      },
+    ],
+    orfaos: [
+      {
+        planilha_id: 'fluxo::old-demo',
+        data_ref: '2026-05-04',
+        valor: 250,
+        pessoa_banco: 'Pagador Demo',
+      },
+    ],
+  });
+  assert.ok(alunoKeys.has('pilates|4|aluno demo silva'));
+  assert.equal(pagadorPorAlunoNorm.get('ALUNO DEMO SILVA'), 'Pagador Demo');
 });
 
 test('montarCadastroAlunosResumo: filtro sem_vinculo', () => {

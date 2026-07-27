@@ -73,6 +73,12 @@ export const navSections: NavSection[] = [
         roles: ['admin'],
       },
       {
+        path: '/validacao/matches-provaveis',
+        label: 'Matches prováveis',
+        group: 'Validação',
+        roles: ['admin'],
+      },
+      {
         path: '/calendario-financeiro',
         label: 'Calendário (mensal)',
         group: 'Validação',

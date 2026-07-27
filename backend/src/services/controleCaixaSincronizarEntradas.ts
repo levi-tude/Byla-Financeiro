@@ -39,6 +39,12 @@ import {
   agregarValorEmChaves,
   aplicarSyncCompletoSistema,
 } from './controleCaixaSyncLogic.js';
+import {
+  agregarDinheiroFluxoParceiros,
+  mesclarValoresEntrada,
+  type PagamentoFluxoDinheiroRow,
+} from '../logic/dinheiroFluxoParaControle.js';
+import { rangeMes } from '../logic/despesasAgrupamento.js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export { mergeEstruturaPreservandoValores, precisaRepararEstruturaSistema, aplicarSyncCompletoSistema };
@@ -212,8 +218,45 @@ export async function remapearMapeamentosStickyParaChavesEstaveis(
 }
 
 /**
+ * Carrega pagamentos do Fluxo para somar Dinheiro/espécie no sync Sistema.
+ * Competência: filtra mes/ano_competencia. Caixa: janela de data_pagamento.
+ */
+export async function loadPagamentosFluxoParaDinheiroSync(
+  supabase: SupabaseClient,
+  mes: number,
+  ano: number,
+  visao: VisaoControleSync,
+): Promise<PagamentoFluxoDinheiroRow[]> {
+  let query = supabase
+    .from('fluxo_pagamentos_operacionais')
+    .select('aba, modalidade, forma, valor, mes_competencia, ano_competencia, data_pagamento')
+    .limit(10000);
+
+  if (visao === 'caixa') {
+    const { inicio, fim } = rangeMes(mes, ano);
+    query = query.gte('data_pagamento', inicio).lte('data_pagamento', fim);
+  } else {
+    query = query.eq('mes_competencia', mes).eq('ano_competencia', ano);
+  }
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+
+  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+    aba: String(r.aba ?? ''),
+    modalidade: r.modalidade != null ? String(r.modalidade) : null,
+    forma: r.forma != null ? String(r.forma) : null,
+    valor: Number(r.valor || 0),
+    mes_competencia: Number(r.mes_competencia || 0),
+    ano_competencia: Number(r.ano_competencia || 0),
+    data_pagamento: r.data_pagamento != null ? String(r.data_pagamento).slice(0, 10) : null,
+  }));
+}
+
+/**
  * Sync completo: Entradas (parceiros + aluguel), Saídas Fixas (despesas) e
  * Saídas Parceiros (só fórmulas). Sempre grava no modo sistema.
+ * Entradas Parceiros = extrato classificado + Dinheiro/espécie do Fluxo (por modalidade).
  */
 export async function sincronizarControleCaixaSistema(
   mes: number,
@@ -245,22 +288,38 @@ export async function sincronizarControleCaixaSistema(
     // Remap é best-effort: sync de valores segue mesmo se sticky falhar.
   }
 
-  const [entCtx, despCtx] = await Promise.all([
-    buildEntradasContext(supabase, mes, ano),
-    buildDespesasContext(supabase, mes, ano),
-  ]);
+  let pagamentosFluxo: PagamentoFluxoDinheiroRow[] = [];
+  let entCtx: Awaited<ReturnType<typeof buildEntradasContext>>;
+  let despCtx: Awaited<ReturnType<typeof buildDespesasContext>>;
+  try {
+    [entCtx, despCtx, pagamentosFluxo] = await Promise.all([
+      buildEntradasContext(supabase, mes, ano),
+      buildDespesasContext(supabase, mes, ano),
+      loadPagamentosFluxoParaDinheiroSync(supabase, mes, ano, visao),
+    ]);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
 
   // Catálogo após ensure (chaves estáveis) — não o do contexto pré-sync.
   const catalogEntrada = catalogoEntradasFromControleData(data);
   const catalogSaida = catalogoSaidasFromControleData(data);
 
-  const valoresEntrada = agregarEntradasClassificadas(
+  const valoresExtrato = agregarEntradasClassificadas(
     entCtx.transacoes,
     catalogEntrada,
     mes,
     ano,
     visao,
   );
+  const valoresDinheiro = agregarDinheiroFluxoParceiros(
+    pagamentosFluxo,
+    catalogEntrada,
+    mes,
+    ano,
+    visao,
+  );
+  const valoresEntrada = mesclarValoresEntrada(valoresExtrato, valoresDinheiro);
   const valoresDespesa = agregarDespesasFixasClassificadas(
     despCtx.transacoes,
     catalogSaida,

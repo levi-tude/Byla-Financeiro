@@ -18,7 +18,10 @@ export function parseValor(s: string): number | null {
     neg = true;
     t = t.slice(1);
   }
+  // Só moeda/número puro — rejeita rótulos com dígitos (ex.: "13º Nilson", "2x mensalidade")
+  // que o parseFloat parcial interpretaria como valor.
   t = t.replace(/\./g, '').replace(',', '.');
+  if (!/^\d+(\.\d+)?$/.test(t)) return null;
   const v = parseFloat(t);
   if (!Number.isFinite(v)) return null;
   const out = neg ? -Math.abs(v) : v;
