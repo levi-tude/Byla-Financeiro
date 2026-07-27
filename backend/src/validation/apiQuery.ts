@@ -22,6 +22,11 @@ export const cadastroAlunosVinculoQuerySchema = z.enum(['todos', 'com_vinculo', 
 
 export const cadastroAlunosCadastroQuerySchema = z.enum(['todos', 'completo', 'incompleto']);
 
+export const cadastroAlunosDiaVencimentoQuerySchema = z.preprocess(
+  (v) => (v === '' || v == null ? undefined : v),
+  z.union([z.coerce.number().int().min(1).max(31), z.literal('sem')]).optional(),
+);
+
 export const cadastroAlunosResumoQuerySchema = z.object({
   aba: z.string().trim().optional(),
   modalidade: z.string().trim().optional(),
@@ -37,6 +42,7 @@ export const cadastroAlunosResumoQuerySchema = z.object({
     (v) => (v === '' || v == null ? 'todos' : v),
     meioPagamentoAlunoQuerySchema.default('todos'),
   ),
+  dia_vencimento: cadastroAlunosDiaVencimentoQuerySchema,
   ativo: z.preprocess(
     (v) => (v === '' || v == null ? 'true' : v),
     z.enum(['true', 'false']).default('true'),

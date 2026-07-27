@@ -4,6 +4,7 @@ import { cadastroAlunosResumoQuerySchema, parseQuery } from '../validation/apiQu
 import type { MeioPagamentoAluno } from '../logic/meioPagamentoVinculo.js';
 import type {
   CadastroAlunoCadastroFiltro,
+  CadastroAlunoDiaVencimentoFiltro,
   CadastroAlunoVinculoFiltro,
 } from '../services/cadastroAlunosResumoReadModel.js';
 
@@ -18,9 +19,11 @@ router.get('/cadastro-alunos/resumo', async (req: Request, res: Response) => {
     const parsed = parseQuery(cadastroAlunosResumoQuerySchema, req.query as Record<string, unknown>);
     if (!parsed.ok) return res.status(400).json({ error: parsed.message });
 
-    const { aba, modalidade, vinculo, cadastro, meio, ativo } = parsed.data;
+    const { aba, modalidade, vinculo, cadastro, meio, dia_vencimento, ativo } = parsed.data;
     const filtroMeio: MeioPagamentoAluno | undefined =
       meio === 'todos' ? undefined : (meio as MeioPagamentoAluno);
+    const filtroDiaVencimento: CadastroAlunoDiaVencimentoFiltro | undefined =
+      dia_vencimento === 'sem' ? 'sem' : dia_vencimento;
 
     const result = await getCadastroAlunosResumo({
       filtroAba: aba,
@@ -28,6 +31,7 @@ router.get('/cadastro-alunos/resumo', async (req: Request, res: Response) => {
       filtroVinculo: vinculo as CadastroAlunoVinculoFiltro,
       filtroCadastro: cadastro as CadastroAlunoCadastroFiltro,
       filtroMeio,
+      filtroDiaVencimento,
       somenteAtivos: ativo !== 'false',
     });
     return res.json(result);

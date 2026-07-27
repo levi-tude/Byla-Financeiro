@@ -5,17 +5,26 @@ import {
   type CadastroAlunoPendenciasInput,
   type PendenciaCampoIgnoravel,
 } from '../logic/cadastroAlunoPendencias.js';
+import { parseDiaVencimentoCadastro } from '../logic/conciliacaoStatusExtrato.js';
+import {
+  fluxoUuidFromAnyPlanilhaId,
+  planilhaIdFromFluxoUuid,
+} from '../logic/fluxoPagamentoFingerprint.js';
 import { inferirMeioPagamentoFluxo, type MeioPagamentoAluno } from '../logic/meioPagamentoVinculo.js';
 import { normalizeText } from '../logic/conciliacaoTexto.js';
 import { getSupabase } from './supabaseClient.js';
 import { listMapeamentoAlunoPagadorAtivos } from './mapeamentoAlunoPagador.js';
 import { listGruposFamiliaPagamentoAtivos } from './gruposFamiliaPagamento.js';
+import { listVinculosPorPlanilhaIds, type VinculoPagamento } from './validacaoVinculos.js';
 
-export type CadastroAlunoVinculoStatus = 'cadastro' | 'aprendido' | 'nenhum';
+/** validacao = confirmado na Validação (sticky ou vínculo extrato); cadastro = só pagador no Fluxo. */
+export type CadastroAlunoVinculoStatus = 'validacao' | 'cadastro' | 'nenhum';
 
 export type CadastroAlunoVinculoFiltro = 'todos' | 'com_vinculo' | 'sem_vinculo';
 
 export type CadastroAlunoCadastroFiltro = 'todos' | 'completo' | 'incompleto';
+
+export type CadastroAlunoDiaVencimentoFiltro = number | 'sem';
 
 export type CadastroAlunoItem = {
   id: string;
@@ -24,6 +33,7 @@ export type CadastroAlunoItem = {
   modalidade: string;
   plano: string | null;
   venc: string | null;
+  dia_vencimento: number | null;
   ativo: boolean;
   cadastro_status: 'completo' | 'incompleto';
   cadastro_pendencias: string[];
@@ -54,6 +64,11 @@ export type CadastroAlunoSecao = {
   alunos_sem_vinculo: CadastroAlunoItem[];
 };
 
+export type CadastroAlunoDiaVencimentoContagem = {
+  dia: number;
+  count: number;
+};
+
 export type CadastroAlunosResumoResponse = {
   totais: {
     alunos: number;
@@ -62,8 +77,10 @@ export type CadastroAlunosResumoResponse = {
     sem_vinculo: number;
     cadastro_completo: number;
     cadastro_incompleto: number;
+    sem_vencimento_cadastrado: number;
     por_meio: Array<{ meio: MeioPagamentoAluno; count: number }>;
     por_aba: Array<{ aba: string; count: number }>;
+    por_dia_vencimento: CadastroAlunoDiaVencimentoContagem[];
   };
   secoes: CadastroAlunoSecao[];
 };
@@ -91,6 +108,7 @@ type AlunoRow = {
 };
 
 type PagamentoRow = {
+  id: string;
   aba: string;
   linha_planilha: number;
   aluno_nome: string;
@@ -103,20 +121,44 @@ function alunoMatchKey(aba: string, linha: number, alunoNome: string): string {
 }
 
 function temVinculoPagador(status: CadastroAlunoVinculoStatus): boolean {
-  return status === 'cadastro' || status === 'aprendido';
+  return status === 'validacao';
+}
+
+function montarAlunosComVinculoValidacao(
+  pagamentos: PagamentoRow[],
+  vinculos: VinculoPagamento[],
+): Set<string> {
+  const pagamentoIdParaAluno = new Map<string, string>();
+  for (const p of pagamentos) {
+    const alunoKey = alunoMatchKey(String(p.aba), Number(p.linha_planilha), String(p.aluno_nome));
+    pagamentoIdParaAluno.set(String(p.id), alunoKey);
+    pagamentoIdParaAluno.set(planilhaIdFromFluxoUuid(String(p.id)), alunoKey);
+  }
+
+  const out = new Set<string>();
+  for (const v of vinculos) {
+    const uuid = fluxoUuidFromAnyPlanilhaId(v.planilha_id);
+    const alunoKey =
+      (uuid ? pagamentoIdParaAluno.get(uuid) : undefined) ??
+      pagamentoIdParaAluno.get(v.planilha_id);
+    if (alunoKey) out.add(alunoKey);
+  }
+  return out;
 }
 
 function resolverVinculoPagador(
+  alunoKey: string,
   alunoNome: string,
   pagadorCadastro: string | null,
   stickyByAluno: Map<string, string>,
+  alunosComVinculoValidacao: Set<string>,
 ): { status: CadastroAlunoVinculoStatus; pagador_vinculo: string | null } {
-  if (pagadorCadastro) {
-    return { status: 'cadastro', pagador_vinculo: pagadorCadastro };
+  const pagadorAprendido = stickyByAluno.get(alunoNormKey(alunoNome)) ?? null;
+  if (pagadorAprendido || alunosComVinculoValidacao.has(alunoKey)) {
+    return { status: 'validacao', pagador_vinculo: pagadorAprendido };
   }
-  const aprendido = stickyByAluno.get(alunoNormKey(alunoNome)) ?? null;
-  if (aprendido) {
-    return { status: 'aprendido', pagador_vinculo: aprendido };
+  if (pagadorCadastro) {
+    return { status: 'cadastro', pagador_vinculo: null };
   }
   return { status: 'nenhum', pagador_vinculo: null };
 }
@@ -180,28 +222,52 @@ function contarPorMeio(itens: CadastroAlunoItem[]): Array<{ meio: MeioPagamentoA
     .sort((a, b) => b.count - a.count || a.meio.localeCompare(b.meio));
 }
 
+function contarPorDiaVencimento(itens: CadastroAlunoItem[]): CadastroAlunoDiaVencimentoContagem[] {
+  const map = new Map<number, number>();
+  for (const item of itens) {
+    if (item.dia_vencimento == null) continue;
+    map.set(item.dia_vencimento, (map.get(item.dia_vencimento) ?? 0) + 1);
+  }
+  return Array.from(map.entries())
+    .map(([dia, count]) => ({ dia, count }))
+    .sort((a, b) => a.dia - b.dia);
+}
+
+function aplicarFiltroDiaVencimento(
+  itens: CadastroAlunoItem[],
+  filtro?: CadastroAlunoDiaVencimentoFiltro,
+): CadastroAlunoItem[] {
+  if (filtro == null) return itens;
+  if (filtro === 'sem') return itens.filter((i) => i.dia_vencimento == null);
+  return itens.filter((i) => i.dia_vencimento === filtro);
+}
+
 export function montarCadastroAlunosResumo(input: {
   alunos: AlunoRow[];
   formaPorAluno: Map<string, string | null>;
   stickyByAluno: Map<string, string>;
+  alunosComVinculoValidacao: Set<string>;
   gruposFamilia: Array<{ rotulo: string; membros: string[][] }>;
   filtroVinculo?: CadastroAlunoVinculoFiltro;
   filtroCadastro?: CadastroAlunoCadastroFiltro;
   filtroMeio?: MeioPagamentoAluno;
   filtroAba?: string;
   filtroModalidade?: string;
+  filtroDiaVencimento?: CadastroAlunoDiaVencimentoFiltro;
   somenteAtivos?: boolean;
 }): CadastroAlunosResumoResponse {
   const {
     alunos,
     formaPorAluno,
     stickyByAluno,
+    alunosComVinculoValidacao,
     gruposFamilia,
     filtroVinculo = 'todos',
     filtroCadastro = 'todos',
     filtroMeio,
     filtroAba,
     filtroModalidade,
+    filtroDiaVencimento,
     somenteAtivos = true,
   } = input;
 
@@ -234,10 +300,14 @@ export function montarCadastroAlunosResumo(input: {
     const pagadorCadastro =
       (row.pagador_pix_exibicao?.trim() || row.pagador_pix?.trim() || null) ?? null;
     const vencExibe = (row.venc_exibicao?.trim() || row.venc?.trim() || null) ?? null;
+    const diaVencimento = parseDiaVencimentoCadastro(vencExibe);
+    const alunoKey = alunoMatchKey(String(row.aba), Number(row.linha_planilha), String(row.aluno_nome));
     const { status: vinculoStatus, pagador_vinculo } = resolverVinculoPagador(
+      alunoKey,
       row.aluno_nome,
       pagadorCadastro,
       stickyByAluno,
+      alunosComVinculoValidacao,
     );
 
     if (filtroVinculo === 'com_vinculo' && !temVinculoPagador(vinculoStatus)) continue;
@@ -257,6 +327,7 @@ export function montarCadastroAlunosResumo(input: {
       modalidade: String(row.modalidade ?? row.aba ?? ''),
       plano: row.plano ? String(row.plano) : null,
       venc: vencExibe,
+      dia_vencimento: diaVencimento,
       ativo: Boolean(row.ativo),
       cadastro_status: cadastroCompleto ? 'completo' : 'incompleto',
       cadastro_pendencias: camposCadastroFaltantes(pendenciasInput),
@@ -274,11 +345,18 @@ export function montarCadastroAlunosResumo(input: {
     if (ab !== 0) return ab;
     const md = a.modalidade.localeCompare(b.modalidade, 'pt-BR');
     if (md !== 0) return md;
+    const dv =
+      (a.dia_vencimento ?? 99) - (b.dia_vencimento ?? 99);
+    if (dv !== 0) return dv;
     return a.aluno_nome.localeCompare(b.aluno_nome, 'pt-BR');
   });
 
+  const porDiaVencimento = contarPorDiaVencimento(itens);
+  const semVencimentoCadastrado = itens.filter((i) => i.dia_vencimento == null).length;
+  const itensFiltrados = aplicarFiltroDiaVencimento(itens, filtroDiaVencimento);
+
   const secoesMap = new Map<string, CadastroAlunoSecao>();
-  for (const item of itens) {
+  for (const item of itensFiltrados) {
     const key = `${item.aba}::${item.modalidade}`;
     let secao = secoesMap.get(key);
     if (!secao) {
@@ -317,22 +395,24 @@ export function montarCadastroAlunosResumo(input: {
     });
 
   const porAba = new Map<string, number>();
-  for (const item of itens) {
+  for (const item of itensFiltrados) {
     porAba.set(item.aba, (porAba.get(item.aba) ?? 0) + 1);
   }
 
   return {
     totais: {
-      alunos: itens.length,
-      ativos: itens.filter((i) => i.ativo).length,
-      com_vinculo: itens.filter((i) => temVinculoPagador(i.vinculo_status)).length,
-      sem_vinculo: itens.filter((i) => !temVinculoPagador(i.vinculo_status)).length,
-      cadastro_completo: itens.filter((i) => i.cadastro_status === 'completo').length,
-      cadastro_incompleto: itens.filter((i) => i.cadastro_status === 'incompleto').length,
-      por_meio: contarPorMeio(itens),
+      alunos: itensFiltrados.length,
+      ativos: itensFiltrados.filter((i) => i.ativo).length,
+      com_vinculo: itensFiltrados.filter((i) => temVinculoPagador(i.vinculo_status)).length,
+      sem_vinculo: itensFiltrados.filter((i) => !temVinculoPagador(i.vinculo_status)).length,
+      cadastro_completo: itensFiltrados.filter((i) => i.cadastro_status === 'completo').length,
+      cadastro_incompleto: itensFiltrados.filter((i) => i.cadastro_status === 'incompleto').length,
+      sem_vencimento_cadastrado: semVencimentoCadastrado,
+      por_meio: contarPorMeio(itensFiltrados),
       por_aba: Array.from(porAba.entries())
         .map(([aba, count]) => ({ aba, count }))
         .sort((a, b) => a.aba.localeCompare(b.aba, 'pt-BR')),
+      por_dia_vencimento: porDiaVencimento,
     },
     secoes,
   };
@@ -344,6 +424,7 @@ export async function getCadastroAlunosResumo(params: {
   filtroMeio?: MeioPagamentoAluno;
   filtroAba?: string;
   filtroModalidade?: string;
+  filtroDiaVencimento?: CadastroAlunoDiaVencimentoFiltro;
   somenteAtivos?: boolean;
 }): Promise<CadastroAlunosResumoResponse> {
   const supabase = getSupabase();
@@ -360,7 +441,7 @@ export async function getCadastroAlunosResumo(params: {
       .limit(8000),
     supabase
       .from('fluxo_pagamentos_operacionais')
-      .select('aba, linha_planilha, aluno_nome, forma, data_pagamento')
+      .select('id, aba, linha_planilha, aluno_nome, forma, data_pagamento')
       .order('data_pagamento', { ascending: false })
       .limit(20000),
     listMapeamentoAlunoPagadorAtivos(supabase).catch(() => []),
@@ -431,12 +512,28 @@ export async function getCadastroAlunosResumo(params: {
     };
   });
 
-  const formaPorAluno = montarFormaHabitualPorAluno((pagRes.data ?? []) as PagamentoRow[]);
+  const pagamentos = (pagRes.data ?? []).map((row) => ({
+    id: String((row as { id: string }).id),
+    aba: String((row as { aba: string }).aba ?? ''),
+    linha_planilha: Number((row as { linha_planilha: number }).linha_planilha ?? 0),
+    aluno_nome: String((row as { aluno_nome: string }).aluno_nome ?? ''),
+    forma: (row as { forma?: string | null }).forma != null ? String((row as { forma: string }).forma) : null,
+    data_pagamento:
+      (row as { data_pagamento?: string | null }).data_pagamento != null
+        ? String((row as { data_pagamento: string }).data_pagamento)
+        : null,
+  })) as PagamentoRow[];
+
+  const planilhaIds = pagamentos.flatMap((p) => [p.id, planilhaIdFromFluxoUuid(p.id)]);
+  const vinculos = await listVinculosPorPlanilhaIds(planilhaIds).catch(() => []);
+  const alunosComVinculoValidacao = montarAlunosComVinculoValidacao(pagamentos, vinculos);
+  const formaPorAluno = montarFormaHabitualPorAluno(pagamentos);
 
   return montarCadastroAlunosResumo({
     alunos,
     formaPorAluno,
     stickyByAluno,
+    alunosComVinculoValidacao,
     gruposFamilia: grupos,
     ...params,
   });

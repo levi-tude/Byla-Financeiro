@@ -73,6 +73,7 @@ type ConciliacaoNavPersisted = {
   busca: string;
   abaFiltro: string;
   modalidadeFiltro: string;
+  diaVencimentoFiltro: string;
 };
 
 const CONCILIACAO_NAV_INITIAL: ConciliacaoNavPersisted = {
@@ -80,6 +81,7 @@ const CONCILIACAO_NAV_INITIAL: ConciliacaoNavPersisted = {
   busca: '',
   abaFiltro: '',
   modalidadeFiltro: '',
+  diaVencimentoFiltro: '',
 };
 
 function patchConciliacaoNav<K extends keyof ConciliacaoNavPersisted>(
@@ -103,7 +105,7 @@ export function ConciliacaoPagamentosPage() {
   const queryClient = useQueryClient();
 
   const [nav, setNav] = usePersistedPageState('conciliacao-pagamentos', CONCILIACAO_NAV_INITIAL);
-  const { statusFiltro, busca, abaFiltro, modalidadeFiltro } = nav;
+  const { statusFiltro, busca, abaFiltro, modalidadeFiltro, diaVencimentoFiltro } = nav;
 
   const setStatusFiltro = useCallback(
     (value: SetStateAction<StatusFiltro>) => patchConciliacaoNav(setNav, 'statusFiltro', value),
@@ -119,6 +121,10 @@ export function ConciliacaoPagamentosPage() {
   );
   const setModalidadeFiltro = useCallback(
     (value: SetStateAction<string>) => patchConciliacaoNav(setNav, 'modalidadeFiltro', value),
+    [setNav],
+  );
+  const setDiaVencimentoFiltro = useCallback(
+    (value: SetStateAction<string>) => patchConciliacaoNav(setNav, 'diaVencimentoFiltro', value),
     [setNav],
   );
 
@@ -163,7 +169,7 @@ export function ConciliacaoPagamentosPage() {
 
   const itens = query.data?.itens ?? [];
 
-  const itensComFiltrosGerais = useMemo(() => {
+  const itensSemFiltroDia = useMemo(() => {
     const q = normalizeSearch(busca);
     return itens.filter((item) => {
       if (abaFiltro && (item.aba ?? '').trim() !== abaFiltro) return false;
@@ -177,6 +183,32 @@ export function ConciliacaoPagamentosPage() {
       return true;
     });
   }, [itens, abaFiltro, modalidadeFiltro, busca]);
+
+  const diasVencimentoDisponiveis = useMemo(() => {
+    const map = new Map<number, number>();
+    let semVencimento = 0;
+    for (const item of itensSemFiltroDia) {
+      if (item.dia_vencimento == null) semVencimento += 1;
+      else map.set(item.dia_vencimento, (map.get(item.dia_vencimento) ?? 0) + 1);
+    }
+    return {
+      por_dia: Array.from(map.entries())
+        .map(([dia, count]) => ({ dia, count }))
+        .sort((a, b) => a.dia - b.dia),
+      sem_vencimento: semVencimento,
+    };
+  }, [itensSemFiltroDia]);
+
+  const itensComFiltrosGerais = useMemo(() => {
+    return itensSemFiltroDia.filter((item) => {
+      if (diaVencimentoFiltro === 'sem') return item.dia_vencimento == null;
+      if (diaVencimentoFiltro) {
+        const dia = Number(diaVencimentoFiltro);
+        if (Number.isFinite(dia) && item.dia_vencimento !== dia) return false;
+      }
+      return true;
+    });
+  }, [itensSemFiltroDia, diaVencimentoFiltro]);
 
   const totaisVisiveis = useMemo(() => {
     const acc = {
@@ -238,6 +270,7 @@ export function ConciliacaoPagamentosPage() {
     setBusca('');
     setAbaFiltro('');
     setModalidadeFiltro('');
+    setDiaVencimentoFiltro('');
   };
 
   const onChangeAba = (proxima: string) => {
@@ -246,7 +279,8 @@ export function ConciliacaoPagamentosPage() {
   };
 
   const temFiltro =
-    statusFiltro !== 'todos' || Boolean(busca.trim() || abaFiltro || modalidadeFiltro);
+    statusFiltro !== 'todos' ||
+    Boolean(busca.trim() || abaFiltro || modalidadeFiltro || diaVencimentoFiltro);
 
   const chips: FilterChip[] = [];
   if (statusFiltro !== 'todos') {
@@ -271,6 +305,16 @@ export function ConciliacaoPagamentosPage() {
       id: 'mod',
       label: `Modalidade: ${modalidadeFiltro}`,
       onRemove: () => setModalidadeFiltro(''),
+    });
+  }
+  if (diaVencimentoFiltro) {
+    chips.push({
+      id: 'venc',
+      label:
+        diaVencimentoFiltro === 'sem'
+          ? 'Sem vencimento cadastrado'
+          : `Vencimento dia ${diaVencimentoFiltro}`,
+      onRemove: () => setDiaVencimentoFiltro(''),
     });
   }
   if (busca.trim()) {
@@ -552,13 +596,13 @@ export function ConciliacaoPagamentosPage() {
 
       <FilterBar
         title="Filtros"
-        subtitle="Busque pelo nome. Refine por aba e, em seguida, pela modalidade dessa aba."
+        subtitle="Busque pelo nome. Refine por aba, modalidade e dia de vencimento cadastrado."
         chips={chips}
         periodLabel={`${String(mes).padStart(2, '0')}/${ano}`}
         onClear={temFiltro ? limparFiltros : undefined}
       >
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-12">
-          <div className="sm:col-span-2 lg:col-span-6">
+          <div className="sm:col-span-2 lg:col-span-4">
             <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
               Busca
             </label>
@@ -571,7 +615,7 @@ export function ConciliacaoPagamentosPage() {
               className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
             />
           </div>
-          <div className="lg:col-span-3">
+          <div className="lg:col-span-2">
             <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
               Aba
             </label>
@@ -588,7 +632,7 @@ export function ConciliacaoPagamentosPage() {
               ))}
             </select>
           </div>
-          <div className="lg:col-span-3">
+          <div className="lg:col-span-2">
             <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
               Modalidade
             </label>
@@ -608,8 +652,54 @@ export function ConciliacaoPagamentosPage() {
               ))}
             </select>
           </div>
+          <div className="lg:col-span-4">
+            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
+              Dia de vencimento
+            </label>
+            <select
+              value={diaVencimentoFiltro}
+              onChange={(e) => setDiaVencimentoFiltro(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+            >
+              <option value="">Todos</option>
+              {diasVencimentoDisponiveis.por_dia.map((d) => (
+                <option key={d.dia} value={String(d.dia)}>
+                  Dia {d.dia} ({d.count})
+                </option>
+              ))}
+              {diasVencimentoDisponiveis.sem_vencimento > 0 ? (
+                <option value="sem">
+                  Sem vencimento ({diasVencimentoDisponiveis.sem_vencimento})
+                </option>
+              ) : null}
+            </select>
+          </div>
         </div>
       </FilterBar>
+
+      {diasVencimentoDisponiveis.por_dia.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Vencimento:</span>
+          {diasVencimentoDisponiveis.por_dia.map((d) => (
+            <button
+              key={d.dia}
+              type="button"
+              onClick={() =>
+                setDiaVencimentoFiltro((prev) => (prev === String(d.dia) ? '' : String(d.dia)))
+              }
+              aria-pressed={diaVencimentoFiltro === String(d.dia)}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                diaVencimentoFiltro === String(d.dia)
+                  ? 'border-indigo-400 bg-indigo-50 text-indigo-900 dark:border-indigo-500 dark:bg-indigo-950/50 dark:text-indigo-100'
+                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'
+              }`}
+            >
+              Dia {d.dia}
+              <span className="ml-1 tabular-nums opacity-80">({d.count})</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {!query.isLoading && itens.length > 0 ? (
         <p className="text-xs text-slate-500 dark:text-slate-400">
