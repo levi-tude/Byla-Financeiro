@@ -8,6 +8,7 @@ import {
   filtrarTransacoesParaSyncVisao,
 } from './controleCaixaSincronizarEntradas.js';
 import type { ControleCaixaReadDto } from './controleCaixaRead.js';
+import { catalogoEntradasFromControleData } from '../domain/entradas/categoriasEntrada.js';
 import { YOGA_AJUSTE_FIXO, PILATES_MARI_AJUSTE_FIXO } from '../domain/entradas/repasseParceiros.js';
 import { transacaoContaNaCompetencia } from './transacaoCompetenciaService.js';
 
@@ -254,5 +255,67 @@ describe('filtrarTransacoesParaSyncVisao (competência)', () => {
     const map = agregarEntradasClassificadas(txs, [], 6, 2026, 'competencia');
     assert.equal(map.get('ent_parc_danca'), 1000);
     assert.equal(map.get('ent_parc_yoga'), 500);
+  });
+
+  it('não dobra valor quando chave efetiva já é a estável (catálogo resolve)', () => {
+    const catalog = catalogoEntradasFromControleData(dtoFromTemplate());
+    const txs = [
+      {
+        ...base,
+        valor: 1000,
+        competencia_confirmada: false,
+        template_key_efetivo: 'ent_parc_danca',
+        categoria_efetiva: 'Dança',
+      },
+    ];
+    const map = agregarEntradasClassificadas(txs, catalog, 6, 2026, 'competencia');
+    assert.equal(map.get('ent_parc_danca'), 1000);
+  });
+
+  it('sticky com tx em dois meses: sync do mês A só soma A; mês B só B; sem classificado → 0', () => {
+    const catalog = catalogoEntradasFromControleData(dtoFromTemplate());
+    const txs = [
+      {
+        ...base,
+        data: '2026-06-10',
+        valor: 400,
+        mes_competencia: 6,
+        ano_competencia: 2026,
+        template_key_efetivo: 'ent_parc_danca',
+        categoria_efetiva: 'Dança',
+      },
+      {
+        ...base,
+        data: '2026-07-10',
+        valor: 700,
+        mes_competencia: 7,
+        ano_competencia: 2026,
+        template_key_efetivo: 'ent_parc_danca',
+        categoria_efetiva: 'Dança',
+      },
+      {
+        ...base,
+        data: '2026-06-12',
+        valor: 999,
+        mes_competencia: 6,
+        ano_competencia: 2026,
+        origem_efetiva: 'heuristica',
+        template_key_efetivo: 'ent_parc_yoga',
+        categoria_efetiva: 'Yoga',
+      },
+    ];
+    const mapJun = agregarEntradasClassificadas(txs, catalog, 6, 2026, 'competencia');
+    const mapJul = agregarEntradasClassificadas(txs, catalog, 7, 2026, 'competencia');
+    assert.equal(mapJun.get('ent_parc_danca'), 400);
+    assert.equal(mapJul.get('ent_parc_danca'), 700);
+    assert.equal(mapJun.get('ent_parc_yoga'), undefined);
+    assert.equal(mapJul.get('ent_parc_yoga'), undefined);
+
+    const data = dtoFromTemplate({ mes: 6 });
+    aplicarSyncCompletoSistema(data, mapJun, new Map());
+    assert.equal(linha(data, 'ent_parc_danca')?.valor, 400);
+    assert.equal(linha(data, 'ent_parc_yoga')?.valor, 0);
+    assert.equal(linha(data, 'sai_parc_danca')?.valor, 240);
+    assert.equal(linha(data, 'sai_parc_yoga')?.valor, 0);
   });
 });

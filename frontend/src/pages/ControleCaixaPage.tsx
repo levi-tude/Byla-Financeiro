@@ -566,7 +566,7 @@ export function ControleCaixaPage() {
               {syncEntradasMutation.isPending ? 'Sincronizando…' : 'Sincronizar tudo'}
             </button>
             <span className="text-xs text-slate-500 dark:text-slate-400">
-              Usa a competência do mês (Entradas + Despesas classificadas → Controle Sistema).
+              Totais do mês (competência): só lançamentos classificados deste mês → Controle Sistema.
             </span>
           </div>
         ) : null}
