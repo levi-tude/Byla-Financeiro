@@ -160,8 +160,39 @@ export function ConciliacaoPagamentosPage() {
     (a) => !alertasParouOcultos.has(a.assinatura_id),
   );
 
-  const totais = query.data?.totais;
+
   const itens = query.data?.itens ?? [];
+
+  const itensComFiltrosGerais = useMemo(() => {
+    const q = normalizeSearch(busca);
+    return itens.filter((item) => {
+      if (abaFiltro && (item.aba ?? '').trim() !== abaFiltro) return false;
+      if (modalidadeFiltro && (item.modalidade ?? '').trim() !== modalidadeFiltro) return false;
+      if (q) {
+        const hay = normalizeSearch(
+          `${item.aluno_nome} ${item.aba} ${item.modalidade} ${STATUS_LABEL[item.status]}`,
+        );
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [itens, abaFiltro, modalidadeFiltro, busca]);
+
+  const totaisVisiveis = useMemo(() => {
+    const acc = {
+      em_dia: 0,
+      atrasado: 0,
+      pendente: 0,
+      sem_vencimento: 0,
+      bolsa: 0,
+      total: 0,
+    };
+    for (const item of itensComFiltrosGerais) {
+      acc[item.status] += 1;
+      acc.total += 1;
+    }
+    return acc;
+  }, [itensComFiltrosGerais]);
 
   const abas = useMemo(() => {
     const set = new Set<string>();
@@ -184,17 +215,8 @@ export function ConciliacaoPagamentosPage() {
   }, [itens, abaFiltro]);
 
   const itensFiltrados = useMemo(() => {
-    const q = normalizeSearch(busca);
-    const filtered = itens.filter((item) => {
+    const filtered = itensComFiltrosGerais.filter((item) => {
       if (statusFiltro !== 'todos' && item.status !== statusFiltro) return false;
-      if (abaFiltro && (item.aba ?? '').trim() !== abaFiltro) return false;
-      if (modalidadeFiltro && (item.modalidade ?? '').trim() !== modalidadeFiltro) return false;
-      if (q) {
-        const hay = normalizeSearch(
-          `${item.aluno_nome} ${item.aba} ${item.modalidade} ${STATUS_LABEL[item.status]}`,
-        );
-        if (!hay.includes(q)) return false;
-      }
       return true;
     });
 
@@ -207,7 +229,7 @@ export function ConciliacaoPagamentosPage() {
       if (byMod !== 0) return byMod;
       return a.aluno_nome.localeCompare(b.aluno_nome, 'pt-BR');
     });
-  }, [itens, statusFiltro, abaFiltro, modalidadeFiltro, busca]);
+  }, [itensComFiltrosGerais, statusFiltro]);
 
   const colCount = isAdmin ? 9 : 5;
 
@@ -488,21 +510,21 @@ export function ConciliacaoPagamentosPage() {
         {kpiBtn(
           'pendente',
           'Pendente',
-          totais?.pendente,
+          totaisVisiveis.pendente,
           'text-rose-600 dark:text-rose-400',
           'border-t-rose-500',
         )}
         {kpiBtn(
           'atrasado',
           'Atrasado',
-          totais?.atrasado,
+          totaisVisiveis.atrasado,
           'text-amber-600 dark:text-amber-400',
           'border-t-amber-500',
         )}
         {kpiBtn(
           'em_dia',
           'Em dia',
-          totais?.em_dia,
+          totaisVisiveis.em_dia,
           'text-emerald-600 dark:text-emerald-400',
           'border-t-emerald-500',
         )}
@@ -521,11 +543,11 @@ export function ConciliacaoPagamentosPage() {
         >
           Todos
           <span className="ml-1 tabular-nums opacity-80">
-            ({query.isLoading ? '…' : (totais?.total ?? 0)})
+            ({query.isLoading ? '…' : totaisVisiveis.total})
           </span>
         </button>
-        {secondaryPill('sem_vencimento', 'Sem vencimento', totais?.sem_vencimento ?? 0)}
-        {secondaryPill('bolsa', 'Bolsa', totais?.bolsa ?? 0)}
+        {secondaryPill('sem_vencimento', 'Sem vencimento', totaisVisiveis.sem_vencimento)}
+        {secondaryPill('bolsa', 'Bolsa', totaisVisiveis.bolsa)}
       </div>
 
       <FilterBar

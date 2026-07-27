@@ -76,6 +76,22 @@ test('agruparFinancasAlunos: agrupa por aluno/aba/modalidade e infere meio', () 
   assert.equal(grupos[0].pagamentos[1].banco_status, 'vinculo');
 });
 
+test('agruparFinancasAlunos: vínculo com planilha_id bare UUID', () => {
+  const fluxoId = 'e50f2063-7078-4bdd-a301-673d84b1acfc';
+  const grupos = agruparFinancasAlunos({
+    mes: MES,
+    ano: ANO,
+    alunos: [aluno({ aluno_nome: 'Diana Lima' })],
+    vinculos: [{ planilha_id: fluxoId, banco_id: 't1' }],
+    fluxo: [fluxo({ id: fluxoId, aluno_nome: 'Diana Lima' })],
+    bancos: [
+      banco({ id: 't1', data: '2026-07-08', pessoa: 'PIX DIANA', descricao: null, valor: 200 }),
+    ],
+  });
+
+  assert.equal(grupos[0].pagamentos[0].banco_status, 'vinculo');
+});
+
 test('agruparFinancasAlunos: aviso quando data_banco ≠ competência', () => {
   const grupos = agruparFinancasAlunos({
     mes: MES,

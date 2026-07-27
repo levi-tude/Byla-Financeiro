@@ -32,7 +32,9 @@ export function fluxoPagamentoFingerprint(p: FluxoPagamentoIdentity): string {
 }
 
 export function planilhaIdFromFluxoUuid(id: string): string {
-  return `fluxo::${id}`;
+  const t = String(id ?? '').trim();
+  if (t.startsWith('fluxo::')) return t;
+  return `fluxo::${t}`;
 }
 
 export function fluxoUuidFromPlanilhaId(planilhaId: string): string | null {
@@ -40,6 +42,19 @@ export function fluxoUuidFromPlanilhaId(planilhaId: string): string | null {
   if (!t.startsWith('fluxo::')) return null;
   const id = t.slice('fluxo::'.length).trim();
   return id || null;
+}
+
+/** Aceita `fluxo::<uuid>` ou UUID bare (vínculos legados). */
+export function fluxoUuidFromAnyPlanilhaId(planilhaId: string): string | null {
+  const fromPrefix = fluxoUuidFromPlanilhaId(planilhaId);
+  if (fromPrefix) return fromPrefix;
+  const t = String(planilhaId ?? '').trim();
+  if (/^[0-9a-f-]{36}$/i.test(t)) return t;
+  return null;
+}
+
+export function normalizePlanilhaId(planilhaId: string): string {
+  return planilhaIdFromFluxoUuid(planilhaId);
 }
 
 export type VinculoRemapUpdate = {
