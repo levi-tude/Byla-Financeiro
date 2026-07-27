@@ -17,15 +17,17 @@ import {
   type ConciliacaoPagamentoStatus,
 } from '../logic/conciliacaoStatusExtrato.js';
 import {
+  inferirMeioPagamentoFluxo,
   inferirMeioPagamentoVinculo,
   type MeioPagamentoAluno,
 } from '../logic/meioPagamentoVinculo.js';
+import { isFormaPagamentoDinheiro } from '../logic/pagamentoDinheiroFluxo.js';
 import { normalizeText } from '../logic/conciliacaoTexto.js';
 import { filtrarTransacoesOficiais, type TransacaoBase } from './transacoesFiltro.js';
 import { getSupabase } from './supabaseClient.js';
 import { listVinculosPorPlanilhaIds } from './validacaoVinculos.js';
 
-export type FinancasAlunoBancoStatus = 'vinculo' | 'match' | 'nenhum';
+export type FinancasAlunoBancoStatus = 'vinculo' | 'match' | 'dinheiro' | 'nenhum';
 /** Filtro de reconhecimento bancário: vínculo manual ou match automático. */
 export type FinancasAlunoVinculoFiltro = 'todos' | 'vinculado' | 'sem_vinculo';
 
@@ -143,7 +145,7 @@ function pagamentoToPlanilhaItem(
 
 type CreditoResolvido = {
   banco: BancoItem;
-  banco_status: 'vinculo' | 'match';
+  banco_status: 'vinculo' | 'match' | 'dinheiro';
 };
 
 function resolverCreditoPagamento(params: {
@@ -156,6 +158,21 @@ function resolverCreditoPagamento(params: {
   usadosBanco: Set<string>;
 }): CreditoResolvido | null {
   const { pag, mes, ano, vinculoByFluxoId, bancosById, entradasLista, usadosBanco } = params;
+
+  if (isFormaPagamentoDinheiro(pag.forma)) {
+    const dataPg = (pag.data_pagamento ?? '').slice(0, 10);
+    if (!dataPg) return null;
+    return {
+      banco: {
+        id: `dinheiro::${pag.id}`,
+        data: dataPg,
+        pessoa: 'Pagamento em dinheiro',
+        descricao: null,
+        valor: Number(pag.valor || 0),
+      },
+      banco_status: 'dinheiro',
+    };
+  }
 
   const vinculo = vinculoByFluxoId.get(pag.id);
   if (vinculo) {
@@ -174,7 +191,7 @@ function resolverCreditoPagamento(params: {
 }
 
 function temReconhecimentoBanco(status: FinancasAlunoBancoStatus): boolean {
-  return status === 'vinculo' || status === 'match';
+  return status === 'vinculo' || status === 'match' || status === 'dinheiro';
 }
 
 /**
@@ -244,11 +261,14 @@ export function agruparFinancasAlunos(input: {
     const banco = credito?.banco;
     const dataBanco = banco ? banco.data.slice(0, 10) : null;
 
-    const meio = inferirMeioPagamentoVinculo({
-      pessoa: banco?.pessoa ?? '',
-      descricao: banco?.descricao ?? null,
-      forma: pag.forma,
-    });
+    const meio =
+      bancoStatus === 'dinheiro'
+        ? inferirMeioPagamentoFluxo(pag.forma)
+        : inferirMeioPagamentoVinculo({
+            pessoa: banco?.pessoa ?? '',
+            descricao: banco?.descricao ?? null,
+            forma: pag.forma,
+          });
 
     if (filtroMeio && meio !== filtroMeio) continue;
 

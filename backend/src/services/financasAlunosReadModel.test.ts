@@ -335,6 +335,32 @@ test('agruparFinancasAlunos: status atrasado quando crédito após vencimento', 
   assert.equal(grupos[0].pagamentos[0].status_conciliacao, 'atrasado');
 });
 
+test('agruparFinancasAlunos: pagamento em dinheiro reconhecido sem extrato', () => {
+  const grupos = agruparFinancasAlunos({
+    mes: MES,
+    ano: ANO,
+    alunos: [aluno({ aluno_nome: 'Caixa Dinheiro', venc: '08' })],
+    vinculos: [],
+    fluxo: [
+      fluxo({
+        id: 'p-din',
+        aluno_nome: 'Caixa Dinheiro',
+        forma: 'Dinheiro',
+        data_pagamento: '2026-07-08',
+      }),
+    ],
+    bancos: [],
+    entradas: [],
+  });
+
+  assert.equal(grupos.length, 1);
+  assert.equal(grupos[0].pagamentos.length, 1);
+  assert.equal(grupos[0].pagamentos[0].meio, 'dinheiro');
+  assert.equal(grupos[0].pagamentos[0].banco_status, 'dinheiro');
+  assert.equal(grupos[0].pagamentos[0].status_conciliacao, 'em_dia');
+  assert.equal(grupos[0].pagamentos[0].data_banco, '2026-07-08');
+});
+
 test('agruparFinancasAlunos: não expõe ids internos na resposta', () => {
   const grupos = agruparFinancasAlunos({
     mes: MES,

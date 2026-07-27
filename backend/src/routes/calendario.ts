@@ -18,6 +18,9 @@ import {
 import { aprenderCreditoRecorrenteFromVinculo } from '../services/mapeamentoCreditoRecorrente.js';
 import { amarrarRegraStickyAssinatura } from '../services/assinaturaCreditoRecorrente.js';
 import { aprenderAlunoPagadorFromVinculo } from '../services/mapeamentoAlunoPagador.js';
+import {
+  exigeValidacaoExtratoPorForma,
+} from '../logic/pagamentoDinheiroFluxo.js';
 
 type PlanilhaItem = {
   id: string;
@@ -143,15 +146,22 @@ router.get('/calendario-financeiro', async (req: Request, res: Response) => {
       const data = `${ano}-${String(mes).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const bi = porDiaBanco.get(data) ?? [];
       const pi = porDiaPlanilha.get(data) ?? [];
+      const piExtrato = pi.filter((p) => exigeValidacaoExtratoPorForma(p.forma));
+      const qtdDinheiro = pi.length - piExtrato.length;
       const totalB = bi.reduce((s, x) => s + x.valor, 0);
       const totalP = pi.reduce((s, x) => s + x.valor, 0);
+      const totalPExtrato = piExtrato.reduce((s, x) => s + x.valor, 0);
       const planilhaIdsVinculadas = vinculosPorData.get(data) ?? new Set<string>();
-      const qtdPlanilhaVinculada = pi.filter((p) => planilhaIdsVinculadas.has(p.id)).length;
-      const statusFinal = calcularStatusDerivado(totalB, bi.length, totalP, pi.length, qtdPlanilhaVinculada);
+      const qtdPlanilhaVinculada =
+        piExtrato.filter((p) => planilhaIdsVinculadas.has(p.id)).length + qtdDinheiro;
+      const statusFinal =
+        piExtrato.length === 0 && qtdDinheiro > 0
+          ? 'ok'
+          : calcularStatusDerivado(totalB, bi.length, totalPExtrato, piExtrato.length, qtdPlanilhaVinculada);
       dias.push({
         data,
         banco: { total: totalB, quantidade: bi.length, itens: bi },
-        planilha: { total: totalP, quantidade: pi.length, itens: pi },
+        planilha: { total: totalP, quantidade: pi.length, itens: piExtrato },
         validacao: {
           status_final: statusFinal,
           qtd_planilha_vinculada: qtdPlanilhaVinculada,

@@ -20,6 +20,7 @@ const MEIO_LABEL: Record<MeioPagamentoAluno, string> = {
   debito: 'Débito',
   credito_a_vista: 'Crédito à vista',
   credito_recorrente: 'Crédito por recorrência',
+  dinheiro: 'Dinheiro',
   desconhecido: 'Não identificado',
 };
 
@@ -29,6 +30,7 @@ const MEIO_FILTRO_OPCOES: Array<{ id: MeioPagamentoAlunoFiltro; label: string }>
   { id: 'debito', label: 'Débito' },
   { id: 'credito_a_vista', label: 'Crédito à vista' },
   { id: 'credito_recorrente', label: 'Crédito por recorrência' },
+  { id: 'dinheiro', label: 'Dinheiro' },
 ];
 
 const VINCULO_FILTRO_OPCOES: Array<{ id: FinancasAlunoVinculoFiltro; label: string }> = [
@@ -40,6 +42,7 @@ const VINCULO_FILTRO_OPCOES: Array<{ id: FinancasAlunoVinculoFiltro; label: stri
 const BANCO_STATUS_LABEL: Record<FinancasAlunoBancoStatus, string> = {
   vinculo: 'Vinculado na Validação',
   match: 'Match automático',
+  dinheiro: 'Pagamento em dinheiro',
   nenhum: 'Sem reconhecimento no banco',
 };
 
@@ -64,6 +67,9 @@ function meioBadgeClass(meio: MeioPagamentoAluno): string {
   if (meio === 'credito_recorrente') {
     return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-200';
   }
+  if (meio === 'dinheiro') {
+    return 'bg-lime-100 text-lime-900 dark:bg-lime-950/50 dark:text-lime-200';
+  }
   return 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300';
 }
 
@@ -73,6 +79,9 @@ function bancoStatusBadgeClass(status: FinancasAlunoBancoStatus): string {
   }
   if (status === 'match') {
     return 'bg-sky-100 text-sky-800 dark:bg-sky-950/50 dark:text-sky-200';
+  }
+  if (status === 'dinheiro') {
+    return 'bg-lime-100 text-lime-900 dark:bg-lime-950/50 dark:text-lime-200';
   }
   return 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200';
 }
@@ -197,7 +206,8 @@ export function FinancasAlunosPage() {
     for (const g of gruposFiltrados) {
       for (const p of g.pagamentos) {
         pagamentos += 1;
-        if (p.banco_status === 'vinculo' || p.banco_status === 'match') comReconhecimento += 1;
+        if (p.banco_status === 'vinculo' || p.banco_status === 'match' || p.banco_status === 'dinheiro')
+          comReconhecimento += 1;
         else semReconhecimento += 1;
         if (p.status_conciliacao === 'em_dia') emDia += 1;
         else if (p.status_conciliacao === 'atrasado') atrasado += 1;
@@ -284,7 +294,8 @@ export function FinancasAlunosPage() {
       <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-100">
         <p>
           <span className="font-medium">Reconhecimento no banco</span> = vínculo feito na Validação diária ou
-          match automático com o extrato.{' '}
+          match automático com o extrato. Pagamentos em{' '}
+          <span className="font-medium">dinheiro</span> no Fluxo já entram como reconhecidos (sem extrato).{' '}
           <span className="font-medium">Situação de pagamento</span> = em dia, atrasado ou pendente conforme o
           vencimento do cadastro (igual à Conciliação). Um aluno pode estar{' '}
           <span className="font-medium">vinculado no banco</span> e ainda{' '}

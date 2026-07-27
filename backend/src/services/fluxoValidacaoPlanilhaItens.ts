@@ -4,6 +4,7 @@ import { listSheetNames } from './sheetsService.js';
 import { lerPagamentosPorAbaEAno } from './planilhaPagamentos.js';
 import { isEligibleSheet, businessRules } from '../businessRules.js';
 import { normalizeText, sameDayISO } from '../logic/conciliacaoTexto.js';
+import { exigeValidacaoExtratoPorForma } from '../logic/pagamentoDinheiroFluxo.js';
 import type { PlanilhaItem } from '../logic/conciliacaoPagamentoMatch.js';
 import { isFluxoPrimaryForValidacao, isPlanilhaFallbackForValidacao } from './fluxoPrimarySource.js';
 
@@ -99,6 +100,11 @@ async function listarItensFluxoNoIntervalo(params: {
   return { itens, fonte: 'fluxo_operacional' };
 }
 
+/** Pagamentos que exigem conferência banco × fluxo (exclui dinheiro no Fluxo). */
+export function filtrarItensExigemValidacaoExtrato(itens: PlanilhaItem[]): PlanilhaItem[] {
+  return itens.filter((p) => exigeValidacaoExtratoPorForma(p.forma));
+}
+
 function montarIndiceAnoDeItens(
   itens: PlanilhaItem[],
   ano: number,
@@ -118,6 +124,7 @@ function montarIndiceAnoDeItens(
   >();
 
   for (const p of itens) {
+    if (!exigeValidacaoExtratoPorForma(p.forma)) continue;
     const iso = p.data.slice(0, 10);
     if (!iso.startsWith(prefixAno)) continue;
     if (p.aba.trim()) abasSet.add(p.aba.trim());
@@ -373,12 +380,18 @@ export async function carregarItensPlanilhaParaValidacao(params: {
     if (!isPlanilhaFallbackForValidacao()) {
       return { itens: [], fonte: 'fluxo_operacional', erro: 'Fonte oficial é o fluxo operacional (Supabase).' };
     }
-    return carregarItensDaPlanilhaGoogle({ ...params, ano });
+    const google = await carregarItensDaPlanilhaGoogle({ ...params, ano });
+    return { ...google, itens: filtrarItensExigemValidacaoExtrato(google.itens) };
   }
   const fluxo = await carregarItensDoFluxo(params);
-  if (fluxo.itens.length > 0 || !isPlanilhaFallbackForValidacao()) return fluxo;
-  if (!config.sheets.spreadsheetId) return fluxo;
+  const filtrado = { ...fluxo, itens: filtrarItensExigemValidacaoExtrato(fluxo.itens) };
+  if (filtrado.itens.length > 0 || !isPlanilhaFallbackForValidacao()) return filtrado;
+  if (!config.sheets.spreadsheetId) return filtrado;
   const fallback = await carregarItensDaPlanilhaGoogle({ ...params, ano });
-  if (fallback.itens.length > 0) return fallback;
-  return fluxo.erro ? fluxo : fallback;
+  const fallbackFiltrado = {
+    ...fallback,
+    itens: filtrarItensExigemValidacaoExtrato(fallback.itens),
+  };
+  if (fallbackFiltrado.itens.length > 0) return fallbackFiltrado;
+  return fluxo.erro ? { ...fluxo, itens: [] } : fallbackFiltrado;
 }
