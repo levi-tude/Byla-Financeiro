@@ -43,9 +43,41 @@ export function controleDtoToNovoMesPayload(dto: ControleCaixaReadDto): Controle
 
 type LoadFn = (mes: number, ano: number) => Promise<{ data: ControleCaixaReadDto } | { error: string }>;
 
+/** Período usable para herdar estrutura (existe e tem pelo menos um bloco). */
+export function periodoTemEstrutura(dto: Pick<ControleCaixaReadDto, 'blocos'> | null | undefined): boolean {
+  return (dto?.blocos?.length ?? 0) > 0;
+}
+
+/**
+ * True quando o Controle tem as seções operacionais mínimas da planilha
+ * (entradas parceiros + saídas parceiros + saídas fixas).
+ */
+export function estruturaControleCompleta(dto: Pick<ControleCaixaReadDto, 'blocos'>): boolean {
+  const blocos = dto.blocos ?? [];
+  if (blocos.length < 3) return false;
+  const titulos = blocos.map((b) => `${b.templateKey ?? ''}|${b.titulo}`.toLowerCase());
+  const hasEntradaParceiros = titulos.some(
+    (t) => t.includes('entrada_parceiros') || (t.includes('entrada') && t.includes('parceir')),
+  );
+  const hasSaidaParceiros = titulos.some(
+    (t) =>
+      t.includes('saida_parceiros') ||
+      ((t.includes('saída') || t.includes('saida')) && t.includes('parceir')),
+  );
+  const hasSaidaFixas = titulos.some(
+    (t) =>
+      t.includes('saida_gastos_fixos') ||
+      t.includes('saídas fixas') ||
+      t.includes('saidas fixas') ||
+      t.includes('gastos fixos'),
+  );
+  return hasEntradaParceiros && hasSaidaParceiros && hasSaidaFixas;
+}
+
 /**
  * Busca o Controle do mês anterior mais recente (até maxSaltos).
  * `loadExisting` deve retornar erro se o período não existir (sem auto-criar).
+ * Períodos sem blocos são ignorados (ex.: sistema vazio criado por engano).
  */
 export async function buildPayloadFromMesAnterior(
   mes: number,
@@ -58,7 +90,9 @@ export async function buildPayloadFromMesAnterior(
   for (let i = 0; i < maxSaltos; i += 1) {
     ({ mes: m, ano: a } = mesAnoAnterior(m, a));
     const prev = await loadExisting(m, a);
-    if ('data' in prev) return controleDtoToNovoMesPayload(prev.data);
+    if ('data' in prev && periodoTemEstrutura(prev.data)) {
+      return controleDtoToNovoMesPayload(prev.data);
+    }
   }
   return null;
 }

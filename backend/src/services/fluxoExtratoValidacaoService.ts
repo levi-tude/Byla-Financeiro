@@ -1,5 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { listVinculosMes } from './validacaoVinculos.js';
+import { normalizePlanilhaId, planilhaIdFromFluxoUuid } from '../logic/fluxoPagamentoFingerprint.js';
+import { isFormaPagamentoDinheiro } from '../logic/pagamentoDinheiroFluxo.js';
+import { listVinculosMes, listVinculosPorPlanilhaIds } from './validacaoVinculos.js';
 
 export type StatusExtratoFluxo = 'validado' | 'pendente' | 'divergente' | 'sem_lancamento';
 
@@ -11,10 +13,15 @@ export type FluxoPagamentoExtratoStatus = {
   vinculo_id: string | null;
 };
 
-function planilhaIdFromFluxoUuid(fluxoId: string): string {
-  const t = fluxoId.trim();
-  if (t.startsWith('fluxo::')) return t;
-  return `fluxo::${t}`;
+export function indexVinculosList(
+  vinculos: Array<{ id: string; banco_id: string; planilha_id: string }>,
+): Map<string, { banco_id: string; id: string }> {
+  const map = new Map<string, { banco_id: string; id: string }>();
+  for (const v of vinculos) {
+    const key = normalizePlanilhaId(v.planilha_id);
+    map.set(key, { banco_id: v.banco_id, id: v.id });
+  }
+  return map;
 }
 
 export async function indexVinculosPorPlanilha(
@@ -22,18 +29,35 @@ export async function indexVinculosPorPlanilha(
   ano: number,
 ): Promise<Map<string, { banco_id: string; id: string }>> {
   const vinculos = await listVinculosMes(mes, ano);
-  const map = new Map<string, { banco_id: string; id: string }>();
-  for (const v of vinculos) {
-    map.set(v.planilha_id, { banco_id: v.banco_id, id: v.id });
-  }
-  return map;
+  return indexVinculosList(vinculos);
+}
+
+/** Índice pelos IDs dos pagamentos (independente do mês gravado no vínculo). */
+export async function indexVinculosPorPagamentoIds(
+  pagamentoIds: string[],
+): Promise<Map<string, { banco_id: string; id: string }>> {
+  const planilhaIds = pagamentoIds.map((id) => planilhaIdFromFluxoUuid(id));
+  const vinculos = await listVinculosPorPlanilhaIds(planilhaIds);
+  return indexVinculosList(vinculos);
 }
 
 export function statusExtratoForFluxoPagamento(
   fluxoPagamentoId: string,
   vinculosByPlanilha: Map<string, { banco_id: string; id: string }>,
+  opts?: { forma?: string | null },
 ): FluxoPagamentoExtratoStatus {
   const planilhaId = planilhaIdFromFluxoUuid(fluxoPagamentoId);
+
+  if (isFormaPagamentoDinheiro(opts?.forma)) {
+    return {
+      fluxo_pagamento_id: fluxoPagamentoId,
+      planilha_id: planilhaId,
+      status_extrato: 'validado',
+      banco_id: null,
+      vinculo_id: null,
+    };
+  }
+
   const v = vinculosByPlanilha.get(planilhaId);
   if (v) {
     return {
@@ -53,15 +77,15 @@ export function statusExtratoForFluxoPagamento(
   };
 }
 
-export async function enrichFluxoPagamentosComStatusExtrato<T extends { id: string }>(
-  pagamentos: T[],
-  mes: number,
-  ano: number,
-): Promise<(T & FluxoPagamentoExtratoStatus)[]> {
-  const vinculos = await indexVinculosPorPlanilha(mes, ano);
+export async function enrichFluxoPagamentosComStatusExtrato<
+  T extends { id: string; forma?: string | null },
+>(pagamentos: T[], _mes?: number, _ano?: number): Promise<(T & FluxoPagamentoExtratoStatus)[]> {
+  void _mes;
+  void _ano;
+  const vinculos = await indexVinculosPorPagamentoIds(pagamentos.map((p) => String(p.id)));
   return pagamentos.map((p) => ({
     ...p,
-    ...statusExtratoForFluxoPagamento(String(p.id), vinculos),
+    ...statusExtratoForFluxoPagamento(String(p.id), vinculos, { forma: p.forma }),
   }));
 }
 
@@ -83,6 +107,7 @@ type PagRow = {
   valor: number;
   mes_competencia: number;
   ano_competencia: number;
+  forma?: string | null;
 };
 
 export function agregarTotaisFluxoCompetencia(
@@ -129,7 +154,7 @@ export async function loadFluxoPagamentosCompetenciaMes(
 ): Promise<(PagRow & FluxoPagamentoExtratoStatus)[]> {
   let query = supabase
     .from('fluxo_pagamentos_operacionais')
-    .select('id, aba, modalidade, valor, mes_competencia, ano_competencia')
+    .select('id, aba, modalidade, valor, forma, mes_competencia, ano_competencia')
     .eq('mes_competencia', mes)
     .eq('ano_competencia', ano)
     .limit(10000);

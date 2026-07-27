@@ -1,9 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { getSupabase } from '../services/supabaseClient.js';
 import { mesAnoQuerySchema, parseBody, parseQuery } from '../validation/apiQuery.js';
-import { buildControleCaixaTemplate } from '../domain/controleCaixa/template.js';
+import { isControleModo, type ControleModo } from '../domain/controleCaixa/modo.js';
 import { readControleCaixa } from '../services/controleCaixaRead.js';
+import { persistControleCaixaModo } from '../services/controleCaixaPersist.js';
 
 const controleCaixaSaveBodySchema = z.object({
   abaRef: z.string().trim().min(1).max(120).nullable().optional(),
@@ -40,104 +40,83 @@ const controleCaixaSaveBodySchema = z.object({
   ),
 });
 
-type ControlePersistPayload = z.infer<typeof controleCaixaSaveBodySchema>;
+const controleModoQuerySchema = mesAnoQuerySchema.extend({
+  modo: z.preprocess(
+    (v) => (v === '' || v == null ? 'oficial' : v),
+    z.enum(['oficial', 'sistema']).default('oficial'),
+  ),
+});
 
-async function persistControleCaixa(
-  mes: number,
-  ano: number,
-  payload: ControlePersistPayload,
-  origem: string
-): Promise<{ ok: true } | { error: string }> {
-  const supabase = getSupabase();
-  if (!supabase) {
-    return { error: 'Supabase não configurado no backend.' };
-  }
-  const { data: periodo, error: periodoErr } = await supabase
-    .from('controle_caixa_periodos')
-    .upsert(
-      {
-        mes,
-        ano,
-        aba_ref: payload.abaRef ?? null,
-        entrada_total: payload.totais.entradaTotal ?? null,
-        saida_total: payload.totais.saidaTotal ?? null,
-        lucro_total: payload.totais.lucroTotal ?? null,
-        saida_parceiros_total: payload.totais.saidaParceirosTotal ?? null,
-        saida_fixas_total: payload.totais.saidaFixasTotal ?? null,
-        saida_soma_secoes_principais: payload.totais.saidaSomaSecoesPrincipais ?? null,
-        origem,
-      },
-      { onConflict: 'mes,ano' }
-    )
-    .select('id')
-    .single<{ id: string }>();
-  if (periodoErr || !periodo) {
-    return { error: periodoErr?.message ?? 'Falha ao salvar período.' };
-  }
-
-  const periodoId = periodo.id;
-  const delBlocos = await supabase.from('controle_caixa_blocos').delete().eq('periodo_id', periodoId);
-  if (delBlocos.error) return { error: delBlocos.error.message };
-
-  for (const bloco of payload.blocos) {
-    const { data: blocoRow, error: blocoErr } = await supabase
-      .from('controle_caixa_blocos')
-      .insert({
-        periodo_id: periodoId,
-        tipo: bloco.tipo,
-        titulo: bloco.titulo,
-        ordem: bloco.ordem,
-        template_key: bloco.templateKey ?? null,
-        is_default: bloco.isDefault ?? false,
-        is_custom: bloco.isCustom ?? true,
-        locked_level: bloco.lockedLevel ?? 'none',
-      })
-      .select('id')
-      .single<{ id: string }>();
-    if (blocoErr || !blocoRow) {
-      return { error: blocoErr?.message ?? 'Falha ao salvar bloco.' };
-    }
-    if (bloco.linhas.length === 0) continue;
-    const insLinhas = await supabase.from('controle_caixa_linhas').insert(
-      bloco.linhas.map((linha) => ({
-        bloco_id: blocoRow.id,
-        label: linha.label,
-        valor: linha.valor ?? null,
-        valor_texto: linha.valorTexto ?? null,
-        ordem: linha.ordem,
-        template_key: linha.templateKey ?? null,
-        is_default: linha.isDefault ?? false,
-        is_custom: linha.isCustom ?? true,
-        locked_level: linha.lockedLevel ?? 'none',
-      }))
-    );
-    if (insLinhas.error) return { error: insLinhas.error.message };
-  }
-  return { ok: true };
+function parseModo(raw: unknown, fallback: ControleModo = 'oficial'): ControleModo {
+  return isControleModo(raw) ? raw : fallback;
 }
 
 export default function createControleCaixaRouter(): Router {
   const router = Router();
 
   router.get('/controle-caixa', async (req: Request, res: Response) => {
-    const q = parseQuery(mesAnoQuerySchema, req.query as Record<string, unknown>);
+    const q = parseQuery(controleModoQuerySchema, req.query as Record<string, unknown>);
     if (!q.ok) return res.status(400).json({ error: q.message });
 
-    const result = await readControleCaixa(q.data.mes, q.data.ano);
+    const modo = parseModo(q.data.modo, 'oficial');
+    const result = await readControleCaixa(q.data.mes, q.data.ano, modo);
     if ('error' in result) return res.status(500).json({ error: result.error });
     return res.json(result.data);
   });
 
   router.put('/controle-caixa', async (req: Request, res: Response) => {
-    const q = parseQuery(mesAnoQuerySchema, req.query as Record<string, unknown>);
+    const q = parseQuery(controleModoQuerySchema, req.query as Record<string, unknown>);
     if (!q.ok) return res.status(400).json({ error: q.message });
     const b = parseBody(controleCaixaSaveBodySchema, req.body);
     if (!b.ok) return res.status(400).json({ error: b.message });
 
-    const persisted = await persistControleCaixa(q.data.mes, q.data.ano, b.data, 'sistema_editor');
+    const modo = parseModo(q.data.modo, 'sistema');
+    if (modo === 'oficial') {
+      return res.status(403).json({
+        error:
+          'O modo Oficial (planilha) é somente leitura. Edite no modo Sistema ou rode novamente a migração da planilha.',
+      });
+    }
+
+    const persisted = await persistControleCaixaModo(
+      q.data.mes,
+      q.data.ano,
+      {
+        abaRef: b.data.abaRef ?? null,
+        totais: {
+          entradaTotal: b.data.totais.entradaTotal ?? null,
+          saidaTotal: b.data.totais.saidaTotal ?? null,
+          lucroTotal: b.data.totais.lucroTotal ?? null,
+          saidaParceirosTotal: b.data.totais.saidaParceirosTotal ?? null,
+          saidaFixasTotal: b.data.totais.saidaFixasTotal ?? null,
+          saidaSomaSecoesPrincipais: b.data.totais.saidaSomaSecoesPrincipais ?? null,
+        },
+        blocos: b.data.blocos.map((bloco) => ({
+          tipo: bloco.tipo,
+          titulo: bloco.titulo,
+          ordem: bloco.ordem,
+          templateKey: bloco.templateKey ?? null,
+          isDefault: bloco.isDefault ?? false,
+          isCustom: bloco.isCustom ?? true,
+          lockedLevel: bloco.lockedLevel ?? 'none',
+          linhas: bloco.linhas.map((linha) => ({
+            label: linha.label,
+            valor: linha.valor ?? null,
+            valorTexto: linha.valorTexto ?? null,
+            ordem: linha.ordem,
+            templateKey: linha.templateKey ?? null,
+            isDefault: linha.isDefault ?? false,
+            isCustom: linha.isCustom ?? true,
+            lockedLevel: linha.lockedLevel ?? 'none',
+          })),
+        })),
+      },
+      'sistema_editor',
+      'sistema',
+    );
     if ('error' in persisted) return res.status(500).json({ error: persisted.error });
 
-    const result = await readControleCaixa(q.data.mes, q.data.ano);
+    const result = await readControleCaixa(q.data.mes, q.data.ano, 'sistema');
     if ('error' in result) return res.status(500).json({ error: result.error });
     return res.json(result.data);
   });

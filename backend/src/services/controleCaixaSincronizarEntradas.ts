@@ -3,14 +3,135 @@ import {
   calcularRepasse,
   ENTRADA_PARA_SAIDA_REPASSE,
 } from '../domain/entradas/repasseParceiros.js';
+import { stableEntradaTemplateKeyForLabel } from '../domain/entradas/categoriasEntrada.js';
 import {
   mesPermiteSincronizarEntradasRepasses,
   SYNC_ENTRADAS_REPASSE_BLOQUEADO_MSG,
 } from '../domain/entradas/syncEntradasRepassesEligible.js';
-import { readControleCaixa, type ControleCaixaReadDto } from './controleCaixaRead.js';
+import { estruturaControleCompleta } from '../domain/controleCaixa/mesAnterior.js';
+import { buildControleCaixaTemplate } from '../domain/controleCaixa/template.js';
+import {
+  loadControleCaixaExisting,
+  readControleCaixa,
+  type ControleCaixaReadDto,
+} from './controleCaixaRead.js';
+import { persistControleCaixaModo } from './controleCaixaPersist.js';
 import { buildEntradasContext } from './entradasClassificacaoService.js';
 import { getSupabase } from './supabaseClient.js';
 import { transacaoContaNaCompetencia } from './transacaoCompetenciaService.js';
+
+function linhaMatchKey(label: string, templateKey: string | null | undefined): string {
+  const tk = (templateKey ?? '').trim().toLowerCase();
+  if (tk) return `k:${tk}`;
+  return `l:${label.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim()}`;
+}
+
+/**
+ * Se o modo sistema está incompleto (ex.: só Entradas Parceiros após sync antigo),
+ * reconstitui a estrutura a partir do Oficial (planilha) ou do template, preservando
+ * valores já preenchidos no sistema quando o rótulo/chave coincidem.
+ */
+export function mergeEstruturaPreservandoValores(
+  estrutura: ControleCaixaReadDto,
+  valores: ControleCaixaReadDto,
+): ControleCaixaReadDto {
+  const valorByKey = new Map<string, { valor: number | null; valorTexto: string | null }>();
+  for (const b of valores.blocos) {
+    for (const l of b.linhas) {
+      valorByKey.set(linhaMatchKey(l.label, l.templateKey), {
+        valor: l.valor,
+        valorTexto: l.valorTexto,
+      });
+    }
+  }
+
+  return {
+    ...estrutura,
+    modo: 'sistema',
+    somenteLeitura: false,
+    origem: valores.origem || estrutura.origem,
+    updatedAt: valores.updatedAt ?? estrutura.updatedAt,
+    totais: { ...valores.totais },
+    blocos: estrutura.blocos.map((b) => ({
+      ...b,
+      id: b.id,
+      linhas: b.linhas.map((l) => {
+        const hit = valorByKey.get(linhaMatchKey(l.label, l.templateKey));
+        if (!hit) return { ...l };
+        return {
+          ...l,
+          valor: hit.valor,
+          valorTexto: hit.valorTexto,
+        };
+      }),
+    })),
+  };
+}
+
+async function ensureSistemaEstruturaCompleta(
+  mes: number,
+  ano: number,
+  data: ControleCaixaReadDto,
+): Promise<ControleCaixaReadDto> {
+  if (estruturaControleCompleta(data)) return data;
+
+  const oficial = await loadControleCaixaExisting(mes, ano, 'oficial');
+  if ('data' in oficial && estruturaControleCompleta(oficial.data)) {
+    return mergeEstruturaPreservandoValores(oficial.data, data);
+  }
+
+  const template = buildControleCaixaTemplate();
+  const asDto: ControleCaixaReadDto = {
+    mes,
+    ano,
+    modo: 'sistema',
+    modosDisponiveis: data.modosDisponiveis,
+    somenteLeitura: false,
+    existe: true,
+    abaRef: data.abaRef ?? template.abaRef,
+    origem: data.origem,
+    updatedAt: data.updatedAt,
+    totais: { ...data.totais },
+    blocos: template.blocos.map((b, bi) => ({
+      id: `tpl-b-${bi}`,
+      tipo: b.tipo,
+      titulo: b.titulo,
+      ordem: b.ordem,
+      templateKey: b.templateKey,
+      isDefault: b.isDefault,
+      isCustom: b.isCustom,
+      lockedLevel: b.lockedLevel,
+      linhas: b.linhas.map((l, li) => ({
+        id: `tpl-l-${bi}-${li}`,
+        label: l.label,
+        valor: l.valor,
+        valorTexto: l.valorTexto,
+        ordem: l.ordem,
+        templateKey: l.templateKey,
+        isDefault: l.isDefault,
+        isCustom: l.isCustom,
+        lockedLevel: l.lockedLevel,
+      })),
+    })),
+  };
+  return mergeEstruturaPreservandoValores(asDto, data);
+}
+
+/** Evita recriar Controle com template_key null (quebra mapeamentos sticky). */
+function ensureParceirosTemplateKeys(data: ControleCaixaReadDto): void {
+  for (const bloco of data.blocos) {
+    if (bloco.tipo !== 'entrada') continue;
+    const isParceiros =
+      bloco.templateKey === 'entrada_parceiros' || bloco.titulo.toLowerCase().includes('parceir');
+    if (!isParceiros) continue;
+    if (!bloco.templateKey) bloco.templateKey = 'entrada_parceiros';
+    for (const linha of bloco.linhas) {
+      if ((linha.templateKey ?? '').trim()) continue;
+      const stable = stableEntradaTemplateKeyForLabel(linha.label);
+      if (stable) linha.templateKey = stable;
+    }
+  }
+}
 
 function dataNoMes(dataIso: string, mes: number, ano: number): boolean {
   const m = String(dataIso).match(/^(\d{4})-(\d{2})/);
@@ -54,76 +175,9 @@ function dtoToSavePayload(data: ControleCaixaReadDto) {
   };
 }
 
-async function persistControleFromPayload(
-  mes: number,
-  ano: number,
-  payload: ReturnType<typeof dtoToSavePayload>,
-): Promise<{ ok: true } | { error: string }> {
-  const supabase = getSupabase();
-  if (!supabase) return { error: 'Supabase não configurado no backend.' };
-
-  const { data: periodo, error: periodoErr } = await supabase
-    .from('controle_caixa_periodos')
-    .upsert(
-      {
-        mes,
-        ano,
-        aba_ref: payload.abaRef ?? null,
-        entrada_total: payload.totais.entradaTotal ?? null,
-        saida_total: payload.totais.saidaTotal ?? null,
-        lucro_total: payload.totais.lucroTotal ?? null,
-        saida_parceiros_total: payload.totais.saidaParceirosTotal ?? null,
-        saida_fixas_total: payload.totais.saidaFixasTotal ?? null,
-        saida_soma_secoes_principais: payload.totais.saidaSomaSecoesPrincipais ?? null,
-        origem: 'sincronizar_entradas',
-      },
-      { onConflict: 'mes,ano' },
-    )
-    .select('id')
-    .single<{ id: string }>();
-  if (periodoErr || !periodo) return { error: periodoErr?.message ?? 'Falha ao salvar período.' };
-
-  const periodoId = periodo.id;
-  const delBlocos = await supabase.from('controle_caixa_blocos').delete().eq('periodo_id', periodoId);
-  if (delBlocos.error) return { error: delBlocos.error.message };
-
-  for (const bloco of payload.blocos) {
-    const { data: blocoRow, error: blocoErr } = await supabase
-      .from('controle_caixa_blocos')
-      .insert({
-        periodo_id: periodoId,
-        tipo: bloco.tipo,
-        titulo: bloco.titulo,
-        ordem: bloco.ordem,
-        template_key: bloco.templateKey ?? null,
-        is_default: bloco.isDefault ?? false,
-        is_custom: bloco.isCustom ?? true,
-        locked_level: bloco.lockedLevel ?? 'none',
-      })
-      .select('id')
-      .single<{ id: string }>();
-    if (blocoErr || !blocoRow) return { error: blocoErr?.message ?? 'Falha ao salvar bloco.' };
-    if (bloco.linhas.length === 0) continue;
-    const insLinhas = await supabase.from('controle_caixa_linhas').insert(
-      bloco.linhas.map((linha) => ({
-        bloco_id: blocoRow.id,
-        label: linha.label,
-        valor: linha.valor ?? null,
-        valor_texto: linha.valorTexto ?? null,
-        ordem: linha.ordem,
-        template_key: linha.templateKey ?? null,
-        is_default: linha.isDefault ?? false,
-        is_custom: linha.isCustom ?? true,
-        locked_level: linha.lockedLevel ?? 'none',
-      })),
-    );
-    if (insLinhas.error) return { error: insLinhas.error.message };
-  }
-  return { ok: true };
-}
-
 /**
  * Agrega extrato classificado → Entradas Parceiros; calcula Saídas Parceiros (repasse).
+ * Sempre grava no modo sistema — nunca altera o Oficial (planilha).
  */
 export async function sincronizarEntradasParceirosControle(
   mes: number,
@@ -137,7 +191,7 @@ export async function sincronizarEntradasParceirosControle(
   const supabase = getSupabase();
   if (!supabase) return { error: 'Supabase não configurado.' };
 
-  const readResult = await readControleCaixa(mes, ano);
+  const readResult = await readControleCaixa(mes, ano, 'sistema');
   if ('error' in readResult) return { error: readResult.error };
 
   const ctx = await buildEntradasContext(supabase, mes, ano);
@@ -154,14 +208,17 @@ export async function sincronizarEntradasParceirosControle(
     valoresPorTemplate.set(key, round2((valoresPorTemplate.get(key) ?? 0) + v));
   }
 
-  const data = readResult.data;
+  const data = await ensureSistemaEstruturaCompleta(mes, ano, readResult.data);
+  ensureParceirosTemplateKeys(data);
   for (const bloco of data.blocos) {
     if (bloco.templateKey !== 'entrada_parceiros' && !bloco.titulo.toLowerCase().includes('parceir')) continue;
     if (bloco.tipo !== 'entrada') continue;
     for (const linha of bloco.linhas) {
       const tKey = (linha.templateKey ?? '').trim();
       if (!tKey) continue;
-      const soma = valoresPorTemplate.get(tKey);
+      const soma =
+        valoresPorTemplate.get(tKey) ??
+        valoresPorTemplate.get(`linha:${linha.id}`);
       if (soma !== undefined) {
         linha.valor = soma;
         linha.valorTexto = 'extrato_classificado';
@@ -217,10 +274,10 @@ export async function sincronizarEntradasParceirosControle(
   };
 
   const payload = dtoToSavePayload(data);
-  const persisted = await persistControleFromPayload(mes, ano, payload);
+  const persisted = await persistControleCaixaModo(mes, ano, payload, 'sincronizar_entradas', 'sistema');
   if ('error' in persisted) return { error: persisted.error };
 
-  const again = await readControleCaixa(mes, ano);
+  const again = await readControleCaixa(mes, ano, 'sistema');
   if ('error' in again) return { error: again.error };
   return { ok: true, data: again.data };
 }

@@ -274,7 +274,8 @@ export interface ControleCaixaSavePayload {
 export async function getControleCaixa(
   mes: number,
   ano: number,
-  modo: ControleModo = 'sistema',
+  /** Default oficial = fechamento da planilha (evita cair no sistema incompleto). */
+  modo: ControleModo = 'oficial',
 ): Promise<ControleCaixaResponse> {
   const params = new URLSearchParams({ mes: String(mes), ano: String(ano), modo });
   return request<ControleCaixaResponse>(`/api/controle-caixa?${params.toString()}`);
