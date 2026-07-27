@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { usePersistedPageState } from '../hooks/usePersistedPageState';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Topbar } from '../app/Topbar';
 import { useMonthYear } from '../context/MonthYearContext';
@@ -95,7 +97,10 @@ function EntradasClassificarModal({
           blocoTitulo: c.blocoTitulo,
           blocoTemplateKey: c.blocoTemplateKey,
         })),
-        grupo.sugestao_fluxo?.label ?? grupo.match_aluguel?.label ?? grupo.sugestao?.label,
+        grupo.categoria_label ??
+          grupo.sugestao_fluxo?.label ??
+          grupo.match_aluguel?.label ??
+          grupo.sugestao?.label,
       ),
     [grupo, categoriasSegmento],
   );
@@ -123,15 +128,18 @@ function EntradasClassificarModal({
   });
 
   const saveMut = useMutation({
-    mutationFn: () =>
-      putEntradasMapeamento(mes, ano, {
+    mutationFn: () => {
+      const cat = categoriasSegmento.find((c) => c.templateKey === templateKey);
+      return putEntradasMapeamento(mes, ano, {
         pessoa_normalizada: grupo.pessoa_normalizada,
         template_key: templateKey,
+        categoria_label: cat?.label ?? grupo.categoria_label ?? undefined,
         subcategoria:
           grupo.modalidade && grupo.aba_fluxo
             ? `${grupo.aba_fluxo} · ${grupo.modalidade}`
             : grupo.modalidade ?? undefined,
-      }),
+      });
+    },
     onSuccess: () => {
       showToast('Categoria salva. Regra vale para meses futuros.', 'success');
       onSaved();
@@ -200,15 +208,67 @@ function EntradasClassificarModal({
   );
 }
 
+type EntradasNavPersisted = {
+  tab: TabId;
+  segmento: SegmentoEntrada;
+  filtroTipo: string;
+  visaoResumo: VisaoControle;
+};
+
+const ENTRADAS_NAV_INITIAL: EntradasNavPersisted = {
+  tab: 'pendentes',
+  segmento: 'mensalidades',
+  filtroTipo: '',
+  visaoResumo: 'caixa',
+};
+
+function patchEntradasNav<K extends keyof EntradasNavPersisted>(
+  setNav: Dispatch<SetStateAction<EntradasNavPersisted>>,
+  key: K,
+  value: SetStateAction<EntradasNavPersisted[K]>,
+) {
+  setNav((prev) => ({
+    ...prev,
+    [key]: typeof value === 'function'
+      ? (value as (prev: EntradasNavPersisted[K]) => EntradasNavPersisted[K])(prev[key])
+      : value,
+  }));
+}
+
 export function EntradasPage() {
   const { monthYear } = useMonthYear();
   const { mes, ano } = monthYear;
   const { showToast } = useToast();
-  const [tab, setTab] = useState<TabId>('pendentes');
-  const [segmento, setSegmento] = useState<SegmentoEntrada>('mensalidades');
-  const [filtroTipo, setFiltroTipo] = useState('');
+  const [nav, setNav] = usePersistedPageState('entradas', ENTRADAS_NAV_INITIAL);
+  const { tab, segmento, filtroTipo, visaoResumo } = nav;
+
+  const setTab = useCallback(
+    (value: SetStateAction<TabId>) => patchEntradasNav(setNav, 'tab', value),
+    [setNav],
+  );
+  const setSegmento = useCallback(
+    (value: SetStateAction<SegmentoEntrada>) => patchEntradasNav(setNav, 'segmento', value),
+    [setNav],
+  );
+  const setFiltroTipo = useCallback(
+    (value: SetStateAction<string>) => patchEntradasNav(setNav, 'filtroTipo', value),
+    [setNav],
+  );
+  const setVisaoResumo = useCallback(
+    (value: SetStateAction<VisaoControle>) => patchEntradasNav(setNav, 'visaoResumo', value),
+    [setNav],
+  );
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get('foco') !== 'pendentes') return;
+    setTab('pendentes');
+    const next = new URLSearchParams(searchParams);
+    next.delete('foco');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams, setTab]);
+
   const [modalGrupo, setModalGrupo] = useState<EntradaGrupo | null>(null);
-  const [visaoResumo, setVisaoResumo] = useState<VisaoControle>('caixa');
   const qc = useQueryClient();
 
   const invalidate = () => {
@@ -264,6 +324,7 @@ export function EntradasPage() {
         return putEntradasMapeamento(mes, ano, {
           pessoa_normalizada: g.pessoa_normalizada,
           template_key: g.sugestao_fluxo.template_key,
+          categoria_label: g.sugestao_fluxo.label ?? g.categoria_label ?? undefined,
           subcategoria:
             g.modalidade && g.aba_fluxo ? `${g.aba_fluxo} · ${g.modalidade}` : g.modalidade ?? undefined,
         });
@@ -345,7 +406,7 @@ export function EntradasPage() {
       if (!grupoVisivelNoSegmento(g, segmento)) return false;
       const key = resolveGrupoTemplateKey(g, categoriasOpcoes);
       const bloco = resolveGrupoBlocoTemplateKey(g, key, categoriasOpcoes);
-      return grupoPassaFiltroTipo(key, filtroTipo, bloco);
+      return grupoPassaFiltroTipo(key, filtroTipo, bloco, categoriasOpcoes);
     });
   }, [gruposQuery.data?.grupos, segmento, filtroTipo, categoriasOpcoes]);
 
@@ -361,8 +422,8 @@ export function EntradasPage() {
         meta: `${row.qtd_transacoes} lanç. · ${row.qtd_pagadores} pagador(es)`,
       })),
     }));
-    return filtrarPorCategoriaBlocos(blocos, filtroTipo);
-  }, [resumoQuery.data?.por_bloco, filtroTipo]);
+    return filtrarPorCategoriaBlocos(blocos, filtroTipo, categoriasOpcoes);
+  }, [resumoQuery.data?.por_bloco, filtroTipo, categoriasOpcoes]);
 
   const filtroTipoAtivo = Boolean(filtroTipo);
   const mostrarPendentePorCategoria =
@@ -401,9 +462,30 @@ export function EntradasPage() {
         >
           <p className="text-sm text-slate-600 dark:text-slate-400">
             {syncControlePermitido
-              ? 'Mensalidades classificadas em Entradas Parceiros sincronizam o Controle e calculam repasses. Aluguel/coworking vai para o bloco próprio (sem repasse automático).'
+              ? 'Ao classificar ou desvincular, o Controle Sistema atualiza sozinho (parceiros, aluguel e repasses). O que ainda estiver pendente abaixo não entra no fechamento até receber categoria.'
               : 'Neste mês o Controle permanece manual (até mai/2026). Você ainda pode classificar entradas e criar regras para os meses seguintes.'}
           </p>
+          {kpis && (kpis.qtd_grupos_pendentes ?? 0) > 0 ? (
+            <p className="mt-2 text-sm font-medium text-amber-800 dark:text-amber-200">
+              {kpis.qtd_grupos_pendentes} grupo{kpis.qtd_grupos_pendentes === 1 ? '' : 's'} ainda sem
+              categoria neste mês
+              {kpis.valor_pendente > 0
+                ? ` (${formatBrl(kpis.valor_pendente)})`
+                : ''}
+              .{' '}
+              <button
+                type="button"
+                className="underline font-semibold"
+                onClick={() => setTab('pendentes')}
+              >
+                Ver pendentes
+              </button>
+              {' · '}
+              <Link to="/controle-caixa" className="underline font-semibold">
+                Ir ao Controle
+              </Link>
+            </p>
+          ) : null}
           <ControleCaixaMesLink />
         </FilterBar>
       </div>
@@ -430,7 +512,7 @@ export function EntradasPage() {
             }`}
           >
             {v === 'caixa' ? 'Caixa (data PIX)' : 'Competência'}
-          </button>
+        </button>
         ))}
       </div>
 
@@ -509,9 +591,9 @@ export function EntradasPage() {
                     >
                       Reclassificar categoria…
                     </button>
-                  )}
-                </div>
-              </div>
+            )}
+          </div>
+        </div>
             );
           }}
         />

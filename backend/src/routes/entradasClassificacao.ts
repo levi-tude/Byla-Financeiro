@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import {
   resolveCategoriaEntradaInCatalog,
   loadCatalogoEntradasParceirosMes,
+  preferStableEntradaTemplateKey,
+  preferStableEntradaBlocoKey,
 } from '../domain/entradas/categoriasEntrada.js';
 import {
   buildResumoEntradasFromContext,
@@ -16,7 +18,7 @@ import {
 import { upsertCompetenciaTransacao } from '../services/transacaoCompetenciaService.js';
 import { resolveTransacoesGrupoPorKey } from '../logic/entradasVinculosGrupo.js';
 import { mesPermiteSincronizarEntradasRepasses } from '../domain/entradas/syncEntradasRepassesEligible.js';
-import { sincronizarEntradasParceirosControle } from '../services/controleCaixaSincronizarEntradas.js';
+import { sincronizarControleCaixaSistema } from '../services/controleCaixaSincronizarEntradas.js';
 import {
   loadMapeamentosEntradaRows,
   mapeamentoManualExtraFields,
@@ -226,7 +228,11 @@ export function createEntradasClassificacaoRouter(): Router {
       if (!parsed.ok) return res.status(400).json({ error: parsed.message });
 
       const catalog = await loadCatalogoEntradasParceirosMes(qMesAno.data.mes, qMesAno.data.ano);
-      const cat = resolveCategoriaEntradaInCatalog(catalog, parsed.data.template_key);
+      const cat = resolveCategoriaEntradaInCatalog(
+        catalog,
+        parsed.data.template_key,
+        parsed.data.categoria_label ?? null,
+      );
       if (!cat) {
         return res.status(400).json({
           error: 'template_key inválido: a linha deve existir em um bloco de entrada do Controle deste mês.',
@@ -243,8 +249,8 @@ export function createEntradasClassificacaoRouter(): Router {
         pessoa_normalizada,
         categoria: cat.label,
         subcategoria: parsed.data.subcategoria ?? null,
-        template_key: cat.templateKey,
-        bloco_template_key: cat.blocoTemplateKey,
+        template_key: preferStableEntradaTemplateKey(cat),
+        bloco_template_key: preferStableEntradaBlocoKey(cat),
         aplica_tipo: 'entrada' as const,
         ativo: true,
         ...mapeamentoManualExtraFields(),
@@ -265,7 +271,7 @@ export function createEntradasClassificacaoRouter(): Router {
       invalidateEntradasContextCache(qMesAno.data.mes, qMesAno.data.ano);
 
       if (mesPermiteSincronizarEntradasRepasses(qMesAno.data.mes, qMesAno.data.ano)) {
-        void sincronizarEntradasParceirosControle(qMesAno.data.mes, qMesAno.data.ano).catch(() => {});
+        void sincronizarControleCaixaSistema(qMesAno.data.mes, qMesAno.data.ano).catch(() => {});
       }
 
       res.json(data);
@@ -295,12 +301,16 @@ export function createEntradasClassificacaoRouter(): Router {
       if (parsed.data.confirmado !== undefined) patch.confirmado = parsed.data.confirmado;
       if (parsed.data.template_key) {
         const catalog = await loadCatalogoEntradasParceirosMes(qMesAno.data.mes, qMesAno.data.ano);
-        const cat = resolveCategoriaEntradaInCatalog(catalog, parsed.data.template_key);
+        const cat = resolveCategoriaEntradaInCatalog(
+          catalog,
+          parsed.data.template_key,
+          parsed.data.categoria_label ?? null,
+        );
         if (!cat) {
           return res.status(400).json({ error: 'template_key inválido para o Controle deste mês.' });
         }
-        patch.template_key = cat.templateKey;
-        patch.bloco_template_key = cat.blocoTemplateKey;
+        patch.template_key = preferStableEntradaTemplateKey(cat);
+        patch.bloco_template_key = preferStableEntradaBlocoKey(cat);
         patch.categoria = cat.label;
       }
       if (parsed.data.confirmado === true && !parsed.data.template_key) {
@@ -323,7 +333,7 @@ export function createEntradasClassificacaoRouter(): Router {
         mesPermiteSincronizarEntradasRepasses(qMesAno.data.mes, qMesAno.data.ano) &&
         (parsed.data.confirmado === true || parsed.data.template_key != null)
       ) {
-        void sincronizarEntradasParceirosControle(qMesAno.data.mes, qMesAno.data.ano).catch(() => {});
+        void sincronizarControleCaixaSistema(qMesAno.data.mes, qMesAno.data.ano).catch(() => {});
       }
 
       res.json(data);
@@ -350,7 +360,7 @@ export function createEntradasClassificacaoRouter(): Router {
       invalidateEntradasContextCache(qMesAno.data.mes, qMesAno.data.ano);
 
       if (mesPermiteSincronizarEntradasRepasses(qMesAno.data.mes, qMesAno.data.ano)) {
-        void sincronizarEntradasParceirosControle(qMesAno.data.mes, qMesAno.data.ano).catch(() => {});
+        void sincronizarControleCaixaSistema(qMesAno.data.mes, qMesAno.data.ano).catch(() => {});
       }
 
       res.json({ ok: true, id, pessoa_normalizada: removed.pessoa_normalizada });
@@ -365,7 +375,7 @@ export function createEntradasClassificacaoRouter(): Router {
       const parsed = parseQuery(mesAnoVisaoQuerySchema, req.query as Record<string, unknown>);
       if (!parsed.ok) return res.status(400).json({ error: parsed.message });
 
-      const result = await sincronizarEntradasParceirosControle(
+      const result = await sincronizarControleCaixaSistema(
         parsed.data.mes,
         parsed.data.ano,
         parsed.data.visao,

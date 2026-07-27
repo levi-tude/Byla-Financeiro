@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   agruparPorBlocoChave,
   FILTRO_TIPO_PENDENTE,
+  resolveTemplateKeyInCategorias,
   type CategoriaOpcao,
 } from './utils';
 import {
@@ -26,9 +27,14 @@ export function labelCategoriaFiltro(
   if (rest.startsWith('bloco:')) {
     const blocoKey = rest.slice('bloco:'.length);
     const bloco = agruparPorBlocoChave(cats).find((b) => b.blocoTemplateKey === blocoKey);
-    return bloco ? `Bloco — ${bloco.blocoTitulo}` : rest;
+    if (bloco) return `Bloco — ${bloco.blocoTitulo}`;
+    const byTitulo = cats.find((c) => c.blocoTemplateKey === blocoKey);
+    return byTitulo ? `Bloco — ${byTitulo.blocoTitulo}` : rest;
   }
-  return cats.find((c) => c.templateKey === rest)?.label ?? rest;
+  const direct = cats.find((c) => c.templateKey === rest)?.label;
+  if (direct) return direct;
+  const canon = resolveTemplateKeyInCategorias(rest, cats);
+  return cats.find((c) => c.templateKey === canon)?.label ?? rest;
 }
 
 /** Remove valores incompatíveis com o tipo de transação selecionado. */

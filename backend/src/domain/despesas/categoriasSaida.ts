@@ -1,3 +1,7 @@
+import {
+  LEGACY_SAIDA_FIXA_TEMPLATE_KEY_LABELS,
+  stableSaidaFixaTemplateKeyForLabel,
+} from '../controleCaixa/chavesEstaveis.js';
 import { buildControleCaixaTemplate } from '../controleCaixa/template.js';
 import { readControleCaixa, type ControleCaixaReadDto } from '../../services/controleCaixaRead.js';
 
@@ -37,7 +41,7 @@ export function catalogoSaidasFromControleData(data: ControleCaixaReadDto): Cate
     if (bloco.tipo !== 'saida') continue;
     const bKey = blocoTemplateKeyFrom(bloco.templateKey, bloco.id);
     for (const linha of bloco.linhas) {
-      out.push({
+      const raw: CategoriaSaidaLinha = {
         templateKey: linhaTemplateKey(linha.templateKey, linha.id),
         label: linha.label.trim(),
         blocoTemplateKey: bKey,
@@ -47,6 +51,12 @@ export function catalogoSaidasFromControleData(data: ControleCaixaReadDto): Cate
         linhaId: linha.id,
         blocoId: bloco.id,
         isCustom: linha.isCustom,
+      };
+      // Mesma regra das entradas: filtro/sticky usam chave estável (sai_parc_* / sai_fix_*).
+      out.push({
+        ...raw,
+        templateKey: preferStableSaidaTemplateKey(raw),
+        blocoTemplateKey: preferStableSaidaBlocoKey(raw),
       });
     }
   }
@@ -124,26 +134,90 @@ const LEGACY_SAIDA_TEMPLATE_KEY_LABELS: Record<string, string> = {
   sai_parc_teatro: 'Teatro',
   sai_parc_teatro_infantil: 'Teatro Infantil',
   sai_parc_bruna_gr: 'Bruna GR',
+  ...LEGACY_SAIDA_FIXA_TEMPLATE_KEY_LABELS,
 };
+
+const STABLE_SAIDA_PARCEIRO_BY_LABEL: Record<string, string> = {
+  dança: 'sai_parc_danca',
+  danca: 'sai_parc_danca',
+  yoga: 'sai_parc_yoga',
+  'pilates mari': 'sai_parc_pilates_mari',
+  pilates: 'sai_parc_pilates_mari',
+  teatro: 'sai_parc_teatro',
+  'teatro infantil': 'sai_parc_teatro_infantil',
+  'bruna gr': 'sai_parc_bruna_gr',
+};
+
+export function stableSaidaTemplateKeyForLabel(label: string): string | null {
+  const withCedilla = label.trim().toLowerCase();
+  const norm = withCedilla.normalize('NFD').replace(/\p{M}/gu, '');
+  return (
+    STABLE_SAIDA_PARCEIRO_BY_LABEL[withCedilla] ??
+    STABLE_SAIDA_PARCEIRO_BY_LABEL[norm] ??
+    stableSaidaFixaTemplateKeyForLabel(label) ??
+    null
+  );
+}
+
+export function isCategoriaSaidaParceiros(cat: Pick<CategoriaSaidaLinha, 'blocoTemplateKey' | 'blocoTitulo'>): boolean {
+  return (
+    cat.blocoTemplateKey === 'saida_parceiros' ||
+    cat.blocoTitulo.toLowerCase().includes('parceir')
+  );
+}
+
+export function isCategoriaSaidaFixas(cat: Pick<CategoriaSaidaLinha, 'blocoTemplateKey' | 'blocoTitulo'>): boolean {
+  const t = cat.blocoTitulo.toLowerCase();
+  return (
+    cat.blocoTemplateKey === 'saida_gastos_fixos' ||
+    t.includes('fixa') ||
+    t.includes('gastos fixos')
+  );
+}
+
+/** Preferência ao gravar regra sticky: chave estável (não `linha:uuid`). */
+export function preferStableSaidaTemplateKey(cat: CategoriaSaidaLinha): string {
+  const raw = (cat.templateKey ?? '').trim();
+  if (raw && !raw.startsWith('linha:') && !raw.startsWith('legado:')) return raw;
+  return stableSaidaTemplateKeyForLabel(cat.label) ?? raw;
+}
+
+export function preferStableSaidaBlocoKey(cat: CategoriaSaidaLinha): string {
+  const raw = (cat.blocoTemplateKey ?? '').trim();
+  if (raw && !raw.startsWith('bloco:')) return raw;
+  if (isCategoriaSaidaParceiros(cat)) return 'saida_parceiros';
+  if (isCategoriaSaidaFixas(cat)) return 'saida_gastos_fixos';
+  return raw;
+}
 
 export function resolveCategoriaInCatalog(
   catalog: CategoriaSaidaLinha[],
   templateKey: string,
+  labelHint?: string | null,
 ): CategoriaSaidaLinha | null {
   const key = templateKey.trim();
-  if (!key) return null;
+  if (!key) {
+    return labelHint ? findCategoriaInCatalogByLabel(catalog, labelHint) : null;
+  }
 
   const direct = findCategoriaInCatalog(catalog, key);
   if (direct) return direct;
 
   const legacyLabel = LEGACY_SAIDA_TEMPLATE_KEY_LABELS[key];
   if (legacyLabel) {
-    return findCategoriaInCatalogByLabel(catalog, legacyLabel);
+    const byLabel = findCategoriaInCatalogByLabel(catalog, legacyLabel);
+    if (byLabel) return byLabel;
   }
 
   if (key.startsWith('legado:')) {
     const labelGuess = key.slice('legado:'.length).replace(/_/g, ' ');
-    return findCategoriaInCatalogByLabel(catalog, labelGuess);
+    const byLegado = findCategoriaInCatalogByLabel(catalog, labelGuess);
+    if (byLegado) return byLegado;
+  }
+
+  if (labelHint) {
+    const byHint = findCategoriaInCatalogByLabel(catalog, labelHint);
+    if (byHint) return byHint;
   }
 
   return null;

@@ -1,4 +1,16 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  preferStableEntradaBlocoKey,
+  preferStableEntradaTemplateKey,
+  resolveCategoriaEntradaInCatalog,
+  type CategoriaEntradaLinha,
+} from '../domain/entradas/categoriasEntrada.js';
+import {
+  preferStableSaidaBlocoKey,
+  preferStableSaidaTemplateKey,
+  resolveCategoriaInCatalog,
+  type CategoriaSaidaLinha,
+} from '../domain/despesas/categoriasSaida.js';
 import { buildDespesasContext } from './despesasClassificacaoService.js';
 import { getEntradasContextCached } from './entradasClassificacaoService.js';
 import { transacaoContaNaCompetencia } from './transacaoCompetenciaService.js';
@@ -20,20 +32,68 @@ function dataNoMes(dataIso: string, mes: number, ano: number): boolean {
   return Number(m[1]) === ano && Number(m[2]) === mes;
 }
 
-function blocoFromCatalog(
-  catalog: Array<{ templateKey: string; blocoTemplateKey: string }>,
-  templateKey: string | null | undefined,
-): string | null {
-  if (!templateKey) return null;
-  return catalog.find((c) => c.templateKey === templateKey)?.blocoTemplateKey ?? null;
+function classificacaoEntradaDe(
+  t: Pick<CtxTransacao, 'origem_efetiva' | 'template_key_efetivo' | 'categoria_efetiva'>,
+  catalog: CategoriaEntradaLinha[],
+): ClassificacaoTransacao {
+  const classificado = t.origem_efetiva === 'mapeamento_manual' && Boolean(t.template_key_efetivo);
+  if (!classificado || !t.template_key_efetivo) {
+    return { template_key: null, categoria_label: null, bloco_template_key: null, classificado: false };
+  }
+  const resolved = resolveCategoriaEntradaInCatalog(catalog, t.template_key_efetivo, t.categoria_efetiva);
+  if (resolved) {
+    return {
+      template_key: preferStableEntradaTemplateKey(resolved),
+      categoria_label: classificado ? (t.categoria_efetiva ?? resolved.label) : null,
+      bloco_template_key: preferStableEntradaBlocoKey(resolved),
+      classificado: true,
+    };
+  }
+  return {
+    template_key: t.template_key_efetivo,
+    categoria_label: t.categoria_efetiva,
+    bloco_template_key: null,
+    classificado: true,
+  };
 }
 
-/** Mapa transacao_id → classificação efetiva (caixa no mês). */
-export async function mapClassificacaoPorId(
+function classificacaoSaidaDe(
+  t: Pick<CtxTransacao, 'origem_efetiva' | 'template_key_efetivo' | 'categoria_efetiva'>,
+  catalog: CategoriaSaidaLinha[],
+): ClassificacaoTransacao {
+  const classificado = t.origem_efetiva === 'mapeamento_manual' && Boolean(t.template_key_efetivo);
+  if (!classificado || !t.template_key_efetivo) {
+    return { template_key: null, categoria_label: null, bloco_template_key: null, classificado: false };
+  }
+  const resolved = resolveCategoriaInCatalog(catalog, t.template_key_efetivo, t.categoria_efetiva);
+  if (resolved) {
+    return {
+      template_key: preferStableSaidaTemplateKey(resolved),
+      categoria_label: t.categoria_efetiva ?? resolved.label,
+      bloco_template_key: preferStableSaidaBlocoKey(resolved),
+      classificado: true,
+    };
+  }
+  return {
+    template_key: t.template_key_efetivo,
+    categoria_label: t.categoria_efetiva,
+    bloco_template_key: null,
+    classificado: true,
+  };
+}
+
+export type ClassificacaoMesBundle = {
+  map: Map<string, ClassificacaoTransacao>;
+  catalogEntrada: CategoriaEntradaLinha[];
+  catalogSaida: CategoriaSaidaLinha[];
+};
+
+/** Mapa transacao_id → classificação efetiva (caixa no mês) + catálogos do Controle Sistema. */
+export async function buildClassificacaoMesBundle(
   supabase: SupabaseClient,
   mes: number,
   ano: number,
-): Promise<Map<string, ClassificacaoTransacao>> {
+): Promise<ClassificacaoMesBundle> {
   const map = new Map<string, ClassificacaoTransacao>();
   const [entCtx, despCtx] = await Promise.all([
     getEntradasContextCached(supabase, mes, ano),
@@ -42,31 +102,25 @@ export async function mapClassificacaoPorId(
 
   for (const t of entCtx.transacoes) {
     if (!dataNoMes(t.data, mes, ano)) continue;
-    const classificado = t.origem_efetiva === 'mapeamento_manual' && Boolean(t.template_key_efetivo);
-    map.set(t.id, {
-      template_key: classificado ? t.template_key_efetivo : null,
-      categoria_label: classificado ? t.categoria_efetiva : null,
-      bloco_template_key: classificado
-        ? blocoFromCatalog(entCtx.catalog, t.template_key_efetivo)
-        : null,
-      classificado,
-    });
+    map.set(t.id, classificacaoEntradaDe(t, entCtx.catalog));
   }
 
   for (const t of despCtx.transacoes) {
     if (!dataNoMes(t.data, mes, ano)) continue;
-    const classificado = t.origem_efetiva === 'mapeamento_manual' && Boolean(t.template_key_efetivo);
-    map.set(t.id, {
-      template_key: classificado ? t.template_key_efetivo : null,
-      categoria_label: classificado ? t.categoria_efetiva : null,
-      bloco_template_key: classificado
-        ? blocoFromCatalog(despCtx.catalog, t.template_key_efetivo)
-        : null,
-      classificado,
-    });
+    map.set(t.id, classificacaoSaidaDe(t, despCtx.catalog));
   }
 
-  return map;
+  return { map, catalogEntrada: entCtx.catalog, catalogSaida: despCtx.catalog };
+}
+
+/** Mapa transacao_id → classificação efetiva (caixa no mês). */
+export async function mapClassificacaoPorId(
+  supabase: SupabaseClient,
+  mes: number,
+  ano: number,
+): Promise<Map<string, ClassificacaoTransacao>> {
+  const bundle = await buildClassificacaoMesBundle(supabase, mes, ano);
+  return bundle.map;
 }
 
 export function parseCategoriaControleFiltro(raw: string | undefined): string | null {
@@ -103,6 +157,63 @@ export function parseCategoriasControleFiltro(
   }
   if (itens.length === 0) return { ok: true, filtro: null };
   return { ok: true, filtro: { modo, itens } };
+}
+
+/** Normaliza itens do filtro para chaves estáveis do catálogo Sistema do mês. */
+export function canonicalizeCategoriasControleFiltro(
+  filtro: CategoriasControleFiltro | null,
+  catalogEntrada: CategoriaEntradaLinha[],
+  catalogSaida: CategoriaSaidaLinha[],
+): CategoriasControleFiltro | null {
+  if (!filtro || filtro.itens.length === 0) return filtro;
+  const itens = filtro.itens.map((item) =>
+    canonicalizeFiltroItem(item, catalogEntrada, catalogSaida),
+  );
+  const unique: string[] = [];
+  for (const i of itens) {
+    if (!unique.includes(i)) unique.push(i);
+  }
+  return { modo: filtro.modo, itens: unique };
+}
+
+function canonicalizeFiltroItem(
+  item: string,
+  catalogEntrada: CategoriaEntradaLinha[],
+  catalogSaida: CategoriaSaidaLinha[],
+): string {
+  if (item === TRANSACOES_CATEGORIA_PENDENTE) return item;
+  const match = item.match(/^(entrada|saida)::(.+)$/);
+  if (!match) return item;
+  const familia = match[1] as 'entrada' | 'saida';
+  const keyPart = match[2];
+
+  if (keyPart.startsWith(TRANSACOES_BLOCO_PREFIX)) {
+    const blocoKey = keyPart.slice(TRANSACOES_BLOCO_PREFIX.length);
+    if (familia === 'entrada') {
+      const any =
+        catalogEntrada.find((c) => c.blocoTemplateKey === blocoKey) ??
+        catalogEntrada.find((c) => preferStableEntradaBlocoKey(c) === blocoKey) ??
+        catalogEntrada.find((c) => `bloco:${c.blocoId}` === blocoKey);
+      if (any) return `entrada::${TRANSACOES_BLOCO_PREFIX}${preferStableEntradaBlocoKey(any)}`;
+      return item;
+    }
+    const any =
+      catalogSaida.find((c) => c.blocoTemplateKey === blocoKey) ??
+      catalogSaida.find((c) => preferStableSaidaBlocoKey(c) === blocoKey) ??
+      catalogSaida.find((c) => `bloco:${c.blocoId}` === blocoKey);
+    if (any) return `saida::${TRANSACOES_BLOCO_PREFIX}${preferStableSaidaBlocoKey(any)}`;
+    return item;
+  }
+
+  if (familia === 'entrada') {
+    const resolved = resolveCategoriaEntradaInCatalog(catalogEntrada, keyPart);
+    if (resolved) return `entrada::${preferStableEntradaTemplateKey(resolved)}`;
+    return item;
+  }
+
+  const resolved = resolveCategoriaInCatalog(catalogSaida, keyPart);
+  if (resolved) return `saida::${preferStableSaidaTemplateKey(resolved)}`;
+  return item;
 }
 
 /**
@@ -146,10 +257,17 @@ export async function listarTransacoesPorCompetencia(
   supabase: SupabaseClient,
   mes: number,
   ano: number,
-): Promise<{ itens: TransacaoCompetenciaListada[]; classificacao: Map<string, ClassificacaoTransacao> }> {
+): Promise<{
+  itens: TransacaoCompetenciaListada[];
+  classificacao: Map<string, ClassificacaoTransacao>;
+  catalogEntrada: CategoriaEntradaLinha[];
+  catalogSaida: CategoriaSaidaLinha[];
+}> {
   const janelas = [shiftMesAno(mes, ano, -1), { mes, ano }, shiftMesAno(mes, ano, 1)];
   const porId = new Map<string, TransacaoCompetenciaListada>();
   const classificacao = new Map<string, ClassificacaoTransacao>();
+  let catalogEntrada: CategoriaEntradaLinha[] = [];
+  let catalogSaida: CategoriaSaidaLinha[] = [];
 
   for (const j of janelas) {
     const [entCtx, despCtx] = await Promise.all([
@@ -157,12 +275,17 @@ export async function listarTransacoesPorCompetencia(
       buildDespesasContext(supabase, j.mes, j.ano),
     ]);
 
+    if (j.mes === mes && j.ano === ano) {
+      catalogEntrada = entCtx.catalog;
+      catalogSaida = despCtx.catalog;
+    }
+
     for (const t of entCtx.transacoes) {
       if (!dataNoMes(t.data, j.mes, j.ano)) continue;
       if (porId.has(t.id)) continue;
       if (!transacaoContaNaCompetencia(t, mes, ano)) continue;
       porId.set(t.id, montarListada(t, 'entrada'));
-      classificacao.set(t.id, classificacaoDe(t, entCtx.catalog));
+      classificacao.set(t.id, classificacaoEntradaDe(t, entCtx.catalog));
     }
 
     for (const t of despCtx.transacoes) {
@@ -170,11 +293,11 @@ export async function listarTransacoesPorCompetencia(
       if (porId.has(t.id)) continue;
       if (!transacaoContaNaCompetencia(t, mes, ano)) continue;
       porId.set(t.id, montarListada(t, 'saida'));
-      classificacao.set(t.id, classificacaoDe(t, despCtx.catalog));
+      classificacao.set(t.id, classificacaoSaidaDe(t, despCtx.catalog));
     }
   }
 
-  return { itens: [...porId.values()], classificacao };
+  return { itens: [...porId.values()], classificacao, catalogEntrada, catalogSaida };
 }
 
 function shiftMesAno(mes: number, ano: number, delta: number): { mes: number; ano: number } {
@@ -222,19 +345,6 @@ function montarListada(t: CtxTransacao, tipo: 'entrada' | 'saida'): TransacaoCom
   };
 }
 
-function classificacaoDe(
-  t: Pick<CtxTransacao, 'origem_efetiva' | 'template_key_efetivo' | 'categoria_efetiva'>,
-  catalog: Array<{ templateKey: string; blocoTemplateKey: string }>,
-): ClassificacaoTransacao {
-  const classificado = t.origem_efetiva === 'mapeamento_manual' && Boolean(t.template_key_efetivo);
-  return {
-    template_key: classificado ? t.template_key_efetivo : null,
-    categoria_label: classificado ? t.categoria_efetiva : null,
-    bloco_template_key: classificado ? blocoFromCatalog(catalog, t.template_key_efetivo) : null,
-    classificado,
-  };
-}
-
 export function transacaoPassaFiltroCategoriaControle(
   txn: { id: string; tipo: 'entrada' | 'saida' },
   categoriaFiltro: string | null,
@@ -264,5 +374,36 @@ export function transacaoPassaFiltroCategoriaControle(
     return Boolean(blocoKey) && info.bloco_template_key === blocoKey;
   }
 
-  return info.template_key === keyPart;
+  if (info.template_key === keyPart) return true;
+
+  // Fallback: mesma categoria por rótulo (chave estável vs linha:uuid órfã).
+  if (info.categoria_label && info.template_key) {
+    const stableFromLabel =
+      familia === 'entrada'
+        ? preferStableEntradaTemplateKey({
+            templateKey: info.template_key,
+            label: info.categoria_label,
+            blocoTemplateKey: info.bloco_template_key ?? '',
+            blocoTitulo: '',
+            ordem: 0,
+            blocoOrdem: 0,
+            linhaId: '',
+            blocoId: '',
+            isCustom: false,
+          })
+        : preferStableSaidaTemplateKey({
+            templateKey: info.template_key,
+            label: info.categoria_label,
+            blocoTemplateKey: info.bloco_template_key ?? '',
+            blocoTitulo: '',
+            ordem: 0,
+            blocoOrdem: 0,
+            linhaId: '',
+            blocoId: '',
+            isCustom: false,
+          });
+    if (stableFromLabel === keyPart) return true;
+  }
+
+  return false;
 }

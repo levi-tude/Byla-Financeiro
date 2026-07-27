@@ -1,4 +1,5 @@
 import { stableEntradaTemplateKeyForLabel } from '../domain/entradas/categoriasEntrada.js';
+import { stableSaidaTemplateKeyForLabel } from '../domain/despesas/categoriasSaida.js';
 import {
   estruturaControleCompleta,
   precisaRepararEstruturaSistema,
@@ -18,23 +19,6 @@ function linhaMatchKey(label: string, templateKey: string | null | undefined): s
   return `l:${label.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim()}`;
 }
 
-const STABLE_SAIDA_PARCEIRO_BY_LABEL: Record<string, string> = {
-  dança: 'sai_parc_danca',
-  danca: 'sai_parc_danca',
-  yoga: 'sai_parc_yoga',
-  'pilates mari': 'sai_parc_pilates_mari',
-  pilates: 'sai_parc_pilates_mari',
-  teatro: 'sai_parc_teatro',
-  'teatro infantil': 'sai_parc_teatro_infantil',
-  'bruna gr': 'sai_parc_bruna_gr',
-};
-
-function stableSaidaParceiroKeyForLabel(label: string): string | null {
-  const withCedilla = label.trim().toLowerCase();
-  const norm = withCedilla.normalize('NFD').replace(/\p{M}/gu, '');
-  return STABLE_SAIDA_PARCEIRO_BY_LABEL[withCedilla] ?? STABLE_SAIDA_PARCEIRO_BY_LABEL[norm] ?? null;
-}
-
 function hydrateBlocoTemplateKeys(data: ControleCaixaReadDto): void {
   for (const bloco of data.blocos) {
     const titulo = bloco.titulo.toLowerCase();
@@ -52,6 +36,36 @@ function hydrateBlocoTemplateKeys(data: ControleCaixaReadDto): void {
       }
     }
   }
+}
+
+function isBlocoEntradaParceiros(bloco: ControleCaixaReadDto['blocos'][number]): boolean {
+  return (
+    bloco.templateKey === 'entrada_parceiros' ||
+    (bloco.tipo === 'entrada' && bloco.titulo.toLowerCase().includes('parceir'))
+  );
+}
+
+function isBlocoEntradaAluguel(bloco: ControleCaixaReadDto['blocos'][number]): boolean {
+  const t = bloco.titulo.toLowerCase();
+  return (
+    bloco.templateKey === 'entrada_aluguel_coworking' ||
+    (bloco.tipo === 'entrada' && (t.includes('aluguel') || t.includes('coworking')))
+  );
+}
+
+function isBlocoSaidaParceiros(bloco: ControleCaixaReadDto['blocos'][number]): boolean {
+  return (
+    bloco.templateKey === 'saida_parceiros' ||
+    (bloco.tipo === 'saida' && bloco.titulo.toLowerCase().includes('parceir'))
+  );
+}
+
+function isBlocoSaidaFixas(bloco: ControleCaixaReadDto['blocos'][number]): boolean {
+  const t = bloco.titulo.toLowerCase();
+  return (
+    bloco.templateKey === 'saida_gastos_fixos' ||
+    (bloco.tipo === 'saida' && (t.includes('fixa') || t.includes('gastos fixos')))
+  );
 }
 
 /**
@@ -85,7 +99,9 @@ export function mergeEstruturaPreservandoValores(
       id: b.id,
       linhas: b.linhas.map((l) => {
         const hit = valorByKey.get(linhaMatchKey(l.label, l.templateKey));
-        if (!hit) return { ...l };
+        // Estrutura (oficial/template) só empresta rótulos/chaves — valores vêm
+        // só do Sistema já preenchido. Sem match → linha vazia (não copia planilha).
+        if (!hit) return { ...l, valor: null, valorTexto: null };
         return {
           ...l,
           valor: hit.valor,
@@ -96,30 +112,42 @@ export function mergeEstruturaPreservandoValores(
   };
 }
 
-/** Evita recriar Controle com template_key null (quebra mapeamentos sticky). */
-export function ensureParceirosTemplateKeys(data: ControleCaixaReadDto): void {
+/**
+ * Garante chaves estáveis em Parceiros, Aluguel e Saídas Fixas (não só parceiros).
+ * Remapeia `templateKey` null/`linha:uuid` → chave estável pelo rótulo quando possível.
+ */
+export function ensureStableTemplateKeys(data: ControleCaixaReadDto): void {
   hydrateBlocoTemplateKeys(data);
   for (const bloco of data.blocos) {
-    const isParceiros =
-      bloco.templateKey === 'entrada_parceiros' ||
-      (bloco.tipo === 'entrada' && bloco.titulo.toLowerCase().includes('parceir'));
-    const isSaidaParceiros =
-      bloco.templateKey === 'saida_parceiros' ||
-      (bloco.tipo === 'saida' && bloco.titulo.toLowerCase().includes('parceir'));
-    if (!isParceiros && !isSaidaParceiros) continue;
-    if (isParceiros && !bloco.templateKey) bloco.templateKey = 'entrada_parceiros';
-    if (isSaidaParceiros && !bloco.templateKey) bloco.templateKey = 'saida_parceiros';
+    if (isBlocoEntradaParceiros(bloco) && !bloco.templateKey) bloco.templateKey = 'entrada_parceiros';
+    if (isBlocoEntradaAluguel(bloco) && !bloco.templateKey) bloco.templateKey = 'entrada_aluguel_coworking';
+    if (isBlocoSaidaParceiros(bloco) && !bloco.templateKey) bloco.templateKey = 'saida_parceiros';
+    if (isBlocoSaidaFixas(bloco) && !bloco.templateKey) bloco.templateKey = 'saida_gastos_fixos';
+
+    const wantsStable =
+      isBlocoEntradaParceiros(bloco) ||
+      isBlocoEntradaAluguel(bloco) ||
+      isBlocoSaidaParceiros(bloco) ||
+      isBlocoSaidaFixas(bloco);
+    if (!wantsStable) continue;
+
     for (const linha of bloco.linhas) {
-      if ((linha.templateKey ?? '').trim()) continue;
-      if (isParceiros) {
+      const raw = (linha.templateKey ?? '').trim();
+      if (raw && !raw.startsWith('linha:') && !raw.startsWith('legado:')) continue;
+      if (bloco.tipo === 'entrada') {
         const stable = stableEntradaTemplateKeyForLabel(linha.label);
         if (stable) linha.templateKey = stable;
       } else {
-        const stable = stableSaidaParceiroKeyForLabel(linha.label);
+        const stable = stableSaidaTemplateKeyForLabel(linha.label);
         if (stable) linha.templateKey = stable;
       }
     }
   }
+}
+
+/** @deprecated Use ensureStableTemplateKeys — mantido como alias. */
+export function ensureParceirosTemplateKeys(data: ControleCaixaReadDto): void {
+  ensureStableTemplateKeys(data);
 }
 
 function templateAsDto(
@@ -175,19 +203,19 @@ export async function ensureSistemaEstruturaCompleta(
   loadExisting: LoadExistingFn,
 ): Promise<{ data: ControleCaixaReadDto; repaired: boolean; fonte: 'ok' | 'oficial' | 'template' }> {
   if (!precisaRepararEstruturaSistema(data)) {
-    ensureParceirosTemplateKeys(data);
+    ensureStableTemplateKeys(data);
     return { data, repaired: false, fonte: 'ok' };
   }
 
   const oficial = await loadExisting(mes, ano, 'oficial');
   if ('data' in oficial && estruturaControleCompleta(oficial.data)) {
     const merged = mergeEstruturaPreservandoValores(oficial.data, data);
-    ensureParceirosTemplateKeys(merged);
+    ensureStableTemplateKeys(merged);
     return { data: merged, repaired: true, fonte: 'oficial' };
   }
 
   const merged = mergeEstruturaPreservandoValores(templateAsDto(mes, ano, data), data);
-  ensureParceirosTemplateKeys(merged);
+  ensureStableTemplateKeys(merged);
   return { data: merged, repaired: true, fonte: 'template' };
 }
 

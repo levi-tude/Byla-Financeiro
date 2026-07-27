@@ -3,6 +3,8 @@ import { getSupabase } from '../services/supabaseClient.js';
 import {
   resolveCategoriaInCatalog,
   loadCatalogoSaidasControleMes,
+  preferStableSaidaBlocoKey,
+  preferStableSaidaTemplateKey,
 } from '../domain/despesas/categoriasSaida.js';
 import {
   buildDespesasContext,
@@ -12,9 +14,11 @@ import {
   sugestaoHeuristicaParaGrupo,
   transacoesDespesaPorTemplateKey,
 } from '../services/despesasClassificacaoService.js';
-import { deleteMapeamentoById } from '../services/mapeamentoPessoaCategoriaQuery.js';
+import { deleteMapeamentoById, mapeamentoManualExtraFields } from '../services/mapeamentoPessoaCategoriaQuery.js';
 import { upsertCompetenciaTransacao } from '../services/transacaoCompetenciaService.js';
 import { normalizePessoa } from '../logic/normalizePessoa.js';
+import { mesPermiteSincronizarEntradasRepasses } from '../domain/entradas/syncEntradasRepassesEligible.js';
+import { sincronizarControleCaixaSistema } from '../services/controleCaixaSincronizarEntradas.js';
 import {
   competenciaPatchBodySchema,
   despesasGruposQuerySchema,
@@ -226,10 +230,11 @@ export function createDespesasClassificacaoRouter(): Router {
       const row = {
         pessoa_normalizada,
         categoria: cat.label,
-        template_key: cat.templateKey,
-        bloco_template_key: cat.blocoTemplateKey,
+        template_key: preferStableSaidaTemplateKey(cat),
+        bloco_template_key: preferStableSaidaBlocoKey(cat),
         aplica_tipo: 'saida' as const,
         ativo: true,
+        ...mapeamentoManualExtraFields(),
         updated_at: new Date().toISOString(),
       };
 
@@ -244,6 +249,10 @@ export function createDespesasClassificacaoRouter(): Router {
       if (error) {
         const status = error.code === '23505' ? 409 : 502;
         return res.status(status).json({ error: error.message });
+      }
+
+      if (mesPermiteSincronizarEntradasRepasses(qMesAno.data.mes, qMesAno.data.ano)) {
+        void sincronizarControleCaixaSistema(qMesAno.data.mes, qMesAno.data.ano).catch(() => {});
       }
 
       res.json(data);
@@ -275,8 +284,8 @@ export function createDespesasClassificacaoRouter(): Router {
         if (!cat) {
           return res.status(400).json({ error: 'template_key inválido para o Controle de Caixa deste mês.' });
         }
-        patch.template_key = cat.templateKey;
-        patch.bloco_template_key = cat.blocoTemplateKey;
+        patch.template_key = preferStableSaidaTemplateKey(cat);
+        patch.bloco_template_key = preferStableSaidaBlocoKey(cat);
         patch.categoria = cat.label;
       }
 
@@ -291,6 +300,13 @@ export function createDespesasClassificacaoRouter(): Router {
 
       if (error) return res.status(502).json({ error: error.message });
       if (!data) return res.status(404).json({ error: 'Mapeamento não encontrado.' });
+
+      if (
+        mesPermiteSincronizarEntradasRepasses(qMesAno.data.mes, qMesAno.data.ano) &&
+        parsed.data.template_key != null
+      ) {
+        void sincronizarControleCaixaSistema(qMesAno.data.mes, qMesAno.data.ano).catch(() => {});
+      }
 
       res.json(data);
     } catch (e) {
@@ -312,6 +328,10 @@ export function createDespesasClassificacaoRouter(): Router {
 
       const removed = await deleteMapeamentoById(supabase, id, ['saida', 'todos']);
       if (!removed) return res.status(404).json({ error: 'Mapeamento não encontrado.' });
+
+      if (mesPermiteSincronizarEntradasRepasses(qMesAno.data.mes, qMesAno.data.ano)) {
+        void sincronizarControleCaixaSistema(qMesAno.data.mes, qMesAno.data.ano).catch(() => {});
+      }
 
       res.json({ ok: true, id, pessoa_normalizada: removed.pessoa_normalizada });
     } catch (e) {

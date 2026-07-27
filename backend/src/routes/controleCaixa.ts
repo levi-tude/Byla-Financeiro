@@ -58,7 +58,7 @@ export default function createControleCaixaRouter(): Router {
     const q = parseQuery(controleModoQuerySchema, req.query as Record<string, unknown>);
     if (!q.ok) return res.status(400).json({ error: q.message });
 
-    const modo = parseModo(q.data.modo, 'oficial');
+    const modo = parseModo(q.data.modo, 'sistema');
     const result = await readControleCaixa(q.data.mes, q.data.ano, modo);
     if ('error' in result) return res.status(500).json({ error: result.error });
     return res.json(result.data);

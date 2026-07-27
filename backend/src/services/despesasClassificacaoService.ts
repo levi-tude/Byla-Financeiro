@@ -1,6 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   loadCatalogoSaidasControleMes,
+  preferStableSaidaTemplateKey,
+  resolveCategoriaInCatalog,
   type CategoriaSaidaLinha,
 } from '../domain/despesas/categoriasSaida.js';
 import { getEntidadesByla } from '../domain/funcionariosByla.js';
@@ -317,7 +319,12 @@ export function transacoesDespesaPorTemplateKey(
   if (templateKey === DESPESAS_CATEGORIA_PENDENTE_KEY) {
     return ctx.transacoes.filter((t) => t.origem_efetiva !== 'mapeamento_manual');
   }
-  return ctx.transacoes.filter(
-    (t) => t.origem_efetiva === 'mapeamento_manual' && t.template_key_efetivo === templateKey,
-  );
+  const target = resolveCategoriaInCatalog(ctx.catalog, templateKey);
+  const want = target ? preferStableSaidaTemplateKey(target) : templateKey.trim();
+  return ctx.transacoes.filter((t) => {
+    if (t.origem_efetiva !== 'mapeamento_manual' || !t.template_key_efetivo) return false;
+    if (t.template_key_efetivo === templateKey || t.template_key_efetivo === want) return true;
+    const resolved = resolveCategoriaInCatalog(ctx.catalog, t.template_key_efetivo, t.categoria_efetiva);
+    return resolved != null && preferStableSaidaTemplateKey(resolved) === want;
+  });
 }

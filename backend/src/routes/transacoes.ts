@@ -9,11 +9,13 @@ import {
 } from '../services/transacoesFiltro.js';
 import { parseQuery, transacoesQuerySchema } from '../validation/apiQuery.js';
 import {
+  buildClassificacaoMesBundle,
+  canonicalizeCategoriasControleFiltro,
   listarTransacoesPorCompetencia,
-  mapClassificacaoPorId,
   parseCategoriasControleFiltro,
   transacaoPassaFiltroCategorias,
   type ClassificacaoTransacao,
+  type CategoriasControleFiltro,
 } from '../services/transacoesClassificacaoMap.js';
 import { loadCompetenciasMap } from '../services/transacaoCompetenciaService.js';
 import { competenciaFromDataIso } from '../domain/competencia/competenciaTransacao.js';
@@ -84,7 +86,7 @@ router.get('/transacoes', async (req: Request, res: Response) => {
         itens: [],
       });
     }
-    const categoriasFiltro = parsedCats.filtro;
+    let categoriasFiltro: CategoriasControleFiltro | null = parsedCats.filtro;
     const supabase = getSupabase();
     if (!supabase) return res.status(503).json({ error: 'Supabase não configurado.', itens: [] });
 
@@ -92,8 +94,13 @@ router.get('/transacoes', async (req: Request, res: Response) => {
     let classificacaoMap: Map<string, ClassificacaoTransacao> | null = null;
 
     if (visao === 'competencia') {
-      const { itens, classificacao } = await listarTransacoesPorCompetencia(supabase, mes, ano);
+      const { itens, classificacao, catalogEntrada, catalogSaida } = await listarTransacoesPorCompetencia(
+        supabase,
+        mes,
+        ano,
+      );
       classificacaoMap = classificacao;
+      categoriasFiltro = canonicalizeCategoriasControleFiltro(categoriasFiltro, catalogEntrada, catalogSaida);
       const baseComp = tipo === 'todos' ? itens : itens.filter((t) => t.tipo === tipo);
       comMetodo = baseComp.map((t) => {
         const metodoRaw = inferirMetodoRaw(t.pessoa, t.descricao);
@@ -147,7 +154,14 @@ router.get('/transacoes', async (req: Request, res: Response) => {
         };
       });
 
-      classificacaoMap = categoriasFiltro ? await mapClassificacaoPorId(supabase, mes, ano) : null;
+      // Sempre carrega classificação do Controle Sistema (rótulos + filtro alinhado às chaves estáveis).
+      const bundle = await buildClassificacaoMesBundle(supabase, mes, ano);
+      classificacaoMap = bundle.map;
+      categoriasFiltro = canonicalizeCategoriasControleFiltro(
+        categoriasFiltro,
+        bundle.catalogEntrada,
+        bundle.catalogSaida,
+      );
     }
 
     const qNorm = (q ?? '').trim().toLowerCase();

@@ -1,3 +1,7 @@
+import {
+  LEGACY_ENTRADA_ALUGUEL_TEMPLATE_KEY_LABELS,
+  stableEntradaAluguelTemplateKeyForLabel,
+} from '../controleCaixa/chavesEstaveis.js';
 import { buildControleCaixaTemplate } from '../controleCaixa/template.js';
 import { readControleCaixa, type ControleCaixaReadDto } from '../../services/controleCaixaRead.js';
 import {
@@ -24,7 +28,7 @@ export function catalogoEntradasFromControleData(data: ControleCaixaReadDto): Ca
     if (bloco.tipo !== 'entrada') continue;
     const bKey = blocoTemplateKeyFrom(bloco.templateKey, bloco.id);
     for (const linha of bloco.linhas) {
-      out.push({
+      const raw: CategoriaEntradaLinha = {
         templateKey: linhaTemplateKey(linha.templateKey, linha.id),
         label: linha.label.trim(),
         blocoTemplateKey: bKey,
@@ -34,6 +38,13 @@ export function catalogoEntradasFromControleData(data: ControleCaixaReadDto): Ca
         linhaId: linha.id,
         blocoId: bloco.id,
         isCustom: linha.isCustom,
+      };
+      // Filtro Transações / sticky: sempre expor chave estável quando o rótulo for conhecido
+      // (evita `entrada::linha:uuid` ≠ `ent_parc_*` gravado no mapeamento).
+      out.push({
+        ...raw,
+        templateKey: preferStableEntradaTemplateKey(raw),
+        blocoTemplateKey: preferStableEntradaBlocoKey(raw),
       });
     }
   }
@@ -94,6 +105,7 @@ export const LEGACY_ENTRADA_TEMPLATE_KEY_LABELS: Record<string, string> = {
   ent_parc_teatro: 'Teatro',
   ent_parc_teatro_infantil: 'Teatro Infantil',
   ent_parc_bruna_gr: 'Bruna GR',
+  ...LEGACY_ENTRADA_ALUGUEL_TEMPLATE_KEY_LABELS,
 };
 
 /** Preferência ao gravar regra: chave estável (não `linha:uuid` que morre no próximo sync). */
@@ -114,12 +126,13 @@ export function stableEntradaTemplateKeyForLabel(label: string): string | null {
   return (
     STABLE_ENTRADA_KEY_BY_LABEL[withCedilla] ??
     STABLE_ENTRADA_KEY_BY_LABEL[norm] ??
+    stableEntradaAluguelTemplateKeyForLabel(label) ??
     null
   );
 }
 
 /**
- * Se a linha do catálogo só tem `linha:uuid`, devolve a chave estável do parceiro quando o rótulo for conhecido.
+ * Se a linha do catálogo só tem `linha:uuid`, devolve a chave estável do parceiro/aluguel quando o rótulo for conhecido.
  * Assim o mapeamento sobrevive a recriação do Controle.
  */
 export function preferStableEntradaTemplateKey(cat: CategoriaEntradaLinha): string {

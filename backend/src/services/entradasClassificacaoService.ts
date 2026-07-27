@@ -6,11 +6,13 @@ import {
 } from '../domain/entradas/aluguelCoworkingMatch.js';
 import {
   loadCatalogoEntradasParceirosMes,
+  preferStableEntradaTemplateKey,
+  resolveCategoriaEntradaInCatalog,
   resolveHintNoCatalogo,
   type CategoriaEntradaLinha,
 } from '../domain/entradas/categoriasEntrada.js';
 import { linhaTemplateKey } from '../domain/despesas/categoriasSaida.js';
-import { readControleCaixa } from './controleCaixaRead.js';
+import { loadControleCaixaPreferindo } from './controleCaixaRead.js';
 import { isNameCompatible } from '../logic/conciliacaoTexto.js';
 import {
   buildGruposEntrada,
@@ -152,7 +154,8 @@ export type EntradasClassificacaoContext = {
 };
 
 async function loadValoresAluguelControle(mes: number, ano: number): Promise<Map<string, number>> {
-  const result = await readControleCaixa(mes, ano);
+  // Prefere oficial (planilha); se não houver, usa sistema.
+  const result = await loadControleCaixaPreferindo(mes, ano, 'oficial');
   const map = new Map<string, number>();
   if ('error' in result) return map;
   for (const bloco of result.data.blocos) {
@@ -612,7 +615,16 @@ export function transacoesEntradaPorTemplateKey(
   if (templateKey === ENTRADAS_CATEGORIA_PENDENTE_KEY) {
     return ctx.transacoes.filter((t) => t.origem_efetiva !== 'mapeamento_manual');
   }
-  return ctx.transacoes.filter(
-    (t) => t.origem_efetiva === 'mapeamento_manual' && t.template_key_efetivo === templateKey,
-  );
+  const target = resolveCategoriaEntradaInCatalog(ctx.catalog, templateKey);
+  const want = target ? preferStableEntradaTemplateKey(target) : templateKey.trim();
+  return ctx.transacoes.filter((t) => {
+    if (t.origem_efetiva !== 'mapeamento_manual' || !t.template_key_efetivo) return false;
+    if (t.template_key_efetivo === templateKey || t.template_key_efetivo === want) return true;
+    const resolved = resolveCategoriaEntradaInCatalog(
+      ctx.catalog,
+      t.template_key_efetivo,
+      t.categoria_efetiva,
+    );
+    return resolved != null && preferStableEntradaTemplateKey(resolved) === want;
+  });
 }

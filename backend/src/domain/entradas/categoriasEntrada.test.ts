@@ -67,6 +67,21 @@ describe('catalogoEntradasFromControleData', () => {
     assert.ok(parceiros.some((c) => c.label === 'Dança'));
     assert.ok(aluguel.some((c) => c.label === 'Neto (SBA)'));
     assert.ok(parceiros.some((c) => c.templateKey === 'ent_parc_danca'));
+    assert.ok(aluguel.some((c) => c.templateKey === 'ent_alug_neto_sba'));
+  });
+
+  it('catalogoEntradasFromControleData reescreve linha:uuid → ent_parc_* / ent_alug_*', () => {
+    const base = fakeControleFromTemplate();
+    for (const bloco of base.blocos) {
+      if (bloco.tipo !== 'entrada') continue;
+      for (const linha of bloco.linhas) {
+        linha.templateKey = null;
+      }
+    }
+    const catalog = catalogoEntradasFromControleData(base);
+    assert.ok(catalog.some((c) => c.templateKey === 'ent_parc_danca'));
+    assert.ok(catalog.some((c) => c.templateKey === 'ent_alug_neto_sba'));
+    assert.ok(catalog.every((c) => !c.templateKey.startsWith('linha:') || c.isCustom));
   });
 
   it('resolveCategoriaEntradaInCatalog aceita chave legada ent_parc_* com linha:uuid no catálogo', () => {

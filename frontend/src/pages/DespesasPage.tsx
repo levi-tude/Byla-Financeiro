@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Topbar } from '../app/Topbar';
 import { useMonthYear } from '../context/MonthYearContext';
@@ -145,10 +146,20 @@ export function DespesasPage() {
   const [visaoResumo, setVisaoResumo] = useState<VisaoControle>('caixa');
   const qc = useQueryClient();
 
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get('foco') !== 'pendentes') return;
+    setTab('pendentes');
+    const next = new URLSearchParams(searchParams);
+    next.delete('foco');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['despesas-resumo', mes, ano] });
     void qc.invalidateQueries({ queryKey: ['despesas-grupos', mes, ano] });
     void qc.invalidateQueries({ queryKey: ['overview-despesas-categorias', mes, ano] });
+    void qc.invalidateQueries({ queryKey: ['controle-caixa', mes, ano] });
   };
 
   const resumoQuery = useQuery({
@@ -249,7 +260,7 @@ export function DespesasPage() {
     return lista.filter((g) => {
       const key = resolveGrupoTemplateKey(g, categoriasOpcoes);
       const bloco = resolveGrupoBlocoTemplateKey(g, key, categoriasOpcoes);
-      return grupoPassaFiltroTipo(key, filtroTipo, bloco);
+      return grupoPassaFiltroTipo(key, filtroTipo, bloco, categoriasOpcoes);
     });
   }, [gruposQuery.data?.grupos, filtroTipo, categoriasOpcoes]);
 
@@ -267,8 +278,8 @@ export function DespesasPage() {
         }`,
       })),
     }));
-    return filtrarPorCategoriaBlocos(blocos, filtroTipo);
-  }, [resumoQuery.data?.por_bloco, filtroTipo]);
+    return filtrarPorCategoriaBlocos(blocos, filtroTipo, categoriasOpcoes);
+  }, [resumoQuery.data?.por_bloco, filtroTipo, categoriasOpcoes]);
 
   const filtroTipoAtivo = Boolean(filtroTipo);
   const mostrarPendentePorCategoria =
@@ -284,9 +295,30 @@ export function DespesasPage() {
           subtitle="Categorias = linhas de saída do Controle de Caixa deste mês (inclui linhas custom)"
         >
           <p className="text-sm text-slate-600 dark:text-slate-400">
-            O que aparece no dropdown é o mesmo que você vê em Controle de Caixa. Se renomear ou criar uma linha lá,
-            ela aparece aqui após recarregar o mês.
+            O que aparece no dropdown é o mesmo que você vê em Controle de Caixa. Ao classificar ou desvincular,
+            as Saídas Fixas do Controle Sistema atualizam sozinhas (repasses de parceiros vêm das Entradas, não daqui).
           </p>
+          {resumoQuery.data?.kpis && resumoQuery.data.kpis.qtd_destinatarios_pendentes > 0 ? (
+            <p className="mt-2 text-sm font-medium text-amber-800 dark:text-amber-200">
+              {resumoQuery.data.kpis.qtd_destinatarios_pendentes} destinatário
+              {resumoQuery.data.kpis.qtd_destinatarios_pendentes === 1 ? '' : 's'} ainda sem categoria
+              {resumoQuery.data.kpis.valor_pendente > 0
+                ? ` (${formatBrl(resumoQuery.data.kpis.valor_pendente)})`
+                : ''}
+              .{' '}
+              <button
+                type="button"
+                className="underline font-semibold"
+                onClick={() => setTab('pendentes')}
+              >
+                Ver pendentes
+              </button>
+              {' · '}
+              <Link to="/controle-caixa" className="underline font-semibold">
+                Ir ao Controle
+              </Link>
+            </p>
+          ) : null}
           <ControleCaixaMesLink />
         </FilterBar>
               </div>
