@@ -90,6 +90,7 @@ function confiancaFromScore(score: number): 'alta' | 'media' | 'baixa' {
 
 /**
  * Sugere linha de Aluguel/Coworking a partir do nome do pagador e valor vs Controle.
+ * Exige evidência de nome — valor sozinho (ex.: mensalidade ≈ aluguel do Controle) não basta.
  */
 export function matchAluguelCoworkingParaPagador(
   pessoaExibida: string,
@@ -104,6 +105,9 @@ export function matchAluguelCoworkingParaPagador(
 
   for (const cat of linhas) {
     const nome = scoreNomePagador(pessoaExibida, cat.label);
+    // Sem token de nome, não sugerir aluguel (evita misturar mensalidade com locação).
+    if (nome.score < 3) continue;
+
     const valor = scoreValor(totalMes, valoresControle.get(cat.templateKey));
     const score = nome.score + valor.score;
     if (score < 5) continue;
@@ -137,6 +141,7 @@ export function resolverSegmentoEntradaGrupo(input: {
   const titulo = (input.bloco_titulo ?? '').toLowerCase();
   const bloco = (input.bloco_template_key ?? '').trim();
 
+  // Categoria já escolhida (sticky / classificado) manda no bloco — não heurística.
   if (bloco === 'entrada_aluguel_coworking' || titulo.includes('aluguel') || titulo.includes('coworking')) {
     return 'aluguel_coworking';
   }
@@ -144,12 +149,11 @@ export function resolverSegmentoEntradaGrupo(input: {
     return 'mensalidades';
   }
 
+  // Sinais de mensalidade (Fluxo / Validação) prevalecem sobre match frágil de aluguel.
   if (input.aba_fluxo || input.aluno_nome) return 'mensalidades';
+  if (input.sugestao_fluxo?.template_key) return 'mensalidades';
 
-  if (input.sugestao_fluxo?.template_key) {
-    return 'mensalidades';
-  }
-
+  // Só segmenta como aluguel com match que já exigiu nome (score ≥ 5 após nome≥3).
   if (input.match_aluguel && input.match_aluguel.score >= 5) {
     return 'aluguel_coworking';
   }

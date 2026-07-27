@@ -4,9 +4,11 @@ import {
   isCategoriaEntradaAluguelCoworking,
   isCategoriaEntradaParceiros,
   loadCatalogoEntradasControleMes,
+  preferStableEntradaBlocoKey,
+  preferStableEntradaTemplateKey,
   resolveHintNoCatalogo,
 } from '../domain/entradas/categoriasEntrada.js';
-import { normalizePessoa } from '../logic/normalizePessoa.js';
+import { pessoaNormParaMapeamentoEntrada } from '../logic/entradasVinculosGrupo.js';
 import type { MapeamentoRow } from '../logic/despesasMapeamento.js';
 import { listVinculosMes, findVinculoByPlanilhaId } from './validacaoVinculos.js';
 import {
@@ -63,8 +65,12 @@ async function templateKeysVinculosMesmoPagador(
     const fluxo = await loadFluxoPagamento(supabase, v.planilha_id);
     if (!fluxo) continue;
     const bancoPessoa = await loadBancoPessoa(supabase, v.banco_id);
-    const pagadorRaw = (fluxo.pagador_pix ?? '').trim() || bancoPessoa || '';
-    const pn = normalizePessoa(pagadorRaw);
+    const pn = pessoaNormParaMapeamentoEntrada({
+      bancoPessoa,
+      pagadorPix: fluxo.pagador_pix,
+      aluno: fluxo.aluno_nome,
+      fallbackId: fluxo.id,
+    });
     if (pn !== pessoaNorm) continue;
     const hint = hintAbaFluxoParaControle(fluxo.aba, fluxo.modalidade);
     if (hint) keys.push(hint.templateKeyPreferido);
@@ -108,7 +114,8 @@ export type SugestaoFluxoResult = {
 };
 
 /**
- * Ao vincular PIX ↔ linha do fluxo no Pagamento dia a dia, grava sugestão em mapeamento (confirmado=false).
+ * Ao vincular PIX ↔ linha do fluxo no Pagamento dia a dia, grava sugestão em mapeamento.
+ * (confirmado=true via mapeamentoFluxoExtraFields — classificação sticky entre meses.)
  */
 export async function aplicarSugestaoMapeamentoFromVinculos(
   supabase: SupabaseClient,
@@ -132,8 +139,13 @@ export async function aplicarSugestaoMapeamentoFromVinculos(
       continue;
     }
 
-    const pagadorRaw = (fluxo.pagador_pix ?? '').trim() || bancoPessoa;
-    const pessoaNorm = normalizePessoa(pagadorRaw);
+    // Mesma chave que Classificação de Entradas (extrato primeiro — não só pagador_pix do Fluxo).
+    const pessoaNorm = pessoaNormParaMapeamentoEntrada({
+      bancoPessoa,
+      pagadorPix: fluxo.pagador_pix,
+      aluno: fluxo.aluno_nome,
+      fallbackId: fluxo.id,
+    });
     if (!pessoaNorm) {
       result.ignorados += 1;
       continue;
@@ -192,8 +204,8 @@ export async function aplicarSugestaoMapeamentoFromVinculos(
       pessoa_normalizada: pessoaNorm,
       categoria: cat.label,
       subcategoria,
-      template_key: cat.templateKey,
-      bloco_template_key: cat.blocoTemplateKey,
+      template_key: preferStableEntradaTemplateKey(cat),
+      bloco_template_key: preferStableEntradaBlocoKey(cat),
       aplica_tipo: 'entrada' as const,
       ativo: true,
       ...mapeamentoFluxoExtraFields(),
@@ -255,8 +267,12 @@ export async function revogarSugestaoMapeamentoFromVinculo(
   const { mes, ano } = vinculoRemovido;
   const vinculos = await listVinculosMes(mes, ano);
   const bancoPessoa = await loadBancoPessoa(supabase, vinculoRemovido.banco_id);
-  const pagadorRaw = (fluxo.pagador_pix ?? '').trim() || bancoPessoa || '';
-  const pessoaNorm = normalizePessoa(pagadorRaw);
+  const pessoaNorm = pessoaNormParaMapeamentoEntrada({
+    bancoPessoa,
+    pagadorPix: fluxo.pagador_pix,
+    aluno: fluxo.aluno_nome,
+    fallbackId: fluxo.id,
+  });
   if (!pessoaNorm) return;
 
   const outrosVinculosMesmoPagador = await Promise.all(
@@ -266,7 +282,12 @@ export async function revogarSugestaoMapeamentoFromVinculo(
         const f = await loadFluxoPagamento(supabase, v.planilha_id);
         if (!f) return false;
         const bp = await loadBancoPessoa(supabase, v.banco_id);
-        const pn = normalizePessoa((f.pagador_pix ?? '').trim() || bp || '');
+        const pn = pessoaNormParaMapeamentoEntrada({
+          bancoPessoa: bp,
+          pagadorPix: f.pagador_pix,
+          aluno: f.aluno_nome,
+          fallbackId: f.id,
+        });
         return pn === pessoaNorm;
       }),
   );

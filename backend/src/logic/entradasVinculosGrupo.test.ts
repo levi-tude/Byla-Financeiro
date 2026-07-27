@@ -31,6 +31,62 @@ describe('pagadorNormParaMapeamento', () => {
     } as PlanilhaItem;
     assert.equal(pagadorNormParaMapeamento(txn, fluxo), 'vicente de andrade');
   });
+
+  it('prefere extrato mesmo quando pagador_pix do Fluxo é outro nome', () => {
+    const txn = {
+      pessoa: 'Carlos Pagador Extrato',
+    } as TransacaoEntradaClassificada;
+    const fluxo = {
+      aluno: 'Ana Aluna Ficticia',
+      pagadorPix: 'Ana Aluna Ficticia',
+      responsaveis: [],
+    } as PlanilhaItem;
+    assert.equal(pagadorNormParaMapeamento(txn, fluxo), 'carlos pagador extrato');
+  });
+
+  it('grupo com vínculo Dança recebe sugestão inline de categoria', () => {
+    const txn: TransacaoEntradaClassificada = {
+      id: 'pix-2',
+      data: '2026-07-10',
+      pessoa: 'Bruno Pagador Ficticio',
+      valor: 200,
+      descricao: 'PIX',
+      categoria_sugerida: null,
+      origem_categoria: null,
+      modalidade: null,
+      nome_aluno: null,
+      pessoa_normalizada: 'bruno pagador ficticio',
+      categoria_efetiva: null,
+      template_key_efetivo: null,
+      origem_efetiva: 'pendente',
+    };
+    const fluxo: PlanilhaItem = {
+      id: 'fluxo::f2',
+      aba: 'BYLA DANÇA',
+      modalidade: 'Adulto',
+      aluno: 'Clara Aluna Ficticia',
+      linha: 2,
+      data: '2026-07-10',
+      forma: 'pix',
+      valor: 200,
+      mesCompetencia: 7,
+      anoCompetencia: 2026,
+      responsaveis: [],
+    };
+    const { grupos } = buildGruposPixComVinculos(
+      [txn],
+      [{ id: 'v2', data_ref: '2026-07-10', mes: 7, ano: 2026, banco_id: 'pix-2', planilha_id: 'fluxo::f2', observacao: null }],
+      new Map([['fluxo::f2', fluxo]]),
+      [],
+      7,
+      2026,
+      catalog,
+    );
+    assert.equal(grupos[0]?.sugestao_fluxo?.label, 'Dança');
+    assert.equal(grupos[0]?.sugestao_fluxo?.template_key, 'ent_parc_danca');
+    assert.equal(grupos[0]?.regra_pendente_confirmacao, true);
+    assert.equal(grupos[0]?.estado, 'pendente');
+  });
 });
 
 describe('buildGruposPixComVinculos', () => {

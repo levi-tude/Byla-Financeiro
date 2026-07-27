@@ -22,19 +22,46 @@ export function indexVinculosPorBanco(vinculos: VinculoPagamento[]): Map<string,
   return map;
 }
 
-/** Pagador da regra em Entradas = quem aparece no extrato (ex.: Vicente), não só o aluno. */
+/**
+ * Chave sticky de Entradas = quem aparece no extrato (ex.: pagador do banco), não o aluno do Fluxo.
+ * Mesma regra ao gravar sugestão na Validação e ao agrupar em Classificação de Entradas.
+ */
+export function pessoaNormParaMapeamentoEntrada(opts: {
+  bancoPessoa?: string | null;
+  pagadorPix?: string | null;
+  responsaveis?: string[] | null;
+  aluno?: string | null;
+  fallbackId?: string | null;
+}): string {
+  const fromBanco = (opts.bancoPessoa ?? '').trim();
+  if (fromBanco && !isNomeGenericoMaquininha(fromBanco)) {
+    return normalizePessoa(fromBanco);
+  }
+  const candidatos = [
+    opts.pagadorPix,
+    ...(opts.responsaveis ?? []),
+    opts.aluno,
+  ].filter(Boolean) as string[];
+  for (const c of candidatos) {
+    const t = c.trim();
+    if (t && !isNomeGenericoMaquininha(t)) return normalizePessoa(t);
+  }
+  if (fromBanco) return normalizePessoa(fromBanco);
+  return normalizePessoa(opts.aluno || opts.fallbackId || '');
+}
+
+/** Pagador da regra em Entradas = quem aparece no extrato (ex.: pagador do banco), não só o aluno. */
 export function pagadorNormParaMapeamento(
   txn: TransacaoEntradaClassificada,
   fluxo: PlanilhaItem,
 ): string {
-  const fromBanco = normalizePessoa(txn.pessoa);
-  if (fromBanco && !isNomeGenericoMaquininha(txn.pessoa)) return fromBanco;
-  const candidatos = [fluxo.pagadorPix, ...(fluxo.responsaveis ?? []), fluxo.aluno].filter(Boolean) as string[];
-  for (const c of candidatos) {
-    const n = normalizePessoa(c);
-    if (n && !isNomeGenericoMaquininha(c)) return n;
-  }
-  return fromBanco || normalizePessoa(fluxo.aluno || fluxo.id);
+  return pessoaNormParaMapeamentoEntrada({
+    bancoPessoa: txn.pessoa,
+    pagadorPix: fluxo.pagadorPix,
+    responsaveis: fluxo.responsaveis ?? [],
+    aluno: fluxo.aluno,
+    fallbackId: fluxo.id,
+  });
 }
 
 function sugestaoInlineFromFluxo(
