@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { usePersistedPageState } from '../hooks/usePersistedPageState';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PeriodoMesCalendarioPopover } from '../components/transacoes/PeriodoMesCalendarioPopover';
 import { ResumoDiaValorHover, type ResumoDiaLinhaDetalhe } from '../components/transacoes/ResumoDiaValorHover';
@@ -174,20 +175,64 @@ function carregarViewsStorage(): SavedView[] {
   return garantirViewsPadrao(DEFAULT_SAVED_VIEWS);
 }
 
+const TRANSACOES_NAV_INITIAL: SavedViewFiltros = { ...FILTROS_VAZIOS };
+
+function patchTransacoesNav<K extends keyof SavedViewFiltros>(
+  setNav: Dispatch<SetStateAction<SavedViewFiltros>>,
+  key: K,
+  value: SetStateAction<SavedViewFiltros[K]>,
+) {
+  setNav((prev) => ({
+    ...prev,
+    [key]: typeof value === 'function'
+      ? (value as (prev: SavedViewFiltros[K]) => SavedViewFiltros[K])(prev[key])
+      : value,
+  }));
+}
+
 export function TransacoesPage() {
   const { monthYear } = useMonthYear();
   const { showToast } = useToast();
   const qc = useQueryClient();
-  const [tipo, setTipo] = useState<'todos' | 'entrada' | 'saida'>('todos');
-  const [metodo, setMetodo] = useState<string>('');
-  const [busca, setBusca] = useState('');
-  const [categorias, setCategorias] = useState<string[]>([]);
-  const [categoriasModo, setCategoriasModo] = useState<CategoriasFiltroModo>('incluir');
-  const [visao, setVisao] = useState<VisaoTransacoes>('caixa');
-  const [periodoModo, setPeriodoModo] = useState<'mes' | 'periodo'>('mes');
-  /** Intervalo inclusivo (yyyy-mm-dd); dois cliques no calendário dos filtros. */
-  const [periodoInicio, setPeriodoInicio] = useState('');
-  const [periodoFim, setPeriodoFim] = useState('');
+  const [nav, setNav] = usePersistedPageState('transacoes', TRANSACOES_NAV_INITIAL);
+  const { tipo, metodo, busca, categorias, categoriasModo, visao, periodoModo, periodoInicio, periodoFim } = nav;
+
+  const setTipo = useCallback(
+    (value: SetStateAction<'todos' | 'entrada' | 'saida'>) => patchTransacoesNav(setNav, 'tipo', value),
+    [setNav],
+  );
+  const setMetodo = useCallback(
+    (value: SetStateAction<string>) => patchTransacoesNav(setNav, 'metodo', value),
+    [setNav],
+  );
+  const setBusca = useCallback(
+    (value: SetStateAction<string>) => patchTransacoesNav(setNav, 'busca', value),
+    [setNav],
+  );
+  const setCategorias = useCallback(
+    (value: SetStateAction<string[]>) => patchTransacoesNav(setNav, 'categorias', value),
+    [setNav],
+  );
+  const setCategoriasModo = useCallback(
+    (value: SetStateAction<CategoriasFiltroModo>) => patchTransacoesNav(setNav, 'categoriasModo', value),
+    [setNav],
+  );
+  const setVisao = useCallback(
+    (value: SetStateAction<VisaoTransacoes>) => patchTransacoesNav(setNav, 'visao', value),
+    [setNav],
+  );
+  const setPeriodoModo = useCallback(
+    (value: SetStateAction<'mes' | 'periodo'>) => patchTransacoesNav(setNav, 'periodoModo', value),
+    [setNav],
+  );
+  const setPeriodoInicio = useCallback(
+    (value: SetStateAction<string>) => patchTransacoesNav(setNav, 'periodoInicio', value),
+    [setNav],
+  );
+  const setPeriodoFim = useCallback(
+    (value: SetStateAction<string>) => patchTransacoesNav(setNav, 'periodoFim', value),
+    [setNav],
+  );
   /** Primeiro clique aguardando o segundo (mesmo mês). */
   const [periodoCliquePendente, setPeriodoCliquePendente] = useState<string | null>(null);
   const [calendarioAberto, setCalendarioAberto] = useState(false);
@@ -200,15 +245,18 @@ export function TransacoesPage() {
   const calendarioTriggerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setPeriodoInicio('');
-    setPeriodoFim('');
+    setNav((prev) => ({
+      ...prev,
+      periodoInicio: '',
+      periodoFim: '',
+      periodoModo: 'mes',
+      categorias: [],
+      categoriasModo: 'incluir',
+    }));
     setPeriodoCliquePendente(null);
     setCalendarioAberto(false);
-    setPeriodoModo('mes');
-    setCategorias([]);
-    setCategoriasModo('incluir');
     setEditCompetenciaId(null);
-  }, [monthYear.mes, monthYear.ano]);
+  }, [monthYear.mes, monthYear.ano, setNav]);
 
   useEffect(() => {
     const compativeis = categoriasCompativeisComTipo(categorias, tipo);

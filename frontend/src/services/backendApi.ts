@@ -1275,6 +1275,7 @@ export async function postControleCaixaSincronizarEntradas(
   visao: VisaoControle = 'competencia',
 ): Promise<{ ok: boolean; mes: number; ano: number; visao: VisaoControle; controle: ControleCaixaResponse }> {
   const params = new URLSearchParams({ mes: String(mes), ano: String(ano), visao });
+  /** Sync completo do modo Sistema (entradas + despesas + repasses). Endpoint legado mantido. */
   return requestPost(`/api/controle-caixa/sincronizar-entradas?${params.toString()}`, {});
 }
 

@@ -60,6 +60,7 @@ export function aplicarRepassesEmLinhasSaida(
   for (const linha of linhasSaida) {
     const entKey = Object.entries(ENTRADA_PARA_SAIDA_REPASSE).find(([, sai]) => sai === (linha.templateKey ?? ''))?.[0];
     if (!entKey) continue;
+    if (!valoresEntradaPorTemplateKey.has(entKey)) continue;
     const entrada = valoresEntradaPorTemplateKey.get(entKey) ?? 0;
     const repasse = calcularRepasse(entKey, entrada);
     if (repasse == null) continue;

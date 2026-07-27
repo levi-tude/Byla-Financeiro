@@ -112,16 +112,29 @@ export function grupoPassaFiltroTipo(
   templateKeyEfetivo: string | null,
   filtro: string,
   blocoTemplateKeyEfetivo?: string | null,
+  categorias?: CategoriaOpcao[],
 ): boolean {
   if (!filtro || filtro === FILTRO_TIPO_TODAS) return true;
   if (filtro === FILTRO_TIPO_PENDENTE) return !templateKeyEfetivo;
   const blocoKey = parseFiltroBlocoKey(filtro);
-  if (blocoKey) return blocoTemplateKeyEfetivo === blocoKey;
-  return templateKeyEfetivo === filtro;
+  if (blocoKey) {
+    if (blocoTemplateKeyEfetivo === blocoKey) return true;
+    if (!categorias?.length || !blocoTemplateKeyEfetivo) return false;
+    // bloco:uuid legado vs chave estável (entrada_parceiros / saida_gastos_fixos)
+    const blocoA = categorias.find((c) => c.blocoTemplateKey === blocoTemplateKeyEfetivo);
+    const blocoB = categorias.find((c) => c.blocoTemplateKey === blocoKey);
+    if (blocoA && blocoB && blocoA.blocoTitulo === blocoB.blocoTitulo) return true;
+    return false;
+  }
+  if (templateKeyEfetivo === filtro) return true;
+  if (!categorias?.length || !templateKeyEfetivo) return false;
+  const canonEfetivo = resolveTemplateKeyInCategorias(templateKeyEfetivo, categorias);
+  const canonFiltro = resolveTemplateKeyInCategorias(filtro, categorias);
+  return Boolean(canonEfetivo && canonFiltro && canonEfetivo === canonFiltro);
 }
 
-/** Chaves legadas (sugestão/repasse) → rótulo no Controle de Caixa. */
-const LEGACY_ENTRADA_TEMPLATE_LABELS: Record<string, string> = {
+/** Chaves legadas (sugestão/repasse/sticky) → rótulo no Controle de Caixa. */
+const LEGACY_TEMPLATE_LABELS: Record<string, string> = {
   ent_parc_danca: 'Dança',
   ent_parc_yoga: 'Yoga',
   ent_parc_pilates_mari: 'Pilates Mari',
@@ -129,9 +142,34 @@ const LEGACY_ENTRADA_TEMPLATE_LABELS: Record<string, string> = {
   ent_parc_teatro: 'Teatro',
   ent_parc_teatro_infantil: 'Teatro Infantil',
   ent_parc_bruna_gr: 'Bruna GR',
+  ent_alug_neto_sba: 'Neto (SBA)',
+  ent_alug_pholha: 'Pholha (Funcional)',
+  ent_alug_forro_alma: 'Forró e Alma',
+  ent_alug_pilates_fabi: 'Pilates Fabi',
+  ent_alug_loja_everaldo: 'Loja (Everaldo)',
+  sai_parc_danca: 'Dança',
+  sai_parc_yoga: 'Yoga',
+  sai_parc_pilates_mari: 'Pilates Mari',
+  sai_parc_teatro: 'Teatro',
+  sai_parc_teatro_infantil: 'Teatro Infantil',
+  sai_parc_bruna_gr: 'Bruna GR',
+  sai_fix_energia: 'Energia',
+  sai_fix_agua: 'Água',
+  sai_fix_net: 'Net',
+  sai_fix_materiais: 'Materiais',
+  sai_fix_energia_solar: 'Energia Solar',
+  sai_fix_contadora: 'Contadora',
+  sai_fix_eli_ar: 'Eli Ar Condicionado',
+  sai_fix_impostos: 'Impostos',
+  sai_fix_iptu: 'IPTU',
+  sai_fix_samuel: 'Samuel',
+  sai_fix_luciana: 'Luciana',
+  sai_fix_funcionarios: 'Funcionários',
+  sai_fix_transporte: 'Transporte',
+  sai_fix_parcela_pilates: 'Parcela Pilates',
 };
 
-/** Alinha chave da sugestão com o catálogo real do mês (ex.: ent_parc_danca → linha:uuid). */
+/** Alinha chave da sugestão/regra antiga com o catálogo real do mês (ex.: ent_parc_danca ou linha:uuid órfão → linha atual). */
 export function resolveTemplateKeyInCategorias(
   rawKey: string | null | undefined,
   categorias: CategoriaOpcao[],
@@ -140,12 +178,17 @@ export function resolveTemplateKeyInCategorias(
   const key = (rawKey ?? '').trim();
   if (key && categorias.some((c) => c.templateKey === key)) return key;
 
-  const legacyLabel = key ? LEGACY_ENTRADA_TEMPLATE_LABELS[key] : undefined;
+  const legacyLabel = key ? LEGACY_TEMPLATE_LABELS[key] : undefined;
   const label = (legacyLabel ?? labelHint ?? '').trim();
-  if (!label) return key;
+  if (label) {
+    const hit = categorias.find((c) => c.label.trim().toLowerCase() === label.toLowerCase());
+    if (hit) return hit.templateKey;
+  }
 
-  const hit = categorias.find((c) => c.label.trim().toLowerCase() === label.toLowerCase());
-  return hit?.templateKey ?? key;
+  // Chave `linha:uuid` de um Controle já recriado: sem label, não dá para salvar.
+  if (key.startsWith('linha:')) return '';
+
+  return key;
 }
 
 export type PorCategoriaBlocoFiltravel = {
@@ -157,17 +200,29 @@ export type PorCategoriaBlocoFiltravel = {
 export function filtrarPorCategoriaBlocos<T extends PorCategoriaBlocoFiltravel>(
   blocos: T[],
   filtro: string,
+  categorias?: CategoriaOpcao[],
 ): T[] {
   if (!filtro || filtro === FILTRO_TIPO_TODAS) return blocos;
   if (filtro === FILTRO_TIPO_PENDENTE) return [];
   const blocoKey = parseFiltroBlocoKey(filtro);
   if (blocoKey) {
-    return blocos.filter((b) => b.bloco_template_key === blocoKey);
+    return blocos.filter((b) => {
+      if (b.bloco_template_key === blocoKey) return true;
+      if (!categorias?.length || !b.bloco_template_key) return false;
+      const a = categorias.find((c) => c.blocoTemplateKey === b.bloco_template_key);
+      const bb = categorias.find((c) => c.blocoTemplateKey === blocoKey);
+      return Boolean(a && bb && a.blocoTitulo === bb.blocoTitulo);
+    });
   }
+  const canonFiltro = categorias?.length ? resolveTemplateKeyInCategorias(filtro, categorias) : filtro;
   return blocos
     .map((bloco) => ({
       ...bloco,
-      linhas: bloco.linhas.filter((l) => l.template_key === filtro),
+      linhas: bloco.linhas.filter((l) => {
+        if (l.template_key === filtro || l.template_key === canonFiltro) return true;
+        if (!categorias?.length) return false;
+        return resolveTemplateKeyInCategorias(l.template_key, categorias) === canonFiltro;
+      }),
     }))
     .filter((bloco) => bloco.linhas.length > 0);
 }

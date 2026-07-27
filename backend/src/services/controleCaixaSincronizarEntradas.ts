@@ -1,8 +1,18 @@
 import {
-  aplicarRepassesEmLinhasSaida,
-  calcularRepasse,
-  ENTRADA_PARA_SAIDA_REPASSE,
-} from '../domain/entradas/repasseParceiros.js';
+  catalogoEntradasFromControleData,
+  preferStableEntradaBlocoKey,
+  preferStableEntradaTemplateKey,
+  resolveCategoriaEntradaInCatalog,
+  type CategoriaEntradaLinha,
+} from '../domain/entradas/categoriasEntrada.js';
+import {
+  catalogoSaidasFromControleData,
+  isCategoriaSaidaParceiros,
+  preferStableSaidaBlocoKey,
+  preferStableSaidaTemplateKey,
+  resolveCategoriaInCatalog,
+  type CategoriaSaidaLinha,
+} from '../domain/despesas/categoriasSaida.js';
 import {
   mesPermiteSincronizarEntradasRepasses,
   SYNC_ENTRADAS_REPASSE_BLOQUEADO_MSG,
@@ -12,6 +22,7 @@ import {
   dtoToControlePersistPayload,
   ensureParceirosTemplateKeys,
   ensureSistemaEstruturaCompleta,
+  ensureStableTemplateKeys,
   mergeEstruturaPreservandoValores,
 } from './controleCaixaEstrutura.js';
 import {
@@ -21,10 +32,18 @@ import {
 } from './controleCaixaRead.js';
 import { persistControleCaixaModo } from './controleCaixaPersist.js';
 import { buildEntradasContext } from './entradasClassificacaoService.js';
+import { buildDespesasContext } from './despesasClassificacaoService.js';
 import { getSupabase } from './supabaseClient.js';
 import { transacaoContaNaCompetencia } from './transacaoCompetenciaService.js';
+import {
+  agregarValorEmChaves,
+  aplicarSyncCompletoSistema,
+} from './controleCaixaSyncLogic.js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
-export { mergeEstruturaPreservandoValores, precisaRepararEstruturaSistema };
+export { mergeEstruturaPreservandoValores, precisaRepararEstruturaSistema, aplicarSyncCompletoSistema };
+
+export type VisaoControleSync = 'caixa' | 'competencia';
 
 function dataNoMes(dataIso: string, mes: number, ano: number): boolean {
   const m = String(dataIso).match(/^(\d{4})-(\d{2})/);
@@ -32,21 +51,162 @@ function dataNoMes(dataIso: string, mes: number, ano: number): boolean {
   return Number(m[1]) === ano && Number(m[2]) === mes;
 }
 
-export type VisaoControleSync = 'caixa' | 'competencia';
-
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-function sumBloco(bloco: { linhas: { valor: number | null }[] }): number {
-  return round2(bloco.linhas.reduce((s, l) => s + (l.valor ?? 0), 0));
+type TxClassificada = {
+  data: string;
+  valor: number;
+  origem_efetiva: string;
+  template_key_efetivo: string | null;
+  categoria_efetiva?: string | null;
+  mes_competencia?: number;
+  ano_competencia?: number;
+  competencia_confirmada?: boolean;
+};
+
+function agregarEntradasClassificadas(
+  transacoes: TxClassificada[],
+  catalog: CategoriaEntradaLinha[],
+  mes: number,
+  ano: number,
+  visao: VisaoControleSync,
+): Map<string, number> {
+  const map = new Map<string, number>();
+  const filtradas =
+    visao === 'caixa'
+      ? transacoes.filter((t) => dataNoMes(t.data, mes, ano))
+      : transacoes.filter((t) => transacaoContaNaCompetencia(t, mes, ano, true));
+
+  for (const t of filtradas) {
+    if (t.origem_efetiva !== 'mapeamento_manual' || !t.template_key_efetivo) continue;
+    const cat = resolveCategoriaEntradaInCatalog(
+      catalog,
+      t.template_key_efetivo,
+      t.categoria_efetiva,
+    );
+    const keys: string[] = [t.template_key_efetivo];
+    if (cat) {
+      keys.push(preferStableEntradaTemplateKey(cat), `linha:${cat.linhaId}`);
+    }
+    agregarValorEmChaves(map, keys, Number(t.valor || 0));
+  }
+  return map;
+}
+
+function agregarDespesasFixasClassificadas(
+  transacoes: TxClassificada[],
+  catalog: CategoriaSaidaLinha[],
+  mes: number,
+  ano: number,
+  visao: VisaoControleSync,
+): Map<string, number> {
+  const map = new Map<string, number>();
+  const filtradas =
+    visao === 'caixa'
+      ? transacoes.filter((t) => dataNoMes(t.data, mes, ano))
+      : transacoes.filter((t) => transacaoContaNaCompetencia(t, mes, ano, true));
+
+  for (const t of filtradas) {
+    if (t.origem_efetiva !== 'mapeamento_manual' || !t.template_key_efetivo) continue;
+    const cat = resolveCategoriaInCatalog(catalog, t.template_key_efetivo, t.categoria_efetiva);
+    if (!cat) continue;
+    // Saídas Parceiros nunca entram no sync de fixas (só fórmulas).
+    if (isCategoriaSaidaParceiros(cat)) continue;
+    const keys = [
+      t.template_key_efetivo,
+      preferStableSaidaTemplateKey(cat),
+      `linha:${cat.linhaId}`,
+    ];
+    agregarValorEmChaves(map, keys, Number(t.valor || 0));
+  }
+  return map;
+}
+
+type MapeamentoStickyRow = {
+  id: string;
+  categoria: string | null;
+  template_key: string | null;
+  bloco_template_key: string | null;
+  aplica_tipo: string;
+};
+
+/**
+ * Remapeia mapeamentos sticky órfãos (`linha:uuid` / legado) para chave estável
+ * pelo rótulo da categoria, quando o Controle já tem a chave estável.
+ * Preserva classificações existentes sempre que o rótulo casar.
+ */
+export async function remapearMapeamentosStickyParaChavesEstaveis(
+  supabase: SupabaseClient,
+  data: ControleCaixaReadDto,
+): Promise<{ atualizados: number }> {
+  const catalogEntrada = catalogoEntradasFromControleData(data);
+  const catalogSaida = catalogoSaidasFromControleData(data);
+
+  const { data: rows, error } = await supabase
+    .from('mapeamento_pessoa_categoria')
+    .select('id, categoria, template_key, bloco_template_key, aplica_tipo')
+    .eq('ativo', true)
+    .in('aplica_tipo', ['entrada', 'saida', 'todos']);
+  if (error) throw new Error(error.message);
+
+  let atualizados = 0;
+  for (const row of (rows ?? []) as MapeamentoStickyRow[]) {
+    const raw = (row.template_key ?? '').trim();
+    const precisaRemap =
+      !raw || raw.startsWith('linha:') || raw.startsWith('legado:');
+    if (!precisaRemap) continue;
+
+    const isEntrada = row.aplica_tipo === 'entrada' || row.aplica_tipo === 'todos';
+    const isSaida = row.aplica_tipo === 'saida' || row.aplica_tipo === 'todos';
+
+    let nextKey: string | null = null;
+    let nextBloco: string | null = null;
+    let nextLabel: string | null = null;
+
+    if (isEntrada) {
+      const cat = resolveCategoriaEntradaInCatalog(catalogEntrada, raw, row.categoria);
+      if (cat) {
+        nextKey = preferStableEntradaTemplateKey(cat);
+        nextBloco = preferStableEntradaBlocoKey(cat);
+        nextLabel = cat.label;
+      }
+    }
+    if (!nextKey && isSaida) {
+      const cat = resolveCategoriaInCatalog(catalogSaida, raw, row.categoria);
+      if (cat) {
+        nextKey = preferStableSaidaTemplateKey(cat);
+        nextBloco = preferStableSaidaBlocoKey(cat);
+        nextLabel = cat.label;
+      }
+    }
+
+    if (!nextKey || nextKey === raw || nextKey.startsWith('linha:')) continue;
+
+    const patch: Record<string, unknown> = {
+      template_key: nextKey,
+      updated_at: new Date().toISOString(),
+    };
+    if (nextBloco) patch.bloco_template_key = nextBloco;
+    if (nextLabel) patch.categoria = nextLabel;
+
+    const { error: updErr } = await supabase
+      .from('mapeamento_pessoa_categoria')
+      .update(patch)
+      .eq('id', row.id);
+    if (updErr) throw new Error(updErr.message);
+    atualizados += 1;
+  }
+
+  return { atualizados };
 }
 
 /**
- * Agrega extrato classificado → Entradas Parceiros; calcula Saídas Parceiros (repasse).
- * Sempre grava no modo sistema — nunca altera o Oficial (planilha).
+ * Sync completo: Entradas (parceiros + aluguel), Saídas Fixas (despesas) e
+ * Saídas Parceiros (só fórmulas). Sempre grava no modo sistema.
  */
-export async function sincronizarEntradasParceirosControle(
+export async function sincronizarControleCaixaSistema(
   mes: number,
   ano: number,
   visao: VisaoControleSync = 'competencia',
@@ -61,20 +221,6 @@ export async function sincronizarEntradasParceirosControle(
   const readResult = await readControleCaixa(mes, ano, 'sistema');
   if ('error' in readResult) return { error: readResult.error };
 
-  const ctx = await buildEntradasContext(supabase, mes, ano);
-  const transacoesSync =
-    visao === 'caixa'
-      ? ctx.transacoes.filter((t) => dataNoMes(t.data, mes, ano))
-      : ctx.transacoes.filter((t) => transacaoContaNaCompetencia(t, mes, ano, true));
-  const valoresPorTemplate = new Map<string, number>();
-
-  for (const t of transacoesSync) {
-    if (t.origem_efetiva !== 'mapeamento_manual' || !t.template_key_efetivo) continue;
-    const key = t.template_key_efetivo;
-    const v = Math.abs(Number(t.valor || 0));
-    valoresPorTemplate.set(key, round2((valoresPorTemplate.get(key) ?? 0) + v));
-  }
-
   const ensured = await ensureSistemaEstruturaCompleta(
     mes,
     ano,
@@ -82,75 +228,56 @@ export async function sincronizarEntradasParceirosControle(
     loadControleCaixaExisting,
   );
   const data = ensured.data;
-  ensureParceirosTemplateKeys(data);
-  for (const bloco of data.blocos) {
-    if (bloco.templateKey !== 'entrada_parceiros' && !bloco.titulo.toLowerCase().includes('parceir')) continue;
-    if (bloco.tipo !== 'entrada') continue;
-    for (const linha of bloco.linhas) {
-      const tKey = (linha.templateKey ?? '').trim();
-      if (!tKey) continue;
-      const soma =
-        valoresPorTemplate.get(tKey) ??
-        valoresPorTemplate.get(`linha:${linha.id}`);
-      if (soma !== undefined) {
-        linha.valor = soma;
-        linha.valorTexto = 'extrato_classificado';
-      }
-    }
+  ensureStableTemplateKeys(data);
+
+  try {
+    await remapearMapeamentosStickyParaChavesEstaveis(supabase, data);
+  } catch {
+    // Remap é best-effort: sync de valores segue mesmo se sticky falhar.
   }
 
-  const valoresEntrada = new Map<string, number>();
-  for (const bloco of data.blocos) {
-    if (bloco.templateKey !== 'entrada_parceiros') continue;
-    for (const linha of bloco.linhas) {
-      const tKey = (linha.templateKey ?? '').trim();
-      if (!tKey || !Object.keys(ENTRADA_PARA_SAIDA_REPASSE).includes(tKey)) continue;
-      valoresEntrada.set(tKey, linha.valor ?? 0);
-    }
-  }
+  const [entCtx, despCtx] = await Promise.all([
+    buildEntradasContext(supabase, mes, ano),
+    buildDespesasContext(supabase, mes, ano),
+  ]);
 
-  for (const bloco of data.blocos) {
-    if (bloco.templateKey !== 'saida_parceiros') continue;
-    aplicarRepassesEmLinhasSaida(bloco.linhas, valoresEntrada);
-    for (const linha of bloco.linhas) {
-      const entKey = Object.entries(ENTRADA_PARA_SAIDA_REPASSE).find(([, sai]) => sai === (linha.templateKey ?? ''))?.[0];
-      if (entKey && linha.valor != null) {
-        const entrada = valoresEntrada.get(entKey) ?? 0;
-        const repasse = calcularRepasse(entKey, entrada);
-        if (repasse != null) linha.valorTexto = 'calculado_repasse';
-      }
-    }
-  }
+  // Catálogo após ensure (chaves estáveis) — não o do contexto pré-sync.
+  const catalogEntrada = catalogoEntradasFromControleData(data);
+  const catalogSaida = catalogoSaidasFromControleData(data);
 
-  let entradaTotal = 0;
-  let saidaTotal = 0;
-  let saidaParceirosTotal = 0;
-  let saidaFixasTotal = 0;
-  for (const bloco of data.blocos) {
-    const t = sumBloco(bloco);
-    if (bloco.tipo === 'entrada') entradaTotal += t;
-    else {
-      saidaTotal += t;
-      const titulo = bloco.titulo.toUpperCase();
-      if (titulo.includes('PARCEIR')) saidaParceirosTotal += t;
-      if (titulo.includes('FIXA') || titulo.includes('GASTOS FIXOS')) saidaFixasTotal += t;
-    }
-  }
+  const valoresEntrada = agregarEntradasClassificadas(
+    entCtx.transacoes,
+    catalogEntrada,
+    mes,
+    ano,
+    visao,
+  );
+  const valoresDespesa = agregarDespesasFixasClassificadas(
+    despCtx.transacoes,
+    catalogSaida,
+    mes,
+    ano,
+    visao,
+  );
 
-  data.totais = {
-    entradaTotal: entradaTotal || null,
-    saidaTotal: saidaTotal || null,
-    lucroTotal: round2(entradaTotal - saidaTotal),
-    saidaParceirosTotal: saidaParceirosTotal || null,
-    saidaFixasTotal: saidaFixasTotal || null,
-    saidaSomaSecoesPrincipais: round2(saidaParceirosTotal + saidaFixasTotal) || null,
-  };
+  aplicarSyncCompletoSistema(data, valoresEntrada, valoresDespesa);
 
   const payload = dtoToControlePersistPayload(data);
-  const persisted = await persistControleCaixaModo(mes, ano, payload, 'sincronizar_entradas', 'sistema');
+  const persisted = await persistControleCaixaModo(mes, ano, payload, 'sincronizar_sistema', 'sistema');
   if ('error' in persisted) return { error: persisted.error };
 
   const again = await readControleCaixa(mes, ano, 'sistema');
   if ('error' in again) return { error: again.error };
   return { ok: true, data: again.data };
 }
+
+/** @deprecated Alias — use sincronizarControleCaixaSistema. */
+export async function sincronizarEntradasParceirosControle(
+  mes: number,
+  ano: number,
+  visao: VisaoControleSync = 'competencia',
+): Promise<{ ok: true; data: ControleCaixaReadDto } | { error: string; blocked?: true }> {
+  return sincronizarControleCaixaSistema(mes, ano, visao);
+}
+
+export { ensureParceirosTemplateKeys, round2 };

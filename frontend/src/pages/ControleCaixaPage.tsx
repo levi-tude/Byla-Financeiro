@@ -5,13 +5,14 @@ import { Topbar } from '../app/Topbar';
 import { useMonthYear } from '../context/MonthYearContext';
 import {
   getControleCaixa,
+  getDespesasResumo,
+  getEntradasResumo,
   postControleCaixaSincronizarEntradas,
   putControleCaixa,
   type ControleCaixaBloco,
   type ControleCaixaLinha,
   type ControleCaixaResponse,
   type ControleModo,
-  type VisaoControle,
 } from '../services/backendApi';
 import { useToast } from '../context/ToastContext';
 import { ApiErrorPanel } from '../components/ui/ApiErrorPanel';
@@ -216,12 +217,10 @@ type DefaultEditDecision =
 
 type ControleCaixaNavPersisted = {
   modo: ControleModo;
-  visaoSync: VisaoControle;
 };
 
 const CONTROLE_CAIXA_NAV_INITIAL: ControleCaixaNavPersisted = {
   modo: 'oficial',
-  visaoSync: 'competencia',
 };
 
 function patchControleCaixaNav<K extends keyof ControleCaixaNavPersisted>(
@@ -242,14 +241,11 @@ export function ControleCaixaPage() {
   const { showToast } = useToast();
   const queryClient = useQueryClient();
   const [nav, setNav] = usePersistedPageState('controle-caixa', CONTROLE_CAIXA_NAV_INITIAL);
-  const { modo, visaoSync } = nav;
+  const { modo } = nav;
+  const [mostrarPendentesClassificacao, setMostrarPendentesClassificacao] = useState(false);
 
   const setModo = useCallback(
     (value: SetStateAction<ControleModo>) => patchControleCaixaNav(setNav, 'modo', value),
-    [setNav],
-  );
-  const setVisaoSync = useCallback(
-    (value: SetStateAction<VisaoControle>) => patchControleCaixaNav(setNav, 'visaoSync', value),
     [setNav],
   );
 
@@ -331,15 +327,51 @@ export function ControleCaixaPage() {
 
   const syncEntradasPermitido = mesPermiteSincronizarEntradasRepasses(monthYear.mes, monthYear.ano);
 
+  const entradasPendQuery = useQuery({
+    queryKey: ['entradas-resumo', monthYear.mes, monthYear.ano, 'competencia', 'controle-banner'],
+    queryFn: () => getEntradasResumo(monthYear.mes, monthYear.ano, 'competencia'),
+    enabled: modo === 'sistema' && syncEntradasPermitido,
+    staleTime: 60_000,
+  });
+
+  const despesasPendQuery = useQuery({
+    queryKey: ['despesas-resumo', monthYear.mes, monthYear.ano, 'competencia', 'controle-banner'],
+    queryFn: () => getDespesasResumo(monthYear.mes, monthYear.ano, 'competencia'),
+    enabled: modo === 'sistema' && syncEntradasPermitido,
+    staleTime: 60_000,
+  });
+
+  const pendenciasClassificacao = useMemo(() => {
+    const ent = entradasPendQuery.data?.kpis;
+    const desp = despesasPendQuery.data?.kpis;
+    const entradasQtd = ent?.qtd_grupos_pendentes ?? 0;
+    const entradasValor = ent?.valor_pendente ?? 0;
+    const entradasTx = entradasPendQuery.data?.pendente?.qtd_transacoes ?? 0;
+    const despesasQtd = desp?.qtd_destinatarios_pendentes ?? 0;
+    const despesasValor = desp?.valor_pendente ?? 0;
+    const despesasTx = despesasPendQuery.data?.pendente?.qtd_transacoes ?? 0;
+    return {
+      entradasQtd,
+      entradasValor,
+      entradasTx,
+      despesasQtd,
+      despesasValor,
+      despesasTx,
+      totalGrupos: entradasQtd + despesasQtd,
+      totalTx: entradasTx + despesasTx,
+    };
+  }, [entradasPendQuery.data, despesasPendQuery.data]);
+
   const syncEntradasMutation = useMutation({
-    mutationFn: () => postControleCaixaSincronizarEntradas(monthYear.mes, monthYear.ano, visaoSync),
+    mutationFn: () => postControleCaixaSincronizarEntradas(monthYear.mes, monthYear.ano, 'competencia'),
     onSuccess: async (data) => {
       setModoEscolhidoManual(true);
       setModo('sistema');
       setDraft(cloneState(data.controle));
-      showToast('Entradas e repasses sincronizados no modo Sistema (oficial intacto).', 'success');
+      showToast('Controle Sistema sincronizado (entradas, despesas e repasses). Oficial intacto.', 'success');
       await queryClient.invalidateQueries({ queryKey: ['controle-caixa', monthYear.mes, monthYear.ano] });
       await queryClient.invalidateQueries({ queryKey: ['entradas-resumo', monthYear.mes, monthYear.ano] });
+      await queryClient.invalidateQueries({ queryKey: ['despesas-resumo', monthYear.mes, monthYear.ano] });
     },
     onError: (e) => {
       showToast(e instanceof Error ? e.message : String(e), 'error');
@@ -525,29 +557,17 @@ export function ControleCaixaPage() {
         </p>
         {modo === 'sistema' && syncEntradasPermitido ? (
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <span className="text-xs text-slate-600 dark:text-slate-400">Agregar por:</span>
-            {(['caixa', 'competencia'] as const).map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => setVisaoSync(v)}
-                className={`rounded-lg px-2 py-1 text-xs font-semibold ${
-                  visaoSync === v
-                    ? 'bg-indigo-600 text-white'
-                    : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-300'
-                }`}
-              >
-                {v === 'caixa' ? 'Caixa' : 'Competência'}
-              </button>
-            ))}
             <button
               type="button"
               className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-900 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-100"
               disabled={syncEntradasMutation.isPending}
               onClick={() => syncEntradasMutation.mutate()}
             >
-              {syncEntradasMutation.isPending ? 'Sincronizando…' : 'Sincronizar entradas e repasses'}
+              {syncEntradasMutation.isPending ? 'Sincronizando…' : 'Sincronizar tudo'}
             </button>
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              Usa a competência do mês (Entradas + Despesas classificadas → Controle Sistema).
+            </span>
           </div>
         ) : null}
         {modo === 'sistema' && !syncEntradasPermitido ? (
@@ -558,6 +578,70 @@ export function ControleCaixaPage() {
         ) : null}
       </FilterBar>
 
+      {modo === 'sistema' && syncEntradasPermitido && pendenciasClassificacao.totalTx > 0 ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/90 p-4 dark:border-amber-800 dark:bg-amber-950/30">
+          <h2 className="text-sm font-semibold text-amber-950 dark:text-amber-100">
+            Ainda falta classificar no extrato
+          </h2>
+          <p className="mt-1 text-sm text-amber-900/90 dark:text-amber-200/90">
+            {pendenciasClassificacao.totalTx} lançamento
+            {pendenciasClassificacao.totalTx === 1 ? '' : 's'} deste mês ainda sem categoria
+            {pendenciasClassificacao.totalGrupos > 0
+              ? ` (${pendenciasClassificacao.entradasQtd} em Entradas · ${pendenciasClassificacao.despesasQtd} em Despesas)`
+              : ''}
+            . O sincronizar só leva o que já estiver classificado — o resto fica zerado na linha.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-100"
+              onClick={() => setMostrarPendentesClassificacao((v) => !v)}
+            >
+              {mostrarPendentesClassificacao ? 'Ocultar detalhes' : 'Ver o que falta'}
+            </button>
+            {pendenciasClassificacao.entradasTx > 0 ? (
+              <Link
+                to="/entradas?foco=pendentes"
+                className="rounded-lg bg-amber-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-900 dark:bg-amber-600 dark:hover:bg-amber-500"
+              >
+                Classificar entradas →
+              </Link>
+            ) : null}
+            {pendenciasClassificacao.despesasTx > 0 ? (
+              <Link
+                to="/despesas?foco=pendentes"
+                className="rounded-lg bg-amber-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-900 dark:bg-amber-600 dark:hover:bg-amber-500"
+              >
+                Classificar despesas →
+              </Link>
+            ) : null}
+          </div>
+          {mostrarPendentesClassificacao ? (
+            <ul className="mt-3 space-y-1.5 text-sm text-amber-950 dark:text-amber-100">
+              <li>
+                Entradas: {pendenciasClassificacao.entradasTx} lançamento
+                {pendenciasClassificacao.entradasTx === 1 ? '' : 's'} sem categoria
+                {pendenciasClassificacao.entradasValor > 0
+                  ? ` · ${pendenciasClassificacao.entradasValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`
+                  : ''}
+              </li>
+              <li>
+                Despesas: {pendenciasClassificacao.despesasTx} lançamento
+                {pendenciasClassificacao.despesasTx === 1 ? '' : 's'} sem categoria
+                {pendenciasClassificacao.despesasValor > 0
+                  ? ` · ${pendenciasClassificacao.despesasValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`
+                  : ''}
+              </li>
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+
+      {modo === 'sistema' && syncEntradasPermitido && pendenciasClassificacao.totalTx === 0 && (entradasPendQuery.isSuccess || despesasPendQuery.isSuccess) ? (
+        <p className="text-xs text-emerald-700 dark:text-emerald-400">
+          Extrato deste mês: tudo classificado para Entradas e Despesas (competência). Pode sincronizar o Controle Sistema com segurança.
+        </p>
+      ) : null}
       {controleQuery.isLoading && <div className="text-sm text-gray-500">Carregando dados do mês...</div>}
       {controleQuery.error && (
         <ApiErrorPanel
