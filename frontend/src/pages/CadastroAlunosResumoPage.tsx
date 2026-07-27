@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Topbar } from '../app/Topbar';
 import { FilterBar, type FilterChip } from '../components/finance/FilterBar';
-import { EmptyState, ErrorPanel, LoadingRow } from '../components/finance/StateBlocks';
+import { EmptyState, ErrorPanel } from '../components/finance/StateBlocks';
 import { usePersistedPageState } from '../hooks/usePersistedPageState';
 import {
   getCadastroAlunosResumo,
@@ -198,7 +198,11 @@ export function CadastroAlunosResumoPage() {
         </p>
       </div>
 
-      <FilterBar chips={chips}>
+      <FilterBar
+        title="Filtros"
+        subtitle="Aba, modalidade, vínculo de pagador, cadastro e forma de pagamento."
+        chips={chips}
+      >
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1 text-xs text-slate-600 dark:text-slate-400">
             Aba
@@ -307,7 +311,11 @@ export function CadastroAlunosResumoPage() {
         </div>
       </FilterBar>
 
-      {query.isLoading ? <LoadingRow label="Carregando cadastro de alunos…" /> : null}
+      {query.isLoading ? (
+        <div className="rounded-lg border border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+          Carregando cadastro de alunos…
+        </div>
+      ) : null}
       {query.error ? (
         <ErrorPanel
           message={
@@ -355,7 +363,7 @@ export function CadastroAlunosResumoPage() {
           ) : null}
 
           {secoesVisiveis.length === 0 ? (
-            <EmptyState title="Nenhum aluno encontrado" description="Ajuste os filtros acima." />
+            <EmptyState message="Nenhum aluno encontrado com estes filtros. Ajuste os filtros acima." />
           ) : (
             <div className="space-y-6">
               {secoesVisiveis.map((secao) => (
