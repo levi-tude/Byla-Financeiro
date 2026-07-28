@@ -71,4 +71,4 @@ Três templates didáticos, sem credenciais nem IDs de produção:
 
 ## O que não está neste repositório
 
-Documentação operacional, contratos, relatórios de estágio, regras financeiras internas e integrações obsoletas (Pluggy, PagBank EDI) foram arquivadas localmente fora do Git público.
+Documentação operacional, contratos, relatórios, regras financeiras internas e integrações (Pluggy, PagBank EDI) foram arquivadas.
