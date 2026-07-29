@@ -14,6 +14,7 @@ import {
   statusExtratoForFluxoPagamento,
 } from '../services/fluxoExtratoValidacaoService.js';
 import { resolverRegimeCobranca } from '../logic/regimeCobrancaAluno.js';
+import { findPagamentoDuplicado } from '../logic/fluxoPagamentoDedupe.js';
 
 const fluxoAlunosListQuerySchema = z.object({
   aba: z.string().trim().optional(),
@@ -203,6 +204,66 @@ async function resolveLinhaPagamentoUpsert(params: {
   if (alunoErr) throw new Error(alunoErr.message);
   if (alunoMatch?.linha_planilha != null) return Number(alunoMatch.linha_planilha);
   return getNextLinhaPlanilha(supabase, payload.aba);
+}
+
+/**
+ * Bloqueia 2º lançamento manual no mesmo dia/valor/competência da mesma linha
+ * (a UNIQUE do Postgres ainda deixa passar se nome ou forma diferirem).
+ */
+async function assertPagamentoNaoDuplicado(params: {
+  supabase: NonNullable<ReturnType<typeof getSupabase>>;
+  payload: z.infer<typeof fluxoPagamentoUpsertBodySchema>;
+  linhaPlanilha: number;
+  ignoreId?: string | null;
+}): Promise<{ ok: true } | { ok: false; status: number; body: Record<string, unknown> }> {
+  const { supabase, payload, linhaPlanilha, ignoreId } = params;
+  const { data, error } = await supabase
+    .from('fluxo_pagamentos_operacionais')
+    .select(
+      'id, aba, modalidade, linha_planilha, data_pagamento, valor, mes_competencia, ano_competencia, aluno_nome, forma',
+    )
+    .eq('aba', payload.aba)
+    .eq('modalidade', payload.modalidade)
+    .eq('linha_planilha', linhaPlanilha)
+    .eq('data_pagamento', payload.dataPagamento)
+    .eq('mes_competencia', payload.mesCompetencia)
+    .eq('ano_competencia', payload.anoCompetencia)
+    .limit(20);
+  if (error) throw new Error(error.message);
+
+  const dup = findPagamentoDuplicado(
+    (data ?? []).map((r) => ({
+      id: String(r.id),
+      aba: String(r.aba ?? ''),
+      modalidade: String(r.modalidade ?? ''),
+      linha_planilha: Number(r.linha_planilha),
+      data_pagamento: String(r.data_pagamento ?? '').slice(0, 10),
+      valor: Number(r.valor),
+      mes_competencia: Number(r.mes_competencia),
+      ano_competencia: Number(r.ano_competencia),
+    })),
+    {
+      aba: payload.aba,
+      modalidade: payload.modalidade,
+      linha_planilha: linhaPlanilha,
+      data_pagamento: payload.dataPagamento,
+      valor: payload.valor,
+      mes_competencia: payload.mesCompetencia,
+      ano_competencia: payload.anoCompetencia,
+    },
+    ignoreId,
+  );
+  if (!dup) return { ok: true };
+  return {
+    ok: false,
+    status: 409,
+    body: {
+      error:
+        'Já existe pagamento nesta linha no mesmo dia, valor e competência. Edite o existente em vez de cadastrar de novo.',
+      code: 'PAGAMENTO_DUPLICADO',
+      existingId: dup.id,
+    },
+  };
 }
 
 /** Chave estável para casar pagamento com linha do cadastro de aluno (aba + linha + nome). */
@@ -539,6 +600,23 @@ export default function createFluxoOperacionalRouter(): Router {
       )
       .single();
     if (error) return res.status(500).json({ error: error.message });
+
+    // Renomear aluno não pode “sumir” pagamentos do vínculo aba+linha+nome antigo.
+    const nomeAntes = beforeData?.aluno_nome != null ? String(beforeData.aluno_nome).trim() : '';
+    const nomeDepois = String(data.aluno_nome ?? '').trim();
+    const abaAntes = beforeData?.aba != null ? String(beforeData.aba) : payload.aba;
+    const linhaAntes =
+      beforeData?.linha_planilha != null ? Number(beforeData.linha_planilha) : linhaPlanilha;
+    if (nomeAntes && nomeDepois && nomeAntes !== nomeDepois) {
+      const syncPag = await supabase
+        .from('fluxo_pagamentos_operacionais')
+        .update({ aluno_nome: nomeDepois })
+        .eq('aba', abaAntes)
+        .eq('linha_planilha', linhaAntes)
+        .eq('aluno_nome', nomeAntes);
+      if (syncPag.error) return res.status(500).json({ error: syncPag.error.message });
+    }
+
     await logAuditoria(req, {
       entidade: 'aluno',
       acao: 'update',
@@ -853,6 +931,12 @@ export default function createFluxoOperacionalRouter(): Router {
 
     const p = b.data;
     const linhaPlanilha = await resolveLinhaPagamentoUpsert({ supabase, payload: p });
+    const dupCheck = await assertPagamentoNaoDuplicado({
+      supabase,
+      payload: p,
+      linhaPlanilha,
+    });
+    if (!dupCheck.ok) return res.status(dupCheck.status).json(dupCheck.body);
 
     const { data, error } = await supabase
       .from('fluxo_pagamentos_operacionais')
@@ -875,7 +959,15 @@ export default function createFluxoOperacionalRouter(): Router {
         'id, aba, modalidade, linha_planilha, ordem_lancamento, aluno_nome, data_pagamento, forma, valor, mes_competencia, ano_competencia, responsaveis, pagador_pix'
       )
       .single();
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      if (/duplicate key|unique/i.test(error.message)) {
+        return res.status(409).json({
+          error: 'Já existe pagamento com os mesmos dados nesta linha.',
+          code: 'PAGAMENTO_DUPLICADO',
+        });
+      }
+      return res.status(500).json({ error: error.message });
+    }
     await logAuditoria(req, {
       entidade: 'pagamento',
       acao: 'create',
@@ -899,6 +991,13 @@ export default function createFluxoOperacionalRouter(): Router {
 
     const p = b.data;
     const linhaPlanilha = await resolveLinhaPagamentoUpsert({ supabase, payload: p, existingId: id });
+    const dupCheck = await assertPagamentoNaoDuplicado({
+      supabase,
+      payload: p,
+      linhaPlanilha,
+      ignoreId: id,
+    });
+    if (!dupCheck.ok) return res.status(dupCheck.status).json(dupCheck.body);
     const { data: beforeData } = await supabase
       .from('fluxo_pagamentos_operacionais')
       .select(
@@ -927,7 +1026,15 @@ export default function createFluxoOperacionalRouter(): Router {
         'id, aba, modalidade, linha_planilha, ordem_lancamento, aluno_nome, data_pagamento, forma, valor, mes_competencia, ano_competencia, responsaveis, pagador_pix'
       )
       .single();
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      if (/duplicate key|unique/i.test(error.message)) {
+        return res.status(409).json({
+          error: 'Já existe pagamento com os mesmos dados nesta linha.',
+          code: 'PAGAMENTO_DUPLICADO',
+        });
+      }
+      return res.status(500).json({ error: error.message });
+    }
     await logAuditoria(req, {
       entidade: 'pagamento',
       acao: 'update',
