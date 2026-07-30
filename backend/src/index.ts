@@ -8,13 +8,17 @@ import { log } from './services/logger.js';
 
 const app = express();
 const corsOrigins = config.corsOrigin;
+/** Origins de produção conhecidos (fallback se CORS_ORIGIN no Render estiver incompleto). */
+const corsOriginsBuiltin = [
+  'https://frontend-flame-mu-43.vercel.app',
+];
 function corsOriginHandler(origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) {
   if (!origin) return cb(null, true);
-  if (corsOrigins.includes(origin)) return cb(null, true);
-  if (process.env.NODE_ENV !== 'production') {
-    if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
-      return cb(null, true);
-    }
+  if (corsOrigins.includes(origin) || corsOriginsBuiltin.includes(origin)) return cb(null, true);
+  // Preview/deploys Vercel do mesmo produto
+  if (origin.endsWith('.vercel.app')) return cb(null, true);
+  if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+    return cb(null, true);
   }
   return cb(null, false);
 }
