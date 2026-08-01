@@ -1,34 +1,39 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { chatAcessibilidadeIA } from '../../services/backendApi';
+import { chatConsultaByla } from '../../services/backendApi';
 import { useToast } from '../../context/ToastContext';
-import { ConfirmDialog } from '../ui/ConfirmDialog';
-import { canNavigateToRoute } from '../../ai/allowedRoutesByRole';
-import type { AppRole } from '../../auth/types';
-import type { AssistantActionNavigate, AssistantRequestContext, AssistantResponse, ChatMessage } from './types';
+import type { AssistantRequestContext, ChatMessage } from './types';
 
-type AccessibilityChatPanelProps = {
+type ConsultaBylaPanelProps = {
   open: boolean;
   onClose: () => void;
-  role: AppRole | null;
   context: AssistantRequestContext;
 };
 
-const QUICK_HINTS = [
-  'Lançar entrada',
-  'Lançar saída',
-  'Abrir Fluxo de Caixa',
-  'Resumo por pagamento',
-  'Saldo não bateu',
+/** Espelha o menu do backend (`CONSULTA_MENU_LABELS`). */
+export const CONSULTA_MENU_LABELS = [
+  'Resumo do mês',
+  'Resumo da semana',
+  'Resumo do dia',
+  'Resumo por período',
+  'Entradas por modalidade',
+  'Controle oficial vs sistema',
+  'Resumo por categoria do extrato',
+  'Resumo por meio de pagamento',
+  'Pendentes de conciliação',
+  'Pagamentos do Fluxo no dia',
+  'Movimentos do banco no dia',
+  'Sem vínculo na validação',
+  'Situação do aluno…',
+  'Lançamento de R$ … ?',
 ];
-const HISTORY_LIMIT = 10;
+
+const HISTORY_LIMIT = 12;
 
 function uid() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export function AccessibilityChatPanel({ open, onClose, role, context }: AccessibilityChatPanelProps) {
-  const navigate = useNavigate();
+export function AccessibilityChatPanel({ open, onClose, context }: ConsultaBylaPanelProps) {
   const { showToast } = useToast();
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -36,16 +41,16 @@ export function AccessibilityChatPanel({ open, onClose, role, context }: Accessi
     {
       id: uid(),
       role: 'assistant',
-      text: 'Oi! Sou o Assistente do Byla. Posso te orientar no Fluxo de Caixa e nas telas da secretaria. Pergunte o que precisa ou use os atalhos abaixo.',
+      text: 'Oi! Sou o Consulta Byla. Posso trazer resumos e listas do sistema (só leitura). Use os atalhos ou digite uma pergunta.',
       createdAt: Date.now(),
     },
   ]);
-  const [pendingAction, setPendingAction] = useState<AssistantActionNavigate | null>(null);
-  const [assistantQuickReplies, setAssistantQuickReplies] = useState<string[]>(QUICK_HINTS);
+  const [quickReplies, setQuickReplies] = useState<string[]>(CONSULTA_MENU_LABELS.slice(0, 8));
 
-  const quickReplies = useMemo(() => {
-    return assistantQuickReplies.length > 0 ? assistantQuickReplies : QUICK_HINTS;
-  }, [assistantQuickReplies]);
+  const replies = useMemo(
+    () => (quickReplies.length > 0 ? quickReplies : CONSULTA_MENU_LABELS.slice(0, 8)),
+    [quickReplies],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -58,54 +63,34 @@ export function AccessibilityChatPanel({ open, onClose, role, context }: Accessi
 
   if (!open) return null;
 
-  const runNavigation = (action: AssistantActionNavigate, needsConfirmation: boolean) => {
-    if (!canNavigateToRoute(role, action.to)) {
-      showToast('Essa tela não está disponível para seu perfil.', 'error');
-      return;
-    }
-    // Regra operacional: sempre confirmar antes de navegação sugerida pelo assistente.
-    if (needsConfirmation || action.type === 'navigate') {
-      setPendingAction(action);
-      return;
-    }
-    navigate(action.to);
-  };
-
-  const handleAssistantResponse = (response: AssistantResponse) => {
-    setMessages((prev) =>
-      [...prev, { id: uid(), role: 'assistant' as const, text: response.message, createdAt: Date.now() }].slice(
-        -HISTORY_LIMIT
-      )
-    );
-    const mainAction = response.actions[0];
-    setAssistantQuickReplies(
-      response.quickReplies && response.quickReplies.length > 0 ? response.quickReplies.slice(0, 5) : QUICK_HINTS
-    );
-    if (mainAction?.type === 'navigate') {
-      runNavigation(mainAction, response.needsConfirmation);
-    }
-  };
-
   const sendMessage = async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || sending) return;
     setInput('');
     setSending(true);
     setMessages((prev) =>
-      [...prev, { id: uid(), role: 'user' as const, text: trimmed, createdAt: Date.now() }].slice(-HISTORY_LIMIT)
+      [...prev, { id: uid(), role: 'user' as const, text: trimmed, createdAt: Date.now() }].slice(-HISTORY_LIMIT),
     );
     try {
-      const response = await chatAcessibilidadeIA({
+      const response = await chatConsultaByla({
         message: trimmed,
         context: {
           route: context.route,
-          role,
+          role: 'admin',
           monthYear: context.monthYear,
         },
       });
-      handleAssistantResponse(response);
+      setMessages((prev) =>
+        [
+          ...prev,
+          { id: uid(), role: 'assistant' as const, text: response.message, createdAt: Date.now() },
+        ].slice(-HISTORY_LIMIT),
+      );
+      setQuickReplies(
+        response.quickReplies?.length ? response.quickReplies.slice(0, 10) : CONSULTA_MENU_LABELS.slice(0, 8),
+      );
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Falha ao consultar assistente.';
+      const message = error instanceof Error ? error.message : 'Falha ao consultar.';
       showToast(message, 'error');
       setMessages((prev) =>
         [
@@ -113,10 +98,10 @@ export function AccessibilityChatPanel({ open, onClose, role, context }: Accessi
           {
             id: uid(),
             role: 'assistant' as const,
-            text: 'Não consegui responder agora. Tente novamente em alguns segundos.',
+            text: 'Não consegui consultar os dados agora. Tente de novo em alguns segundos.',
             createdAt: Date.now(),
           },
-        ].slice(-HISTORY_LIMIT)
+        ].slice(-HISTORY_LIMIT),
       );
     } finally {
       setSending(false);
@@ -127,18 +112,20 @@ export function AccessibilityChatPanel({ open, onClose, role, context }: Accessi
     <>
       <div className="fixed inset-0 z-[88] bg-slate-900/40" role="presentation" onClick={onClose} />
       <section
-        className="fixed bottom-22 left-2 right-2 z-[89] max-h-[80vh] rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900 md:bottom-24 md:left-auto md:right-6 md:w-[420px]"
+        className="fixed bottom-22 left-2 right-2 z-[89] max-h-[80vh] rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900 md:bottom-24 md:left-auto md:right-6 md:w-[440px]"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="assistente-byla-titulo"
+        aria-labelledby="consulta-byla-titulo"
         onPointerDown={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-700">
           <div>
-            <p id="assistente-byla-titulo" className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Assistente do Byla
+            <p id="consulta-byla-titulo" className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              Consulta Byla
             </p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Dúvidas e atalhos para a secretaria</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Só leitura · competência {context.monthYear ?? 'atual'}
+            </p>
           </div>
           <button
             type="button"
@@ -149,14 +136,14 @@ export function AccessibilityChatPanel({ open, onClose, role, context }: Accessi
           </button>
         </header>
 
-        <div className="max-h-[46vh] space-y-2 overflow-y-auto px-4 py-3">
+        <div className="max-h-[42vh] space-y-2 overflow-y-auto px-4 py-3">
           {messages.map((m) => (
             <div
               key={m.id}
               className={`rounded-lg px-3 py-2 text-sm ${
                 m.role === 'user'
                   ? 'ml-10 bg-indigo-600 text-white'
-                  : 'mr-10 border border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100'
+                  : 'mr-8 border border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100'
               }`}
             >
               <span className="whitespace-pre-wrap leading-relaxed">{m.text}</span>
@@ -165,13 +152,14 @@ export function AccessibilityChatPanel({ open, onClose, role, context }: Accessi
         </div>
 
         <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-700">
-          <div className="mb-2 flex flex-wrap gap-2">
-            {quickReplies.map((hint) => (
+          <div className="mb-2 flex max-h-28 flex-wrap gap-2 overflow-y-auto">
+            {replies.map((hint) => (
               <button
                 key={hint}
                 type="button"
                 onClick={() => void sendMessage(hint)}
-                className="rounded-full border border-slate-300 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+                disabled={sending}
+                className="rounded-full border border-slate-300 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-60 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
               >
                 {hint}
               </button>
@@ -187,7 +175,7 @@ export function AccessibilityChatPanel({ open, onClose, role, context }: Accessi
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Digite sua dúvida..."
+              placeholder="Ex.: situação do aluno Ana, R$ 250…"
               className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             />
             <button
@@ -195,25 +183,11 @@ export function AccessibilityChatPanel({ open, onClose, role, context }: Accessi
               disabled={sending}
               className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
             >
-              {sending ? 'Enviando...' : 'Enviar'}
+              {sending ? '…' : 'Enviar'}
             </button>
           </form>
         </div>
       </section>
-
-      <ConfirmDialog
-        open={Boolean(pendingAction)}
-        title="Confirmar navegação"
-        message={`Deseja abrir a tela "${pendingAction?.label ?? ''}" agora?`}
-        confirmLabel="Abrir tela"
-        onCancel={() => setPendingAction(null)}
-        onConfirm={() => {
-          const action = pendingAction;
-          setPendingAction(null);
-          if (!action) return;
-          navigate(action.to);
-        }}
-      />
     </>
   );
 }

@@ -140,6 +140,11 @@ export function resolverSegmentoEntradaGrupo(input: {
 }): SegmentoEntrada {
   const titulo = (input.bloco_titulo ?? '').toLowerCase();
   const bloco = (input.bloco_template_key ?? '').trim();
+  const tk = (input.template_key ?? '').trim();
+
+  // Chave da linha manda sobre bloco sticky antigo (ex.: reclassificou aluguel → Dança).
+  if (tk.startsWith('ent_alug_')) return 'aluguel_coworking';
+  if (tk.startsWith('ent_parc_')) return 'mensalidades';
 
   // Categoria já escolhida (sticky / classificado) manda no bloco — não heurística.
   if (bloco === 'entrada_aluguel_coworking' || titulo.includes('aluguel') || titulo.includes('coworking')) {

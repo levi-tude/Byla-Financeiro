@@ -1,5 +1,6 @@
 import {
   LEGACY_ENTRADA_ALUGUEL_TEMPLATE_KEY_LABELS,
+  stableCustomEntradaTemplateKey,
   stableEntradaAluguelTemplateKeyForLabel,
 } from '../controleCaixa/chavesEstaveis.js';
 import { buildControleCaixaTemplate } from '../controleCaixa/template.js';
@@ -132,13 +133,16 @@ export function stableEntradaTemplateKeyForLabel(label: string): string | null {
 }
 
 /**
- * Se a linha do catálogo só tem `linha:uuid`, devolve a chave estável do parceiro/aluguel quando o rótulo for conhecido.
- * Assim o mapeamento sobrevive a recriação do Controle.
+ * Se a linha do catálogo só tem `linha:uuid`, devolve chave estável (parceiro/aluguel
+ * catalogado ou `ent_*_x_<slug>` para custom). Assim o sticky sobrevive ao re-save.
  */
 export function preferStableEntradaTemplateKey(cat: CategoriaEntradaLinha): string {
   const raw = (cat.templateKey ?? '').trim();
   if (raw && !raw.startsWith('linha:') && !raw.startsWith('legado:')) return raw;
-  return stableEntradaTemplateKeyForLabel(cat.label) ?? raw;
+  return (
+    stableEntradaTemplateKeyForLabel(cat.label) ??
+    stableCustomEntradaTemplateKey(cat.label, cat.blocoTemplateKey)
+  );
 }
 
 export function preferStableEntradaBlocoKey(cat: CategoriaEntradaLinha): string {

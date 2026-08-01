@@ -1,5 +1,6 @@
 import {
   LEGACY_SAIDA_FIXA_TEMPLATE_KEY_LABELS,
+  stableCustomSaidaTemplateKey,
   stableSaidaFixaTemplateKeyForLabel,
 } from '../controleCaixa/chavesEstaveis.js';
 import { buildControleCaixaTemplate } from '../controleCaixa/template.js';
@@ -179,7 +180,10 @@ export function isCategoriaSaidaFixas(cat: Pick<CategoriaSaidaLinha, 'blocoTempl
 export function preferStableSaidaTemplateKey(cat: CategoriaSaidaLinha): string {
   const raw = (cat.templateKey ?? '').trim();
   if (raw && !raw.startsWith('linha:') && !raw.startsWith('legado:')) return raw;
-  return stableSaidaTemplateKeyForLabel(cat.label) ?? raw;
+  return (
+    stableSaidaTemplateKeyForLabel(cat.label) ??
+    stableCustomSaidaTemplateKey(cat.label, cat.blocoTemplateKey)
+  );
 }
 
 export function preferStableSaidaBlocoKey(cat: CategoriaSaidaLinha): string {
