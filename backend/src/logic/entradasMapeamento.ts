@@ -23,10 +23,17 @@ export function resolveCategoriaEntradaFromMapeamento(
   catalog: CategoriaEntradaLinha[],
 ): CategoriaEntradaLinha | null {
   if (mapeamento.template_key) {
-    const byKey = resolveCategoriaEntradaInCatalog(catalog, mapeamento.template_key);
+    const byKey = resolveCategoriaEntradaInCatalog(
+      catalog,
+      mapeamento.template_key,
+      mapeamento.categoria,
+    );
     if (byKey) return byKey;
   }
-  return findCategoriaEntradaByLabel(catalog, mapeamento.categoria);
+  if ((mapeamento.categoria ?? '').trim()) {
+    return findCategoriaEntradaByLabel(catalog, mapeamento.categoria);
+  }
+  return null;
 }
 
 function pickMapeamentoEntradaRowForPessoa(
@@ -46,20 +53,9 @@ function resolveMapeamentoEntradaPick(
   row: MapeamentoRow,
   catalog: CategoriaEntradaLinha[],
 ): { row: MapeamentoRow; categoria: CategoriaEntradaLinha; regraDesativada: boolean } | null {
-  let categoria = resolveCategoriaEntradaFromMapeamento(row, catalog);
-  if (!categoria && (row.categoria ?? '').trim()) {
-    categoria = {
-      templateKey: row.template_key ?? `legado:${row.categoria.trim().toLowerCase()}`,
-      label: row.categoria.trim(),
-      blocoTemplateKey: row.bloco_template_key ?? 'legado',
-      blocoTitulo: 'Fora do Controle atual',
-      ordem: 0,
-      blocoOrdem: 999,
-      linhaId: '',
-      blocoId: '',
-      isCustom: true,
-    };
-  }
+  // Sem linha no Controle atual (ex.: sticky `linha:uuid` órfão após salvar estrutura),
+  // NÃO inventa categoria fantasma — volta a pendente para o usuário reclassificar.
+  const categoria = resolveCategoriaEntradaFromMapeamento(row, catalog);
   if (!categoria) return null;
   return { row, categoria, regraDesativada: !row.ativo };
 }

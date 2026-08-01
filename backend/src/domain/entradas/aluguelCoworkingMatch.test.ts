@@ -142,4 +142,40 @@ describe('resolverSegmentoEntradaGrupo', () => {
       'mensalidades',
     );
   });
+
+  it('template_key de mensalidade manda mesmo com bloco sticky antigo em aluguel', () => {
+    assert.equal(
+      resolverSegmentoEntradaGrupo({
+        bloco_template_key: 'entrada_aluguel_coworking',
+        bloco_titulo: 'ENTRADAS ALUGUEL / COWORKING',
+        template_key: 'ent_parc_danca',
+        aba_fluxo: null,
+        aluno_nome: null,
+        sugestao_fluxo: null,
+        match_aluguel: null,
+      }),
+      'mensalidades',
+    );
+  });
+
+  it('template_key de mensalidade (parceiros) manda mesmo se título antigo citava aluguel', () => {
+    assert.equal(
+      resolverSegmentoEntradaGrupo({
+        bloco_template_key: 'entrada_parceiros',
+        bloco_titulo: null,
+        template_key: 'ent_parc_danca',
+        aba_fluxo: null,
+        aluno_nome: null,
+        sugestao_fluxo: null,
+        match_aluguel: {
+          template_key: 'ent_alug_neto_sba',
+          label: 'Neto (SBA)',
+          confianca: 'alta',
+          motivo: 'Nome: NETO',
+          score: 12,
+        },
+      }),
+      'mensalidades',
+    );
+  });
 });

@@ -1,6 +1,10 @@
 import { stableEntradaTemplateKeyForLabel } from '../domain/entradas/categoriasEntrada.js';
 import { stableSaidaTemplateKeyForLabel } from '../domain/despesas/categoriasSaida.js';
 import {
+  stableCustomEntradaTemplateKey,
+  stableCustomSaidaTemplateKey,
+} from '../domain/controleCaixa/chavesEstaveis.js';
+import {
   estruturaControleCompleta,
   precisaRepararEstruturaSistema,
 } from '../domain/controleCaixa/mesAnterior.js';
@@ -72,6 +76,7 @@ function isBlocoSaidaFixas(bloco: ControleCaixaReadDto['blocos'][number]): boole
  * Se o modo sistema está incompleto (ex.: só Entradas Parceiros após sync antigo)
  * ou usa o template genérico legado, reconstitui a partir do Oficial (planilha)
  * ou do template operacional, preservando valores já preenchidos no sistema.
+ * Linhas custom do Sistema que não existem no oficial/template são mantidas.
  */
 export function mergeEstruturaPreservandoValores(
   estrutura: ControleCaixaReadDto,
@@ -87,6 +92,18 @@ export function mergeEstruturaPreservandoValores(
     }
   }
 
+  const estruturaKeysByBloco = new Map<string, Set<string>>();
+  for (const b of estrutura.blocos) {
+    const set = new Set<string>();
+    for (const l of b.linhas) set.add(linhaMatchKey(l.label, l.templateKey));
+    estruturaKeysByBloco.set(linhaMatchKey(b.titulo, b.templateKey), set);
+  }
+
+  const valoresByBlocoKey = new Map<string, (typeof valores.blocos)[number]>();
+  for (const b of valores.blocos) {
+    valoresByBlocoKey.set(linhaMatchKey(b.titulo, b.templateKey), b);
+  }
+
   return {
     ...estrutura,
     modo: 'sistema',
@@ -94,10 +111,10 @@ export function mergeEstruturaPreservandoValores(
     origem: valores.origem || estrutura.origem,
     updatedAt: valores.updatedAt ?? estrutura.updatedAt,
     totais: { ...valores.totais },
-    blocos: estrutura.blocos.map((b) => ({
-      ...b,
-      id: b.id,
-      linhas: b.linhas.map((l) => {
+    blocos: estrutura.blocos.map((b) => {
+      const blocoKey = linhaMatchKey(b.titulo, b.templateKey);
+      const known = estruturaKeysByBloco.get(blocoKey) ?? new Set<string>();
+      const baseLinhas = b.linhas.map((l) => {
         const hit = valorByKey.get(linhaMatchKey(l.label, l.templateKey));
         // Estrutura (oficial/template) só empresta rótulos/chaves — valores vêm
         // só do Sistema já preenchido. Sem match → linha vazia (não copia planilha).
@@ -107,8 +124,30 @@ export function mergeEstruturaPreservandoValores(
           valor: hit.valor,
           valorTexto: hit.valorTexto,
         };
-      }),
-    })),
+      });
+
+      const extras: typeof baseLinhas = [];
+      const fromValores = valoresByBlocoKey.get(blocoKey);
+      if (fromValores) {
+        for (const l of fromValores.linhas) {
+          const mk = linhaMatchKey(l.label, l.templateKey);
+          if (known.has(mk)) continue;
+          // Só reanexa custom / sem chave de catálogo — evita duplicar linhas padrão.
+          if (!l.isCustom && l.templateKey && !l.templateKey.startsWith('linha:')) continue;
+          extras.push({
+            ...l,
+            id: l.id || `custom-${mk}`,
+          });
+          known.add(mk);
+        }
+      }
+
+      return {
+        ...b,
+        id: b.id,
+        linhas: [...baseLinhas, ...extras],
+      };
+    }),
   };
 }
 
@@ -131,18 +170,46 @@ export function ensureStableTemplateKeys(data: ControleCaixaReadDto): void {
       isBlocoSaidaFixas(bloco);
     if (!wantsStable) continue;
 
+    const usedKeys = new Set<string>();
+    for (const linha of bloco.linhas) {
+      const existing = (linha.templateKey ?? '').trim();
+      if (existing && !existing.startsWith('linha:') && !existing.startsWith('legado:')) {
+        usedKeys.add(existing);
+      }
+    }
+
     for (const linha of bloco.linhas) {
       const raw = (linha.templateKey ?? '').trim();
       if (raw && !raw.startsWith('linha:') && !raw.startsWith('legado:')) continue;
       if (bloco.tipo === 'entrada') {
-        const stable = stableEntradaTemplateKeyForLabel(linha.label);
-        if (stable) linha.templateKey = stable;
+        const stable =
+          stableEntradaTemplateKeyForLabel(linha.label) ??
+          stableCustomEntradaTemplateKey(linha.label, bloco.templateKey);
+        linha.templateKey = dedupeKey(stable, usedKeys, linha.ordem);
       } else {
-        const stable = stableSaidaTemplateKeyForLabel(linha.label);
-        if (stable) linha.templateKey = stable;
+        const stable =
+          stableSaidaTemplateKeyForLabel(linha.label) ??
+          stableCustomSaidaTemplateKey(linha.label, bloco.templateKey);
+        linha.templateKey = dedupeKey(stable, usedKeys, linha.ordem);
       }
     }
   }
+}
+
+function dedupeKey(base: string, used: Set<string>, ordem: number): string {
+  let key = base;
+  if (!used.has(key)) {
+    used.add(key);
+    return key;
+  }
+  key = `${base}_${ordem}`;
+  let n = 2;
+  while (used.has(key)) {
+    key = `${base}_${ordem}_${n}`;
+    n += 1;
+  }
+  used.add(key);
+  return key;
 }
 
 /** @deprecated Use ensureStableTemplateKeys — mantido como alias. */
@@ -244,3 +311,4 @@ export function dtoToControlePersistPayload(data: ControleCaixaReadDto) {
     })),
   };
 }
+

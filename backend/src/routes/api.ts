@@ -37,6 +37,7 @@ import { lerPagamentosPorAbaEAno } from '../services/planilhaPagamentos.js';
 import createControleCaixaRouter from './controleCaixa.js';
 import createFluxoOperacionalRouter from './fluxoOperacional.js';
 import { createAiAssistantRouter } from './aiAssistant.js';
+import { createAiConsultaRouter } from './aiConsulta.js';
 import {
   createAluguelSalasAutomaticoRouter,
   createAluguelSalasRouter,
@@ -71,6 +72,8 @@ router.use(
   ['/fluxo-operacional', '/ai/assistant', '/aluguel', '/conciliacao-pagamentos', '/cadastro-alunos'],
   requireRoles(['secretaria', 'admin'])
 );
+
+router.use(['/ai/consulta'], requireRoles(['admin']));
 
 router.use(
   [
@@ -203,6 +206,7 @@ router.use(planilhaEntradaSaidaRoutes);
 router.use(createControleCaixaRouter());
 router.use(createFluxoOperacionalRouter());
 router.use(createAiAssistantRouter());
+router.use(createAiConsultaRouter());
 router.use(despesasRoutes);
 router.use(createDespesasClassificacaoRouter());
 router.use(createEntradasClassificacaoRouter());

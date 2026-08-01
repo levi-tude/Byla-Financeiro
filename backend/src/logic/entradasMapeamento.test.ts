@@ -49,6 +49,43 @@ describe('pickMapeamentoEntradaForPessoa', () => {
     );
     assert.equal(r, null);
   });
+
+  it('sticky com linha:uuid órfã e rótulo fora do Controle volta a pendente', () => {
+    const r = pickMapeamentoEntradaForPessoa(
+      [
+        {
+          ...baseRow,
+          confirmado: true,
+          template_key: 'linha:00000000-0000-0000-0000-000000000099',
+          categoria: 'Cowork Demo Alpha',
+          bloco_template_key: 'entrada_aluguel_coworking',
+        },
+      ],
+      'joao silva',
+      7,
+      2026,
+      catalog,
+    );
+    assert.equal(r, null);
+  });
+
+  it('sticky órfão recupera pelo rótulo se a linha existir no catálogo', () => {
+    const r = pickMapeamentoEntradaForPessoa(
+      [
+        {
+          ...baseRow,
+          confirmado: true,
+          template_key: 'linha:dead-uuid',
+          categoria: 'Dança',
+        },
+      ],
+      'joao silva',
+      7,
+      2026,
+      catalog,
+    );
+    assert.equal(r?.categoria.templateKey, 'ent_parc_danca');
+  });
 });
 
 describe('pickSugestaoFluxoEntradaForPessoa', () => {

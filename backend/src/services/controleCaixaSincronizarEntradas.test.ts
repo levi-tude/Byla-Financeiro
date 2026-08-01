@@ -115,6 +115,32 @@ describe('mergeEstruturaPreservandoValores', () => {
     assert.equal(yoga?.valor, null);
     assert.equal(yoga?.valorTexto, null);
   });
+
+  it('preserva linha custom do Sistema que não existe no oficial', () => {
+    const oficial = dtoFromTemplate({ modo: 'oficial', origem: 'migracao_planilha' });
+    const sistema = dtoFromTemplate({ origem: 'sistema_editor' });
+    const aluguel = sistema.blocos.find((b) => b.templateKey === 'entrada_aluguel_coworking');
+    assert.ok(aluguel);
+    aluguel!.linhas.push({
+      id: 'custom-40',
+      label: 'Cowork Demo Alpha',
+      valor: 900,
+      valorTexto: 'extrato_classificado',
+      ordem: 99,
+      templateKey: 'ent_alug_x_cowork_demo_alpha',
+      isDefault: false,
+      isCustom: true,
+      lockedLevel: 'none',
+    });
+
+    const merged = mergeEstruturaPreservandoValores(oficial, sistema);
+    const hit = merged.blocos
+      .flatMap((b) => b.linhas)
+      .find((l) => l.label === 'Cowork Demo Alpha');
+    assert.ok(hit);
+    assert.equal(hit?.valor, 900);
+    assert.equal(hit?.templateKey, 'ent_alug_x_cowork_demo_alpha');
+  });
 });
 
 describe('aplicarSyncCompletoSistema', () => {

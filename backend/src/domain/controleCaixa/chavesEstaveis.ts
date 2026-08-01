@@ -92,3 +92,51 @@ export function isStableEntradaAluguelKey(templateKey: string): boolean {
 export function isStableSaidaFixaKey(templateKey: string): boolean {
   return templateKey.trim().startsWith('sai_fix_');
 }
+
+/** Slug estável a partir do rótulo (sobrevive a delete+insert de UUIDs no persist). */
+export function slugTemplateFromLabel(label: string): string {
+  const slug = normLabel(label)
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '')
+    .slice(0, 48);
+  return slug || 'linha';
+}
+
+/**
+ * Chave durável para linha custom de entrada (não catalogada como ent_parc_* / ent_alug_*).
+ * Prefixo diferencia bloco para a mesma pessoa poder existir em parceiros e aluguel.
+ */
+export function stableCustomEntradaTemplateKey(
+  label: string,
+  blocoTemplateKey: string | null | undefined,
+): string {
+  const bloco = (blocoTemplateKey ?? '').trim().toLowerCase();
+  const prefix =
+    bloco === 'entrada_aluguel_coworking' || bloco.includes('alug') || bloco.includes('cowork')
+      ? 'ent_alug_x_'
+      : 'ent_parc_x_';
+  return `${prefix}${slugTemplateFromLabel(label)}`;
+}
+
+/** Chave durável para linha custom de saída. */
+export function stableCustomSaidaTemplateKey(
+  label: string,
+  blocoTemplateKey: string | null | undefined,
+): string {
+  const bloco = (blocoTemplateKey ?? '').trim().toLowerCase();
+  const prefix =
+    bloco === 'saida_parceiros' || bloco.includes('parceir')
+      ? 'sai_parc_x_'
+      : 'sai_fix_x_';
+  return `${prefix}${slugTemplateFromLabel(label)}`;
+}
+
+export function isDurableCustomEntradaKey(templateKey: string): boolean {
+  const k = templateKey.trim();
+  return k.startsWith('ent_parc_x_') || k.startsWith('ent_alug_x_');
+}
+
+export function isDurableCustomSaidaKey(templateKey: string): boolean {
+  const k = templateKey.trim();
+  return k.startsWith('sai_parc_x_') || k.startsWith('sai_fix_x_');
+}

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   LEGACY_ENTRADA_ALUGUEL_TEMPLATE_KEY_LABELS,
   LEGACY_SAIDA_FIXA_TEMPLATE_KEY_LABELS,
+  stableCustomEntradaTemplateKey,
+  stableCustomSaidaTemplateKey,
   stableEntradaAluguelTemplateKeyForLabel,
   stableSaidaFixaTemplateKeyForLabel,
 } from './chavesEstaveis.js';
@@ -29,5 +31,20 @@ describe('chavesEstaveis aluguel e fixas', () => {
     assert.ok(fixas?.linhas.every((l) => (l.templateKey ?? '').startsWith('sai_fix_')));
     assert.ok(Object.keys(LEGACY_ENTRADA_ALUGUEL_TEMPLATE_KEY_LABELS).length >= 5);
     assert.ok(Object.keys(LEGACY_SAIDA_FIXA_TEMPLATE_KEY_LABELS).length >= 10);
+  });
+
+  it('gera chave durável para linha custom (não uuid)', () => {
+    assert.equal(
+      stableCustomEntradaTemplateKey('Cowork Demo Alpha', 'entrada_parceiros'),
+      'ent_parc_x_cowork_demo_alpha',
+    );
+    assert.equal(
+      stableCustomEntradaTemplateKey('Cowork Demo Alpha', 'entrada_aluguel_coworking'),
+      'ent_alug_x_cowork_demo_alpha',
+    );
+    assert.equal(
+      stableCustomSaidaTemplateKey('Parcela Extra', 'saida_gastos_fixos'),
+      'sai_fix_x_parcela_extra',
+    );
   });
 });

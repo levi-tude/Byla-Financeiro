@@ -181,6 +181,8 @@ export async function remapearMapeamentosStickyParaChavesEstaveis(
     let nextLabel: string | null = null;
 
     if (isEntrada) {
+      // labelHint recupera sticky órfão (linha:uuid morto) quando a linha custom
+      // voltou ao Controle com chave estável / mesmo rótulo.
       const cat = resolveCategoriaEntradaInCatalog(catalogEntrada, raw, row.categoria);
       if (cat) {
         nextKey = preferStableEntradaTemplateKey(cat);

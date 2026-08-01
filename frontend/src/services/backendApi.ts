@@ -155,7 +155,15 @@ async function getAuthHeaders(initialHeaders?: HeadersInit): Promise<Headers> {
 async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const base = BASE_URL.replace(/\/$/, '');
   const headers = await getAuthHeaders(init.headers);
-  return fetch(`${base}${path}`, { ...init, headers });
+  try {
+    return await fetch(`${base}${path}`, { ...init, headers });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    // Browser costuma mostrar só "Failed to fetch" (CORS, rede ou Render acordando).
+    throw new Error(
+      `Não foi possível falar com o backend (${detail}). Se o Render estiver acordando, aguarde ~1 min e tente de novo.`,
+    );
+  }
 }
 
 export async function healthCheck(): Promise<{ status: string }> {
@@ -1282,6 +1290,67 @@ export async function postControleCaixaSincronizarEntradas(
   return requestPost(`/api/controle-caixa/sincronizar-entradas?${params.toString()}`, {});
 }
 
+export type ControleLinhaComposicaoItem = {
+  id: string;
+  data: string | null;
+  pessoa: string | null;
+  valor: number;
+  meio: string;
+  meioLabel: string;
+  origem: 'extrato' | 'dinheiro_fluxo' | 'formula' | string;
+  descricao: string | null;
+};
+
+export type ControleLinhaComposicaoResponse = {
+  mes: number;
+  ano: number;
+  modo: ControleModo;
+  visao: VisaoControle;
+  bloco: { templateKey: string | null; titulo: string; tipo: 'entrada' | 'saida' };
+  linha: {
+    templateKey: string | null;
+    label: string;
+    valor: number | null;
+    valorTexto: string | null;
+  };
+  tipoComposicao: 'extrato_e_dinheiro' | 'formula_repasse' | 'vazio' | 'modo_oficial' | string;
+  formula: {
+    templateKeyEntrada: string;
+    labelEntrada: string;
+    baseEntrada: number;
+    descricao: string;
+    aviso: string;
+  } | null;
+  itens: ControleLinhaComposicaoItem[];
+  totalItens: number;
+  totalLinha: number | null;
+  mensagem: string | null;
+};
+
+/** Transações (ou fórmula de repasse) que formam o valor de uma linha do Controle. */
+export async function getControleLinhaComposicao(opts: {
+  mes: number;
+  ano: number;
+  modo: ControleModo;
+  blocoTemplateKey: string;
+  linhaTemplateKey: string;
+  linhaLabel?: string;
+  visao?: VisaoControle;
+}): Promise<ControleLinhaComposicaoResponse> {
+  const params = new URLSearchParams({
+    mes: String(opts.mes),
+    ano: String(opts.ano),
+    modo: opts.modo,
+    blocoTemplateKey: opts.blocoTemplateKey,
+    linhaTemplateKey: opts.linhaTemplateKey,
+    visao: opts.visao ?? 'competencia',
+  });
+  if (opts.linhaLabel) params.set('linhaLabel', opts.linhaLabel);
+  return request<ControleLinhaComposicaoResponse>(
+    `/api/controle-caixa/linha-composicao?${params.toString()}`,
+  );
+}
+
 /** Resumo por modalidade/categoria (extrato oficial) e, para saídas, por funcionário (tabela despesas). */
 export interface CategoriasBancoBucket {
   nome: string;
@@ -1687,6 +1756,28 @@ export interface AssistantChatResponse {
 
 export async function chatAcessibilidadeIA(payload: AssistantChatRequest): Promise<AssistantChatResponse> {
   return requestPost<AssistantChatResponse>('/api/ai/assistant/chat', payload);
+}
+
+export interface ConsultaBylaChatRequest {
+  message: string;
+  conversationId?: string;
+  context?: {
+    route?: string;
+    role?: 'secretaria' | 'admin' | null;
+    monthYear?: string;
+  };
+}
+
+export interface ConsultaBylaChatResponse {
+  message: string;
+  tool: string | null;
+  confidence: number;
+  quickReplies: string[];
+  providerUsed?: string;
+}
+
+export async function chatConsultaByla(payload: ConsultaBylaChatRequest): Promise<ConsultaBylaChatResponse> {
+  return requestPost<ConsultaBylaChatResponse>('/api/ai/consulta/chat', payload);
 }
 
 export async function getAcessibilidadeIAStatus(): Promise<{ configured: boolean; provider: 'gemini' | 'groq' | 'openai' | null }> {

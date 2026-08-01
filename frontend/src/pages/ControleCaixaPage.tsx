@@ -17,6 +17,10 @@ import {
 import { useToast } from '../context/ToastContext';
 import { ApiErrorPanel } from '../components/ui/ApiErrorPanel';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import {
+  ControleLinhaComposicaoModal,
+  type ControleLinhaComposicaoTarget,
+} from '../components/ControleLinhaComposicaoModal';
 import { Link } from 'react-router-dom';
 import { FilterBar } from '../components/finance/FilterBar';
 import {
@@ -96,12 +100,23 @@ function linhaValorSomenteLeitura(
 
 function linhaValorHint(_bloco: ControleCaixaBloco, linha: ControleCaixaLinha): string | undefined {
   if (linha.valorTexto === 'calculado_repasse') {
-    return 'Repasse calculado automaticamente a partir da entrada do parceiro no mês.';
+    return 'Repasse calculado automaticamente a partir da entrada do parceiro no mês. Clique para ver a fórmula.';
   }
   if (linha.valorTexto === 'extrato_classificado') {
-    return 'Total sincronizado do extrato classificado (Página Entradas).';
+    return 'Total sincronizado do extrato classificado (e dinheiro do Fluxo, quando houver). Clique para ver a composição.';
   }
-  return undefined;
+  return 'Clique em Composição para ver o detalhe da linha.';
+}
+
+function chaveBlocoComposicao(bloco: ControleCaixaBloco): string {
+  return (bloco.templateKey ?? '').trim() || bloco.titulo;
+}
+
+function chaveLinhaComposicao(linha: ControleCaixaLinha): string {
+  const tk = (linha.templateKey ?? '').trim();
+  if (tk) return tk;
+  if (linha.id) return `linha:${linha.id}`;
+  return linha.label;
 }
 
 function trendFromDelta(current: number | null, prev: number | null): 'up' | 'down' | 'neutral' {
@@ -253,6 +268,16 @@ export function ControleCaixaPage() {
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [defaultEditDecision, setDefaultEditDecision] = useState<DefaultEditDecision>(null);
   const [modoEscolhidoManual, setModoEscolhidoManual] = useState(false);
+  const [composicaoTarget, setComposicaoTarget] = useState<ControleLinhaComposicaoTarget | null>(null);
+
+  const abrirComposicao = useCallback((bloco: ControleCaixaBloco, linha: ControleCaixaLinha) => {
+    setComposicaoTarget({
+      blocoTemplateKey: chaveBlocoComposicao(bloco),
+      linhaTemplateKey: chaveLinhaComposicao(linha),
+      linhaLabel: linha.label,
+      blocoTitulo: bloco.titulo,
+    });
+  }, []);
 
   const mesAnterior = useMemo(
     () => previousMonth(monthYear.mes, monthYear.ano),
@@ -1020,6 +1045,11 @@ export function ControleCaixaPage() {
                         value={formatNullableCurrency(linha.valor)}
                         readOnly={linhaValorSomenteLeitura(bloco, linha, somenteLeitura)}
                         title={linhaValorHint(bloco, linha)}
+                        onClick={() => {
+                          if (linhaValorSomenteLeitura(bloco, linha, somenteLeitura)) {
+                            abrirComposicao(bloco, linha);
+                          }
+                        }}
                         onChange={(e) => {
                           if (linhaValorSomenteLeitura(bloco, linha, somenteLeitura)) return;
                           setDraft((prev) => {
@@ -1037,13 +1067,21 @@ export function ControleCaixaPage() {
                         }}
                         className={`w-full shrink-0 rounded border px-2 py-1.5 text-sm tabular-nums sm:w-40 dark:border-slate-600 ${
                           linhaValorSomenteLeitura(bloco, linha, somenteLeitura)
-                            ? 'cursor-not-allowed border-slate-200 bg-slate-100 dark:border-slate-700 dark:bg-slate-800/80'
+                            ? 'cursor-pointer border-slate-200 bg-slate-100 dark:border-slate-700 dark:bg-slate-800/80'
                             : 'border-slate-300 bg-white dark:bg-slate-800'
                         }`}
                         placeholder="R$ 0,00"
                         inputMode="decimal"
                         aria-label={`Valor — ${linha.label}`}
                       />
+                      <button
+                        type="button"
+                        onClick={() => abrirComposicao(bloco, linha)}
+                        className="shrink-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                        title="Ver transações ou fórmula que formam este valor"
+                      >
+                        Composição
+                      </button>
                       <button
                         type="button"
                         onClick={() =>
@@ -1176,6 +1214,15 @@ export function ControleCaixaPage() {
           </div>
         </div>
       ) : null}
+
+      <ControleLinhaComposicaoModal
+        open={!!composicaoTarget}
+        onClose={() => setComposicaoTarget(null)}
+        mes={monthYear.mes}
+        ano={monthYear.ano}
+        modo={modo}
+        target={composicaoTarget}
+      />
     </div>
   );
 }
