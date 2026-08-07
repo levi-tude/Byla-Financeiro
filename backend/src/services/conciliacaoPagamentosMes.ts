@@ -241,6 +241,9 @@ function resolverCreditoAluno(params: {
 
 /**
  * Montagem pura (fixtures) — usada pelos testes e por getConciliacaoPagamentosMes.
+ *
+ * `referenciaCivil` = mês civil aberto (hoje). Competências futuras sem lançamento real
+ * não entram como pendente (previsto virtual não conta como pagamento).
  */
 export function montarItensConciliacaoPagamentos(input: {
   mes: number;
@@ -250,9 +253,18 @@ export function montarItensConciliacaoPagamentos(input: {
   entradas: Array<ConciliacaoTransacaoFixture | TransacaoBase | BancoItem>;
   vinculosByPlanilha: Map<string, { banco_id: string; id: string }>;
   pilatesNomePagadorRows?: PilatesNomePagadorRow[];
+  /** Mês civil atual (default: hoje). */
+  referenciaCivil?: { mes: number; ano: number };
 }): ConciliacaoPagamentosMesResult {
   const { mes, ano, alunos, pagamentos, vinculosByPlanilha } = input;
   const pilatesNomePagadorRows = input.pilatesNomePagadorRows ?? [];
+  const agora = new Date();
+  const refCivil = input.referenciaCivil ?? {
+    mes: agora.getMonth() + 1,
+    ano: agora.getFullYear(),
+  };
+  const competenciaFutura =
+    ano > refCivil.ano || (ano === refCivil.ano && mes > refCivil.mes);
 
   const entradasLista = input.entradas.map(toBancoItem);
   const entradasById = new Map(entradasLista.map((e) => [e.id, e]));
@@ -277,6 +289,11 @@ export function montarItensConciliacaoPagamentos(input: {
     const diaVenc = parseDiaVencimentoCadastro(a.venc);
     const key = chaveAlunoAba(a.aba, a.aluno_nome);
     const pags = pagamentosPorAluno.get(key) ?? [];
+
+    // Futuro: só previsto (sem lançamento) não gera linha/pendente na Conciliação.
+    if (competenciaFutura && pags.length === 0) {
+      continue;
+    }
 
     const credito = resolverCreditoAluno({
       pagamentosAluno: pags,
