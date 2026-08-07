@@ -597,8 +597,10 @@ export interface FluxoOperacionalResumoMesItem {
   valorPago: number;
   dataPagamento: string | null;
   formaPagamento: string | null;
-  status: 'pago' | 'parcial' | 'pendente' | 'sem_dado' | 'futuro';
-  status_extrato?: 'validado' | 'pendente' | 'sem_lancamento';
+  status: 'pago' | 'parcial' | 'pendente' | 'sem_dado' | 'futuro' | 'previsto';
+  status_extrato?: 'validado' | 'pendente' | 'sem_lancamento' | 'bolsa' | 'excecao';
+  /** Célula virtual do ciclo do plano (não é lançamento / não vai à Validação). */
+  previsto_plano?: boolean;
 }
 
 export interface FluxoOperacionalResumoAlunoItem {

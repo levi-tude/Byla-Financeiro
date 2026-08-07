@@ -238,6 +238,59 @@ test('montarItens: pagamento em dinheiro usa data do Fluxo e não exige vínculo
   assert.equal(result.itens[0].pessoa_banco, 'Pagamento em dinheiro');
 });
 
+test('montarItens: competência futura sem lançamento não gera pendente', () => {
+  const result = montarItensConciliacaoPagamentos({
+    mes: 12,
+    ano: 2026,
+    alunos: [aluno({ id: 'a-fut', aluno_nome: 'Fiona Futuro', venc: '10' })],
+    pagamentos: [],
+    entradas: [],
+    vinculosByPlanilha: new Map(),
+    referenciaCivil: { mes: 8, ano: 2026 },
+  });
+  assert.equal(result.itens.length, 0);
+  assert.equal(result.totais.pendente, 0);
+  assert.equal(result.totais.total, 0);
+});
+
+test('montarItens: mês civil atual sem lançamento → pendente normal', () => {
+  const result = montarItensConciliacaoPagamentos({
+    mes: 8,
+    ano: 2026,
+    alunos: [aluno({ id: 'a-cur', aluno_nome: 'Gina Atual', venc: '10' })],
+    pagamentos: [],
+    entradas: [],
+    vinculosByPlanilha: new Map(),
+    referenciaCivil: { mes: 8, ano: 2026 },
+  });
+  assert.equal(result.itens.length, 1);
+  assert.equal(result.itens[0].status, 'pendente');
+  assert.equal(result.totais.pendente, 1);
+});
+
+test('montarItens: bolsa/exceção nunca entram em totais pendente', () => {
+  const result = montarItensConciliacaoPagamentos({
+    mes: 8,
+    ano: 2026,
+    alunos: [
+      aluno({ id: 'b1', aluno_nome: 'Helena Bolsa', plano: 'Bolsa', venc: '10' }),
+      aluno({
+        id: 'b2',
+        aluno_nome: 'Igor Excecao',
+        regime_cobranca: 'excecao',
+        venc: '10',
+      }),
+    ],
+    pagamentos: [],
+    entradas: [],
+    vinculosByPlanilha: new Map(),
+    referenciaCivil: { mes: 8, ano: 2026 },
+  });
+  assert.equal(result.totais.pendente, 0);
+  assert.equal(result.totais.bolsa, 1);
+  assert.equal(result.totais.excecao, 1);
+});
+
 test('stripCamposBancariosConciliacao: secretaria omite bancários; admin mantém', () => {
   const raw = montarItensConciliacaoPagamentos({
     mes: MES,

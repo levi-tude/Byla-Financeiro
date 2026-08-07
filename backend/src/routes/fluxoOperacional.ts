@@ -15,6 +15,7 @@ import {
 } from '../services/fluxoExtratoValidacaoService.js';
 import { resolverRegimeCobranca } from '../logic/regimeCobrancaAluno.js';
 import { findPagamentoDuplicado } from '../logic/fluxoPagamentoDedupe.js';
+import { competenciaNoCicloAtual } from '../logic/planoCicloPrevisto.js';
 
 const fluxoAlunosListQuerySchema = z.object({
   aba: z.string().trim().optional(),
@@ -1129,7 +1130,7 @@ export default function createFluxoOperacionalRouter(): Router {
     let alunosQuery = supabase
       .from('fluxo_alunos_operacionais')
       .select(
-        'id, aba, modalidade, linha_planilha, aluno_nome, wpp, responsaveis, plano, regime_cobranca, venc, valor_referencia, pagador_pix, ativo',
+        'id, aba, modalidade, linha_planilha, aluno_nome, wpp, responsaveis, plano, regime_cobranca, matricula, venc, valor_referencia, pagador_pix, ativo',
       )
       .eq('ativo', true)
       .order('aba', { ascending: true })
@@ -1206,12 +1207,19 @@ export default function createFluxoOperacionalRouter(): Router {
     const mesAtualKey = competenciaKey(anoRef, mesRef);
     const mesAnterior = addMonths(anoRef, mesRef, -1);
     const mesAnteriorKey = competenciaKey(mesAnterior.ano, mesAnterior.mes);
+    const agora = new Date();
+    const refCivil = { ano: agora.getFullYear(), mes: agora.getMonth() + 1 };
+    const mesAtualRealKey = competenciaKey(refCivil.ano, refCivil.mes);
 
     const itens = (alunosRows ?? []).map((a) => {
       const alunoKey = keyAluno(String(a.aba), String(a.modalidade), Number(a.linha_planilha), String(a.aluno_nome));
       const esperado = a.valor_referencia != null ? Number(a.valor_referencia) : null;
       const regime = regimePorAlunoKey.get(alunoKey) ?? 'normal';
       const semCobranca = regime === 'bolsa' || regime === 'excecao';
+      const matricula = (a as { matricula?: string | null }).matricula != null
+        ? String((a as { matricula?: string | null }).matricula)
+        : null;
+      const planoTxt = a.plano != null ? String(a.plano) : null;
 
       const historico = mesesJanela.map((m) => {
         const keyMes = competenciaKey(m.ano, m.mes);
@@ -1225,21 +1233,33 @@ export default function createFluxoOperacionalRouter(): Router {
         } else if (pago > 0 && statusSet) {
           status_extrato = statusSet.has('pendente') ? 'pendente' : 'validado';
         }
-        const agora = new Date();
-        const mesAtualRealKey = competenciaKey(agora.getFullYear(), agora.getMonth() + 1);
-        let status: 'pago' | 'parcial' | 'pendente' | 'sem_dado' | 'futuro' = 'sem_dado';
+
+        const noCicloPrevisto =
+          !semCobranca &&
+          pago <= 0 &&
+          competenciaNoCicloAtual({
+            matricula,
+            plano: planoTxt,
+            referencia: refCivil,
+            alvo: { ano: m.ano, mes: m.mes },
+          });
+
+        let status: 'pago' | 'parcial' | 'pendente' | 'sem_dado' | 'futuro' | 'previsto' = 'sem_dado';
         if (semCobranca) {
           status = 'sem_dado';
+        } else if (pago > 0) {
+          if (esperado == null) status = 'pago';
+          else if (pago < esperado) status = 'parcial';
+          else status = 'pago';
+        } else if (noCicloPrevisto) {
+          // Virtual: Previsto (plano) ≠ lançado. Não cria candidato de Validação.
+          status = 'previsto';
         } else if (keyMes > mesAtualRealKey) {
           status = 'futuro';
         } else if (esperado == null) {
-          status = pago > 0 ? 'pago' : 'sem_dado';
-        } else if (pago <= 0) {
-          status = 'pendente';
-        } else if (pago < esperado) {
-          status = 'parcial';
+          status = 'sem_dado';
         } else {
-          status = 'pago';
+          status = 'pendente';
         }
         return {
           ano: m.ano,
@@ -1251,12 +1271,18 @@ export default function createFluxoOperacionalRouter(): Router {
           formaPagamento: detalhe?.formaPagamento ?? null,
           status,
           status_extrato,
+          previsto_plano: noCicloPrevisto,
         };
       });
 
       const atual = historico.find((h) => h.key === mesAtualKey);
       const anterior = historico.find((h) => h.key === mesAnteriorKey);
-      const mesesEmAberto = historico.filter((h) => h.status === 'pendente' || h.status === 'parcial').length;
+      const mesesEmAberto = historico.filter((h) => {
+        if (h.status === 'pendente' || h.status === 'parcial') return true;
+        // Previsto no mês civil atual ou passado ainda conta como em aberto para cobrança.
+        if (h.status === 'previsto' && h.key <= mesAtualRealKey) return true;
+        return false;
+      }).length;
       const voltouAPagar = !!anterior && anterior.status !== 'pago' && atual?.status === 'pago';
 
       return {
@@ -1267,7 +1293,7 @@ export default function createFluxoOperacionalRouter(): Router {
         alunoNome: String(a.aluno_nome),
         whatsapp: a.wpp != null ? String(a.wpp) : null,
         responsaveis: a.responsaveis != null ? String(a.responsaveis) : null,
-        plano: a.plano != null ? String(a.plano) : null,
+        plano: planoTxt,
         vencimento: a.venc != null ? String(a.venc) : null,
         pagadorPix: a.pagador_pix != null ? String(a.pagador_pix) : null,
         valorReferencia: esperado,
@@ -1279,7 +1305,7 @@ export default function createFluxoOperacionalRouter(): Router {
 
     const pendentesMesAtual = itens.filter((i) => {
       const m = i.historico.find((h) => h.key === mesAtualKey);
-      return m?.status === 'pendente' || m?.status === 'parcial';
+      return m?.status === 'pendente' || m?.status === 'parcial' || m?.status === 'previsto';
     }).length;
     const atrasados2Mais = itens.filter((i) => i.mesesEmAberto >= 2).length;
     const voltaramAPagar = itens.filter((i) => i.voltouAPagar).length;
