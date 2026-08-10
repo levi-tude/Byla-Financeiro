@@ -8,6 +8,11 @@ import type {
   CadastroAlunoRegimeFiltro,
   CadastroAlunoVinculoFiltro,
 } from '../services/cadastroAlunosResumoReadModel.js';
+import {
+  CACHE_TTL_SEC,
+  cacheGetOrSet,
+  cacheKeyCadastroResumo,
+} from '../services/responseCache.js';
 
 const router = Router();
 
@@ -26,16 +31,30 @@ router.get('/cadastro-alunos/resumo', async (req: Request, res: Response) => {
     const filtroDiaVencimento: CadastroAlunoDiaVencimentoFiltro | undefined =
       dia_vencimento === 'sem' ? 'sem' : dia_vencimento;
 
-    const result = await getCadastroAlunosResumo({
-      filtroAba: aba,
-      filtroModalidade: modalidade,
-      filtroVinculo: vinculo as CadastroAlunoVinculoFiltro,
-      filtroCadastro: cadastro as CadastroAlunoCadastroFiltro,
-      filtroRegime: regime as CadastroAlunoRegimeFiltro,
-      filtroMeio,
-      filtroDiaVencimento,
-      somenteAtivos: ativo !== 'false',
-    });
+    const result = await cacheGetOrSet(
+      cacheKeyCadastroResumo({
+        aba,
+        modalidade,
+        vinculo,
+        cadastro,
+        regime,
+        meio,
+        dia_vencimento,
+        ativo,
+      }),
+      CACHE_TTL_SEC,
+      () =>
+        getCadastroAlunosResumo({
+          filtroAba: aba,
+          filtroModalidade: modalidade,
+          filtroVinculo: vinculo as CadastroAlunoVinculoFiltro,
+          filtroCadastro: cadastro as CadastroAlunoCadastroFiltro,
+          filtroRegime: regime as CadastroAlunoRegimeFiltro,
+          filtroMeio,
+          filtroDiaVencimento,
+          somenteAtivos: ativo !== 'false',
+        }),
+    );
     return res.json(result);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

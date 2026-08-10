@@ -21,6 +21,7 @@ import { aprenderAlunoPagadorFromVinculo } from '../services/mapeamentoAlunoPaga
 import {
   exigeValidacaoExtratoPorForma,
 } from '../logic/pagamentoDinheiroFluxo.js';
+import { invalidateCachesOperacionais } from '../services/responseCache.js';
 
 type PlanilhaItem = {
   id: string;
@@ -247,6 +248,7 @@ router.post('/validacao-vinculos', async (req: Request, res: Response) => {
       }
     }
 
+    await invalidateCachesOperacionais();
     return res.json({ ok: true, ...result, sugestao_mapeamento });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -267,6 +269,7 @@ router.delete('/validacao-vinculos', async (req: Request, res: Response) => {
     }
 
     const result = await removeVinculo(planilha_id);
+    await invalidateCachesOperacionais();
     return res.json({ ok: true, ...result });
   } catch (e) {
     return res.status(500).json({ error: e instanceof Error ? e.message : String(e) });

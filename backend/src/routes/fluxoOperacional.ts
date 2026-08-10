@@ -16,6 +16,13 @@ import {
 import { resolverRegimeCobranca } from '../logic/regimeCobrancaAluno.js';
 import { findPagamentoDuplicado } from '../logic/fluxoPagamentoDedupe.js';
 import { competenciaNoCicloAtual } from '../logic/planoCicloPrevisto.js';
+import {
+  CACHE_TTL_SEC,
+  cacheGetOrSet,
+  cacheKeyFluxoAlunos,
+  cacheKeyFluxoPagamentos,
+  invalidateCachesOperacionais,
+} from '../services/responseCache.js';
 
 const fluxoAlunosListQuerySchema = z.object({
   aba: z.string().trim().optional(),
@@ -398,6 +405,17 @@ export default function createFluxoOperacionalRouter(): Router {
     const supabase = getSupabase();
     if (!supabase) return res.status(500).json({ error: 'Supabase não configurado no backend.' });
 
+    try {
+      const payload = await cacheGetOrSet(
+        cacheKeyFluxoAlunos({
+          aba: q.data.aba,
+          modalidade: q.data.modalidade,
+          ativo: q.data.ativo,
+          q: q.data.q,
+          limit: q.data.limit,
+        }),
+        CACHE_TTL_SEC,
+        async () => {
     let query = supabase
       .from('fluxo_alunos_operacionais')
       .select(
@@ -416,14 +434,14 @@ export default function createFluxoOperacionalRouter(): Router {
     }
 
     const { data, error } = await query;
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) throw new Error(error.message);
 
     const { data: pagRows, error: pagErr } = await supabase
       .from('fluxo_pagamentos_operacionais')
       .select('aba, linha_planilha, aluno_nome, valor, data_pagamento')
       .order('data_pagamento', { ascending: false })
       .limit(12000);
-    if (pagErr) return res.status(500).json({ error: pagErr.message });
+    if (pagErr) throw new Error(pagErr.message);
 
     const ultimoValorPorAluno = new Map<string, number>();
     for (const pr of pagRows ?? []) {
@@ -437,7 +455,7 @@ export default function createFluxoOperacionalRouter(): Router {
       .from('fluxo_alunos_operacionais')
       .select('aba, modalidade')
       .limit(8000);
-    if (metaErr) return res.status(500).json({ error: metaErr.message });
+    if (metaErr) throw new Error(metaErr.message);
 
     const itens = (data ?? []).map((row) => {
       const raw = extrairCamposPlanilhaDeRaw(row.raw_row);
@@ -500,13 +518,19 @@ export default function createFluxoOperacionalRouter(): Router {
       new Set((metaAlunosFiltros ?? []).map((r) => String(r.modalidade ?? '').trim()).filter(Boolean)),
     ).sort((a, b) => a.localeCompare(b, 'pt-BR'));
 
-    return res.json({
+    return {
       itens,
       filtros: {
         abas,
         modalidades,
       },
-    });
+    };
+        },
+      );
+      return res.json(payload);
+    } catch (e) {
+      return res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+    }
   });
 
   router.post('/fluxo-operacional/alunos', async (req: Request, res: Response) => {
@@ -556,6 +580,7 @@ export default function createFluxoOperacionalRouter(): Router {
       beforeData: null,
       afterData: data,
     });
+    await invalidateCachesOperacionais();
     return res.json({ item: data });
   });
 
@@ -628,6 +653,7 @@ export default function createFluxoOperacionalRouter(): Router {
       beforeData: beforeData ?? null,
       afterData: data,
     });
+    await invalidateCachesOperacionais();
     return res.json({ item: data });
   });
 
@@ -667,6 +693,7 @@ export default function createFluxoOperacionalRouter(): Router {
       beforeData: { ativo: beforeRow.ativo },
       afterData: { ativo: data.ativo },
     });
+    await invalidateCachesOperacionais();
     return res.json({ item: data });
   });
 
@@ -704,6 +731,7 @@ export default function createFluxoOperacionalRouter(): Router {
       beforeData: { pendencia_campos_ignorados: beforeRow.pendencia_campos_ignorados },
       afterData: data,
     });
+    await invalidateCachesOperacionais();
     return res.json({
       pendenciaCamposIgnorados: parsePendenciaCamposIgnorados(data?.pendencia_campos_ignorados),
     });
@@ -746,6 +774,7 @@ export default function createFluxoOperacionalRouter(): Router {
       beforeData: { cobranca_tentativas: prev },
       afterData: { cobranca_tentativas: next },
     });
+    await invalidateCachesOperacionais();
     return res.json({ cobrancaTentativas: parseCobrancaTentativasIn(data?.cobranca_tentativas) });
   });
 
@@ -802,6 +831,7 @@ export default function createFluxoOperacionalRouter(): Router {
       beforeData,
       afterData: null,
     });
+    await invalidateCachesOperacionais();
     return res.json({ ok: true });
   });
 
@@ -812,6 +842,19 @@ export default function createFluxoOperacionalRouter(): Router {
     const supabase = getSupabase();
     if (!supabase) return res.status(500).json({ error: 'Supabase não configurado no backend.' });
 
+    try {
+      const payload = await cacheGetOrSet(
+        cacheKeyFluxoPagamentos({
+          ano: q.data.ano,
+          mes: q.data.mes,
+          aba: q.data.aba,
+          modalidade: q.data.modalidade,
+          aluno: q.data.aluno,
+          q: q.data.q,
+          limit: q.data.limit,
+        }),
+        CACHE_TTL_SEC,
+        async () => {
     let query = supabase
       .from('fluxo_pagamentos_operacionais')
       .select(
@@ -843,7 +886,7 @@ export default function createFluxoOperacionalRouter(): Router {
     }
 
     const { data: pags, error } = await query;
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) throw new Error(error.message);
 
     const { data: alunosRows, error: alunosErr } = await supabase
       .from('fluxo_alunos_operacionais')
@@ -851,7 +894,7 @@ export default function createFluxoOperacionalRouter(): Router {
         'aba, linha_planilha, aluno_nome, venc, valor_referencia, responsaveis, pagador_pix, plano, regime_cobranca, raw_row',
       )
       .limit(5000);
-    if (alunosErr) return res.status(500).json({ error: alunosErr.message });
+    if (alunosErr) throw new Error(alunosErr.message);
 
     const alunoPorChave = new Map<
       string,
@@ -908,7 +951,7 @@ export default function createFluxoOperacionalRouter(): Router {
       metaPagFiltros = metaPagFiltros.gte('data_pagamento', inicio).lte('data_pagamento', fim);
     }
     const { data: metaPagRows, error: metaPagErr } = await metaPagFiltros;
-    if (metaPagErr) return res.status(500).json({ error: metaPagErr.message });
+    if (metaPagErr) throw new Error(metaPagErr.message);
 
     const abas = Array.from(
       new Set((metaPagRows ?? []).map((r) => String(r.aba ?? '').trim()).filter(Boolean)),
@@ -921,7 +964,13 @@ export default function createFluxoOperacionalRouter(): Router {
       q.data.mes != null && q.data.ano != null
         ? await enrichFluxoPagamentosComStatusExtrato(itens, q.data.mes, q.data.ano)
         : itens;
-    return res.json({ itens: itensOut, filtros: { abas, modalidades } });
+    return { itens: itensOut, filtros: { abas, modalidades } };
+        },
+      );
+      return res.json(payload);
+    } catch (e) {
+      return res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+    }
   });
 
   router.post('/fluxo-operacional/pagamentos', async (req: Request, res: Response) => {
@@ -979,6 +1028,7 @@ export default function createFluxoOperacionalRouter(): Router {
       beforeData: null,
       afterData: data,
     });
+    await invalidateCachesOperacionais();
     return res.json({ item: data });
   });
 
@@ -1046,6 +1096,7 @@ export default function createFluxoOperacionalRouter(): Router {
       beforeData: beforeData ?? null,
       afterData: data,
     });
+    await invalidateCachesOperacionais();
     return res.json({ item: data });
   });
 
@@ -1077,6 +1128,7 @@ export default function createFluxoOperacionalRouter(): Router {
       beforeData,
       afterData: null,
     });
+    await invalidateCachesOperacionais();
     return res.json({ ok: true });
   });
 

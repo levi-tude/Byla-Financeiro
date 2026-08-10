@@ -3,6 +3,11 @@ import { getFinancasAlunos } from '../services/financasAlunosReadModel.js';
 import { financasAlunosQuerySchema, parseQuery } from '../validation/apiQuery.js';
 import type { MeioPagamentoAluno } from '../logic/meioPagamentoVinculo.js';
 import type { FinancasAlunoVinculoFiltro } from '../services/financasAlunosReadModel.js';
+import {
+  CACHE_TTL_SEC,
+  cacheGetOrSet,
+  cacheKeyFinancasAlunos,
+} from '../services/responseCache.js';
 
 const router = Router();
 
@@ -20,7 +25,11 @@ router.get('/financas/alunos', async (req: Request, res: Response) => {
       meio === 'todos' ? undefined : (meio as MeioPagamentoAluno);
     const filtroVinculo: FinancasAlunoVinculoFiltro = vinculo as FinancasAlunoVinculoFiltro;
 
-    const result = await getFinancasAlunos(mes, ano, filtroMeio, filtroVinculo);
+    const result = await cacheGetOrSet(
+      cacheKeyFinancasAlunos(mes, ano, String(meio ?? 'todos'), String(vinculo ?? 'todos')),
+      CACHE_TTL_SEC,
+      () => getFinancasAlunos(mes, ano, filtroMeio, filtroVinculo),
+    );
     return res.json(result);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

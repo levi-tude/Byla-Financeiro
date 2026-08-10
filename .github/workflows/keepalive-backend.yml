@@ -1,0 +1,22 @@
+# Mantém o byla-backend (Render Free) acordado — reduz cold start.
+# Complementa o cache Redis; não substitui Always On.
+name: Keepalive backend
+
+on:
+  schedule:
+    # A cada 10 min (GitHub pode atrasar schedules em repos free)
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping-health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: GET /health
+        run: |
+          set -euo pipefail
+          URL="${BYLA_BACKEND_URL:-https://byla-backend.onrender.com}/health"
+          echo "Pinging $URL"
+          curl -fsS --max-time 90 "$URL"
+          echo
