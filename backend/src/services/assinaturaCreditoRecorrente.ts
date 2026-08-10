@@ -4,7 +4,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { normalizeText } from '../logic/conciliacaoTexto.js';
+import { isNameCompatible, normalizeText } from '../logic/conciliacaoTexto.js';
 import {
   isCreditoGenericoExtrato,
   valorBancoCompativel,
@@ -15,6 +15,10 @@ import {
   janelaEsperadaPagamentoAssinatura,
   type StatusBylaAssinatura,
 } from '../logic/assinaturaCreditoRecorrente.js';
+import {
+  fluxoUuidFromAnyPlanilhaId,
+  planilhaIdFromFluxoUuid,
+} from '../logic/fluxoPagamentoFingerprint.js';
 import {
   chaveItemCredito,
   itensCompletosNoMes,
@@ -200,6 +204,120 @@ function chavesFromPlanilhaIds(planilhaIds: string[]): Set<string> {
   return chaves;
 }
 
+function alunoNormDoPlanilhaId(
+  planilhaId: string,
+  alunoNormPorPlanilhaId?: Map<string, string>,
+): string | null {
+  const pid = String(planilhaId ?? '').trim();
+  if (!pid) return null;
+  if (alunoNormPorPlanilhaId) {
+    const direct =
+      alunoNormPorPlanilhaId.get(pid) ??
+      alunoNormPorPlanilhaId.get(planilhaIdFromFluxoUuid(pid));
+    if (direct) return direct;
+    const uuid = fluxoUuidFromAnyPlanilhaId(pid);
+    if (uuid) {
+      const byUuid =
+        alunoNormPorPlanilhaId.get(uuid) ??
+        alunoNormPorPlanilhaId.get(planilhaIdFromFluxoUuid(uuid));
+      if (byUuid) return byUuid;
+    }
+  }
+  const parts = pid.split('|');
+  if (parts.length >= 3) return normalizeText(parts[0]);
+  return null;
+}
+
+function tokenDentroDeUmTypo(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  if (a.length < 5 || b.length < 5) return false;
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      i += 1;
+      j += 1;
+      continue;
+    }
+    edits += 1;
+    if (edits > 1) return false;
+    if (a.length > b.length) i += 1;
+    else if (b.length > a.length) j += 1;
+    else {
+      i += 1;
+      j += 1;
+    }
+  }
+  edits += a.length - i + (b.length - j);
+  return edits <= 1;
+}
+
+function nomeAlunoCasaComAssinatura(alunoNorm: string, assinaturaNome: string): boolean {
+  if (!alunoNorm || !assinaturaNome) return false;
+  if (alunoNorm === assinaturaNome) return true;
+  if (alunoNorm.includes(assinaturaNome) || assinaturaNome.includes(alunoNorm)) return true;
+  if (isNameCompatible(alunoNorm, assinaturaNome)) return true;
+
+  const ta = alunoNorm.split(' ').filter(Boolean);
+  const tb = assinaturaNome.split(' ').filter(Boolean);
+  if (ta.length < 2 || tb.length < 2) return false;
+  if (ta[0] !== tb[0]) return false;
+
+  let hits = 0;
+  for (const a of ta.slice(1)) {
+    for (const b of tb.slice(1)) {
+      if (tokenDentroDeUmTypo(a, b)) hits += 1;
+    }
+  }
+  return hits >= 1;
+}
+
+/** Monta mapa planilha_id → aluno normalizado a partir dos pagamentos do Fluxo no mês. */
+export function montarAlunoNormPorPlanilhaId(
+  pagamentos: Array<{ id: string; aluno_nome: string }>,
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const p of pagamentos) {
+    const nome = normalizeText(p.aluno_nome);
+    if (!nome) continue;
+    const uuid = String(p.id ?? '').trim();
+    if (!uuid) continue;
+    map.set(uuid, nome);
+    map.set(planilhaIdFromFluxoUuid(uuid), nome);
+  }
+  return map;
+}
+
+/**
+ * True se já existe vínculo confirmado no mês para o mesmo aluno da assinatura
+ * (ex.: crédito Mastercard validado — não precisa ser texto "Vendas").
+ */
+export function temVinculoValidadoAssinatura(opts: {
+  assinatura: Pick<AssinaturaCreditoRecorrente, 'valor_bruto' | 'nome_exibicao'>;
+  vinculos: Array<{ banco_id: string; planilha_id: string }>;
+  transacoes: TransacaoJanela[];
+  alunoNormPorPlanilhaId?: Map<string, string>;
+}): boolean {
+  const { assinatura, vinculos, transacoes, alunoNormPorPlanilhaId } = opts;
+  const nomeAssinatura = normalizeText(assinatura.nome_exibicao);
+  if (!nomeAssinatura || !alunoNormPorPlanilhaId || alunoNormPorPlanilhaId.size === 0) {
+    return false;
+  }
+
+  const txPorId = new Map(transacoes.map((t) => [t.id, t]));
+  for (const v of vinculos) {
+    const aluno = alunoNormDoPlanilhaId(v.planilha_id, alunoNormPorPlanilhaId);
+    if (!aluno || !nomeAlunoCasaComAssinatura(aluno, nomeAssinatura)) continue;
+    const tx = txPorId.get(v.banco_id);
+    if (!tx) continue;
+    if (!valorCompativelAssinatura(tx.valor, assinatura.valor_bruto)) continue;
+    return true;
+  }
+  return false;
+}
+
 export function resolverTemPagamentoNaJanela(opts: {
   assinatura: Pick<
     AssinaturaCreditoRecorrente,
@@ -209,8 +327,22 @@ export function resolverTemPagamentoNaJanela(opts: {
   vinculos: Array<{ banco_id: string; planilha_id: string }>;
   transacoes: TransacaoJanela[];
   regraSticky?: CreditoRecorrenteRegra | null;
+  /** Se informado, vínculo Validação do mesmo aluno silencia o alerta (mesmo sem "Vendas"). */
+  alunoNormPorPlanilhaId?: Map<string, string>;
 }): boolean {
-  const { assinatura, janela, vinculos, transacoes, regraSticky } = opts;
+  const { assinatura, janela, vinculos, transacoes, regraSticky, alunoNormPorPlanilhaId } = opts;
+
+  if (
+    temVinculoValidadoAssinatura({
+      assinatura,
+      vinculos,
+      transacoes,
+      alunoNormPorPlanilhaId,
+    })
+  ) {
+    return true;
+  }
+
   const janelaSet = new Set(janela);
 
   const txPorId = new Map(transacoes.map((t) => [t.id, t]));
@@ -236,10 +368,17 @@ export function resolverTemPagamentoNaJanela(opts: {
     }
 
     if (!isCreditoGenericoExtrato(tx.pessoa, tx.descricao)) continue;
-    if (!textoIndicaVendas(tx.pessoa, tx.descricao)) continue;
     if (!valorCompativelAssinatura(tx.valor, assinatura.valor_bruto)) continue;
 
     const nomeNorm = normalizeText(assinatura.nome_exibicao);
+    const alunoNoVinculo = planilhaIds
+      .map((pid) => alunoNormDoPlanilhaId(pid, alunoNormPorPlanilhaId))
+      .find((n) => n && nomeAlunoCasaComAssinatura(n, nomeNorm));
+
+    // Crédito genérico (Mastercard/Visa) só conta se o vínculo for da mesma aluna.
+    // Agregado "Vendas" continua elegível sem nome (regra antiga).
+    if (!textoIndicaVendas(tx.pessoa, tx.descricao) && !alunoNoVinculo) continue;
+
     const rotuloNorm = normalizeText(regraSticky?.rotulo ?? '');
     if (rotuloNorm && (rotuloNorm.includes(nomeNorm) || nomeNorm.includes(rotuloNorm))) {
       candidatos.push(tx);
@@ -480,6 +619,20 @@ export async function listAlertasParouDePagar(
   const regras = await listRegrasCreditoRecorrenteAtivas(supabase);
   const regraPorId = new Map(regras.map((r) => [r.id, r]));
 
+  const { data: pagRows, error: pagErr } = await supabase
+    .from('fluxo_pagamentos_operacionais')
+    .select('id, aluno_nome')
+    .eq('mes_competencia', mes)
+    .eq('ano_competencia', ano)
+    .limit(20000);
+  if (pagErr) throw new Error(pagErr.message);
+  const alunoNormPorPlanilhaId = montarAlunoNormPorPlanilhaId(
+    (pagRows ?? []).map((r) => ({
+      id: String((r as { id: string }).id),
+      aluno_nome: String((r as { aluno_nome?: string }).aluno_nome ?? ''),
+    })),
+  );
+
   const janelas = assinaturas.map((a) => ({
     assinatura: a,
     ...janelaEsperadaPagamentoAssinatura({
@@ -513,14 +666,42 @@ export async function listAlertasParouDePagar(
     throw new Error(error.message);
   }
 
-  const transacoes: TransacaoJanela[] = (txRows ?? []).map((r) => ({
-    id: String((r as { id: string }).id),
-    data: String((r as { data: string }).data).slice(0, 10),
-    valor: Number((r as { valor?: number }).valor || 0),
-    pessoa: String((r as { pessoa?: string }).pessoa ?? ''),
-    descricao: (r as { descricao?: string | null }).descricao ?? null,
-  }));
+  const txById = new Map<string, TransacaoJanela>();
+  for (const r of txRows ?? []) {
+    const id = String((r as { id: string }).id);
+    txById.set(id, {
+      id,
+      data: String((r as { data: string }).data).slice(0, 10),
+      valor: Number((r as { valor?: number }).valor || 0),
+      pessoa: String((r as { pessoa?: string }).pessoa ?? ''),
+      descricao: (r as { descricao?: string | null }).descricao ?? null,
+    });
+  }
 
+  // Garante txs dos vínculos do mês (pode cair fora da janela Vendas, ex. Mastercard D+6).
+  const bancoIdsFaltando = [
+    ...new Set(vinculos.map((v) => v.banco_id).filter((id) => id && !txById.has(id))),
+  ];
+  if (bancoIdsFaltando.length > 0) {
+    const { data: extraRows, error: extraErr } = await supabase
+      .from('transacoes')
+      .select('id, data, valor, pessoa, descricao')
+      .in('id', bancoIdsFaltando)
+      .limit(5000);
+    if (extraErr) throw new Error(extraErr.message);
+    for (const r of extraRows ?? []) {
+      const id = String((r as { id: string }).id);
+      txById.set(id, {
+        id,
+        data: String((r as { data: string }).data).slice(0, 10),
+        valor: Number((r as { valor?: number }).valor || 0),
+        pessoa: String((r as { pessoa?: string }).pessoa ?? ''),
+        descricao: (r as { descricao?: string | null }).descricao ?? null,
+      });
+    }
+  }
+
+  const transacoes = [...txById.values()];
   const alertas: AlertaParouDePagar[] = [];
 
   for (const item of janelas) {
@@ -534,6 +715,7 @@ export async function listAlertasParouDePagar(
       vinculos,
       transacoes,
       regraSticky,
+      alunoNormPorPlanilhaId,
     });
 
     const alerta = decidirAlertaParouDePagar({

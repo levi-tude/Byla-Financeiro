@@ -119,6 +119,55 @@ test('resolverTemPagamentoNaJanela: Vendas compatível único na janela', () => 
   assert.equal(ok, true);
 });
 
+test('resolverTemPagamentoNaJanela: vínculo validado (crédito Mastercard) silencia alerta', () => {
+  // Fluxo pode ter BONFIM; cadastro da assinatura às vezes BOMFIM (1 typo).
+  const alunoNormPorPlanilhaId = new Map<string, string>([
+    ['fluxo::pag-demo', 'ALUNA DEMO BONFIM'],
+  ]);
+  const ok = resolverTemPagamentoNaJanela({
+    assinatura: {
+      valor_bruto: 250,
+      regra_sticky_id: null,
+      nome_exibicao: 'Aluna Demo Bomfim',
+    },
+    janela: ['2026-08-04', '2026-08-05', '2026-08-06', '2026-08-07', '2026-08-08'],
+    vinculos: [{ banco_id: 'tx-master', planilha_id: 'fluxo::pag-demo' }],
+    transacoes: [
+      {
+        id: 'tx-master',
+        data: '2026-08-07',
+        valor: 240.02,
+        pessoa: 'Disponivel CREDITO MASTERCARD',
+        descricao: 'Disponivel CREDITO MASTERCARD',
+      },
+    ],
+    alunoNormPorPlanilhaId,
+  });
+  assert.equal(ok, true);
+});
+
+test('resolverTemPagamentoNaJanela: sem Vendas e sem mapa de aluno continua false', () => {
+  const ok = resolverTemPagamentoNaJanela({
+    assinatura: {
+      valor_bruto: 250,
+      regra_sticky_id: null,
+      nome_exibicao: 'Aluna Demo Bomfim',
+    },
+    janela: ['2026-08-04', '2026-08-05', '2026-08-06', '2026-08-07', '2026-08-08'],
+    vinculos: [{ banco_id: 'tx-master', planilha_id: 'fluxo::pag-demo' }],
+    transacoes: [
+      {
+        id: 'tx-master',
+        data: '2026-08-07',
+        valor: 240.02,
+        pessoa: 'Disponivel CREDITO MASTERCARD',
+        descricao: 'Disponivel CREDITO MASTERCARD',
+      },
+    ],
+  });
+  assert.equal(ok, false);
+});
+
 test('resolverTemPagamentoNaJanela: ambíguo retorna false', () => {
   const ok = resolverTemPagamentoNaJanela({
     assinatura: {
