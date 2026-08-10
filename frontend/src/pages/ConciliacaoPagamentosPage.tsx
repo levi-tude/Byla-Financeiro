@@ -145,6 +145,8 @@ export function ConciliacaoPagamentosPage() {
 
   const [alertasParouOcultos, setAlertasParouOcultos] = useState<Set<string>>(() => new Set());
   const [classificandoId, setClassificandoId] = useState<string | null>(null);
+  const [listaSecretariaAberta, setListaSecretariaAberta] = useState(false);
+  const [copiaFeedback, setCopiaFeedback] = useState<string | null>(null);
 
   const query = useQuery({
     queryKey: ['conciliacao-pagamentos', mes, ano],
@@ -282,6 +284,63 @@ export function ConciliacaoPagamentosPage() {
     });
   }, [itensComFiltrosGerais, statusFiltro]);
 
+  const listaSecretaria = useMemo(() => {
+    const base = itensComFiltrosGerais.filter(
+      (item) => item.status === 'atrasado' || item.status === 'pendente',
+    );
+    const atrasados = base
+      .filter((i) => i.status === 'atrasado')
+      .sort((a, b) => a.aluno_nome.localeCompare(b.aluno_nome, 'pt-BR'));
+    const pendentes = base
+      .filter((i) => i.status === 'pendente')
+      .sort((a, b) => a.aluno_nome.localeCompare(b.aluno_nome, 'pt-BR'));
+    return { atrasados, pendentes };
+  }, [itensComFiltrosGerais]);
+
+  const textoListaSecretaria = useMemo(() => {
+    const mesLabel = `${String(mes).padStart(2, '0')}/${ano}`;
+    const partesFiltro: string[] = [];
+    if (diaVencimentoFiltro && diaVencimentoFiltro !== 'sem') {
+      partesFiltro.push(`Dia ${diaVencimentoFiltro}`);
+    } else if (diaVencimentoFiltro === 'sem') {
+      partesFiltro.push('Sem vencimento');
+    }
+    if (abaFiltro) partesFiltro.push(abaFiltro);
+    if (modalidadeFiltro) partesFiltro.push(modalidadeFiltro);
+    const filtroTxt = partesFiltro.length ? ` — ${partesFiltro.join(' · ')}` : '';
+
+    const line = (item: (typeof listaSecretaria.atrasados)[number]) => {
+      const valor =
+        item.valor_cobranca != null && Number.isFinite(Number(item.valor_cobranca))
+          ? formatBrl(Number(item.valor_cobranca))
+          : '—';
+      return `- ${item.aluno_nome} — ${STATUS_LABEL[item.status]} — ${valor}`;
+    };
+
+    const blocos: string[] = [
+      `Conciliação ${mesLabel}${filtroTxt}`,
+      '',
+      `ATRASADOS (${listaSecretaria.atrasados.length})`,
+    ];
+    if (listaSecretaria.atrasados.length === 0) blocos.push('- (nenhum)');
+    else blocos.push(...listaSecretaria.atrasados.map(line));
+    blocos.push('', `PENDENTES (${listaSecretaria.pendentes.length})`);
+    if (listaSecretaria.pendentes.length === 0) blocos.push('- (nenhum)');
+    else blocos.push(...listaSecretaria.pendentes.map(line));
+    return blocos.join('\n');
+  }, [ano, mes, diaVencimentoFiltro, abaFiltro, modalidadeFiltro, listaSecretaria]);
+
+  const copiarListaSecretaria = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(textoListaSecretaria);
+      setCopiaFeedback('Lista copiada');
+      window.setTimeout(() => setCopiaFeedback(null), 2500);
+    } catch {
+      setCopiaFeedback('Não foi possível copiar');
+      window.setTimeout(() => setCopiaFeedback(null), 2500);
+    }
+  }, [textoListaSecretaria]);
+
   const colCount = isAdmin ? 9 : 5;
 
   const limparFiltros = () => {
@@ -415,8 +474,8 @@ export function ConciliacaoPagamentosPage() {
 
       <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-100">
         Conciliação ≠ Validação de pagamentos: aqui vemos cobrança vs dia de vencimento do cadastro.
-        Em dia = crédito no extrato até o vencimento, no mês selecionado. Bolsa e exceção ficam em
-        filtro secundário (não entram na visão padrão de cobrança).
+        Se o vencimento cair em sábado, domingo ou feriado (Brasil/Bahia), o prazo vai para o próximo dia
+        útil — pagar nesse dia conta como em dia. Bolsa e exceção ficam em filtro secundário.
       </div>
 
       {alertasVendas.length > 0 ? (
@@ -739,6 +798,94 @@ export function ConciliacaoPagamentosPage() {
             </button>
           ))}
         </div>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setListaSecretariaAberta((v) => !v)}
+          className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-900 hover:bg-indigo-100 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-100 dark:hover:bg-indigo-950/70"
+        >
+          {listaSecretariaAberta ? 'Ocultar lista para secretária' : 'Lista para secretária'}
+          <span className="ml-1 tabular-nums opacity-80">
+            ({listaSecretaria.atrasados.length + listaSecretaria.pendentes.length})
+          </span>
+        </button>
+        {listaSecretariaAberta ? (
+          <button
+            type="button"
+            onClick={() => void copiarListaSecretaria()}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+          >
+            Copiar lista
+          </button>
+        ) : null}
+        {copiaFeedback ? (
+          <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">{copiaFeedback}</span>
+        ) : null}
+        <span className="text-xs text-slate-500 dark:text-slate-400">
+          Usa os filtros de dia, aba e modalidade. Só pendente + atrasado.
+        </span>
+      </div>
+
+      {listaSecretariaAberta ? (
+        <section
+          className="rounded-xl border border-indigo-200 bg-white p-4 shadow-sm dark:border-indigo-900/50 dark:bg-slate-900"
+          aria-label="Lista para secretária"
+        >
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <h3 className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+                Atrasados ({listaSecretaria.atrasados.length})
+              </h3>
+              <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto text-sm">
+                {listaSecretaria.atrasados.length === 0 ? (
+                  <li className="text-slate-500">Nenhum</li>
+                ) : (
+                  listaSecretaria.atrasados.map((item) => (
+                    <li
+                      key={rowKey(item)}
+                      className="flex flex-wrap items-baseline justify-between gap-2 border-b border-slate-100 py-1.5 dark:border-slate-800"
+                    >
+                      <span className="font-medium text-slate-800 dark:text-slate-100">
+                        {item.aluno_nome}
+                      </span>
+                      <span className="tabular-nums text-slate-600 dark:text-slate-300">
+                        Atrasado ·{' '}
+                        {item.valor_cobranca != null ? formatBrl(Number(item.valor_cobranca)) : '—'}
+                      </span>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-rose-800 dark:text-rose-200">
+                Pendentes ({listaSecretaria.pendentes.length})
+              </h3>
+              <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto text-sm">
+                {listaSecretaria.pendentes.length === 0 ? (
+                  <li className="text-slate-500">Nenhum</li>
+                ) : (
+                  listaSecretaria.pendentes.map((item) => (
+                    <li
+                      key={rowKey(item)}
+                      className="flex flex-wrap items-baseline justify-between gap-2 border-b border-slate-100 py-1.5 dark:border-slate-800"
+                    >
+                      <span className="font-medium text-slate-800 dark:text-slate-100">
+                        {item.aluno_nome}
+                      </span>
+                      <span className="tabular-nums text-slate-600 dark:text-slate-300">
+                        Pendente ·{' '}
+                        {item.valor_cobranca != null ? formatBrl(Number(item.valor_cobranca)) : '—'}
+                      </span>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </div>
+          </div>
+        </section>
       ) : null}
 
       {!query.isLoading && itens.length > 0 ? (

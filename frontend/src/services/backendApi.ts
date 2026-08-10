@@ -2670,9 +2670,11 @@ export type ConciliacaoPagamentosResponse = {
     aba: string;
     modalidade: string;
     dia_vencimento: number | null;
+    data_vencimento_efetiva?: string | null;
     /** Dia de cobrança no Fluxo, para abrir a Validação na data certa. */
     data_pagamento_fluxo?: string | null;
     status: ConciliacaoPagamentoStatus;
+    valor_cobranca?: number | null;
     data_credito?: string | null;
     valor_credito?: number | null;
     pessoa_banco?: string | null;
