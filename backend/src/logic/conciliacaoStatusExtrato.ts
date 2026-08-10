@@ -2,6 +2,7 @@ import {
   resolverRegimeCobranca,
   type RegimeCobrancaAluno,
 } from './regimeCobrancaAluno.js';
+import { proximoDiaUtilBrasilBahia, toIsoDate } from './feriadosBrasilBahia.js';
 
 export type ConciliacaoPagamentoStatus =
   | 'em_dia'
@@ -28,6 +29,21 @@ export function isPlanoBolsaConciliacao(plano: string | null | undefined): boole
   return resolverRegimeCobranca({ plano }) === 'bolsa';
 }
 
+function ultimoDiaMes(mes: number, ano: number): number {
+  return new Date(Date.UTC(ano, mes, 0, 12, 0, 0)).getUTCDate();
+}
+
+/**
+ * Data de vencimento efetiva no mês: se cair em sáb/dom/feriado (BR+BA),
+ * vai para o próximo dia útil.
+ */
+export function dataVencimentoEfetiva(ano: number, mes: number, diaVencimento: number): string {
+  const last = ultimoDiaMes(mes, ano);
+  const dia = Math.min(Math.max(1, Math.floor(diaVencimento)), last);
+  const candidata = toIsoDate(ano, mes, dia);
+  return proximoDiaUtilBrasilBahia(candidata);
+}
+
 export function classificarStatusConciliacao(input: {
   diaVencimento: number | null;
   dataCreditoIso: string | null;
@@ -45,10 +61,21 @@ export function classificarStatusConciliacao(input: {
   if (input.diaVencimento == null) return 'sem_vencimento';
   const iso = (input.dataCreditoIso ?? '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return 'pendente';
-  const y = Number(iso.slice(0, 4));
-  const m = Number(iso.slice(5, 7));
-  const d = Number(iso.slice(8, 10));
-  if (y !== input.ano || m !== input.mes) return 'pendente';
-  if (d <= input.diaVencimento) return 'em_dia';
+
+  const efetiva = dataVencimentoEfetiva(input.ano, input.mes, input.diaVencimento);
+  const inicioMes = toIsoDate(input.ano, input.mes, 1);
+
+  // Crédito antes do mês de referência não conta para esta cobrança.
+  if (iso < inicioMes) return 'pendente';
+
+  // Em dia: pagou até a data efetiva (pode “vazar” para o mês seguinte se o vencimento
+  // caiu em fim de semana/feriado no fim do mês).
+  if (iso <= efetiva) return 'em_dia';
+
+  // Atrasado: pagou depois da efetiva. Se o crédito for só em mês futuro sem relação
+  // com o spillover da efetiva, trata como pendente (ainda sem crédito “deste” ciclo).
+  const fimMes = toIsoDate(input.ano, input.mes, ultimoDiaMes(input.mes, input.ano));
+  if (iso > fimMes && iso > efetiva) return 'pendente';
+
   return 'atrasado';
 }

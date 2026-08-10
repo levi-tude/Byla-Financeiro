@@ -5,6 +5,7 @@
 
 import {
   classificarStatusConciliacao,
+  dataVencimentoEfetiva,
   parseDiaVencimentoCadastro,
   type ConciliacaoPagamentoStatus,
 } from '../logic/conciliacaoStatusExtrato.js';
@@ -31,9 +32,13 @@ export type ConciliacaoPagamentoItem = {
   aba: string;
   modalidade: string;
   dia_vencimento: number | null;
+  /** Vencimento efetivo (próximo dia útil se sáb/dom/feriado BR+BA). */
+  data_vencimento_efetiva?: string | null;
   /** Dia de cobrança no Fluxo (ISO), quando houver pagamento no mês. */
   data_pagamento_fluxo?: string | null;
   status: ConciliacaoPagamentoStatus;
+  /** Valor para lista da secretária: crédito, senão lançamento Fluxo, senão referência. */
+  valor_cobranca?: number | null;
   data_credito?: string | null;
   valor_credito?: number | null;
   pessoa_banco?: string | null;
@@ -317,14 +322,30 @@ export function montarItensConciliacaoPagamentos(input: {
     const dataPagamentoFluxo =
       pags.length > 0 ? (pags[0].data_pagamento ?? '').slice(0, 10) || null : null;
 
+    const valorFluxo =
+      pags.length > 0 && Number.isFinite(Number(pags[0].valor)) ? Number(pags[0].valor) : null;
+    const valorRef =
+      a.valor_referencia != null && Number.isFinite(Number(a.valor_referencia))
+        ? Number(a.valor_referencia)
+        : null;
+    const valorCobranca =
+      credito?.valor != null && Number.isFinite(Number(credito.valor))
+        ? Number(credito.valor)
+        : (valorFluxo ?? valorRef);
+
+    const vencEfetiva =
+      diaVenc != null ? dataVencimentoEfetiva(ano, mes, diaVenc) : null;
+
     itens.push({
       aluno_id: a.id,
       aluno_nome: a.aluno_nome,
       aba: a.aba,
       modalidade: a.modalidade || a.aba,
       dia_vencimento: diaVenc,
+      data_vencimento_efetiva: vencEfetiva,
       data_pagamento_fluxo: dataPagamentoFluxo,
       status,
+      valor_cobranca: valorCobranca,
       data_credito: credito?.data ?? null,
       valor_credito: credito?.valor ?? null,
       pessoa_banco: credito?.pessoa ?? null,
@@ -366,7 +387,9 @@ export function stripCamposBancariosConciliacao(
       aba: item.aba,
       modalidade: item.modalidade,
       dia_vencimento: item.dia_vencimento,
+      data_vencimento_efetiva: item.data_vencimento_efetiva ?? null,
       status: item.status,
+      valor_cobranca: item.valor_cobranca ?? null,
     })),
   };
 }
