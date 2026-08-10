@@ -35,6 +35,11 @@ import {
   getConciliacaoPagamentosMes,
   stripCamposBancariosConciliacao,
 } from '../services/conciliacaoPagamentosMes.js';
+import {
+  CACHE_TTL_SEC,
+  cacheGetOrSet,
+  cacheKeyConciliacao,
+} from '../services/responseCache.js';
 
 const router = Router();
 
@@ -374,8 +379,14 @@ router.get('/conciliacao-pagamentos', async (req: Request, res: Response) => {
     if (role !== 'admin' && role !== 'secretaria') {
       return res.status(401).json({ error: 'Autenticação obrigatória.' });
     }
-    const raw = await getConciliacaoPagamentosMes(mes, ano);
-    const payload = stripCamposBancariosConciliacao(raw, role);
+    const payload = await cacheGetOrSet(
+      cacheKeyConciliacao(mes, ano, role),
+      CACHE_TTL_SEC,
+      async () => {
+        const raw = await getConciliacaoPagamentosMes(mes, ano);
+        return stripCamposBancariosConciliacao(raw, role);
+      },
+    );
     return res.json(payload);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

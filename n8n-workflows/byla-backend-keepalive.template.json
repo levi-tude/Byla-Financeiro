@@ -1,0 +1,37 @@
+{
+  "name": "Byla Backend Keepalive (template)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 10 }]
+        }
+      },
+      "id": "schedule-keepalive",
+      "name": "A cada 10 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "url": "https://byla-backend.onrender.com/health",
+        "options": {}
+      },
+      "id": "http-health",
+      "name": "GET /health",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [280, 0]
+    }
+  ],
+  "connections": {
+    "A cada 10 min": {
+      "main": [[{ "node": "GET /health", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "templateNote": "Importar no n8n e ativar. Sem credenciais. Reduz cold start do Render Free."
+  }
+}

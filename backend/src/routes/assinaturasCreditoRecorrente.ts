@@ -16,6 +16,7 @@ import {
   parseBody,
   parseQuery,
 } from '../validation/apiQuery.js';
+import { invalidateCachesOperacionais } from '../services/responseCache.js';
 
 const router = Router();
 
@@ -80,6 +81,7 @@ router.post(
       const assinatura = await classificarAssinatura(supabase, id, parsed.data.acao);
       if (!assinatura) return res.status(404).json({ error: 'Assinatura não encontrada.' });
 
+      await invalidateCachesOperacionais();
       return res.json({ ok: true, assinatura });
     } catch (e) {
       return res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
