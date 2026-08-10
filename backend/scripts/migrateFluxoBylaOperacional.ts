@@ -16,6 +16,10 @@ import { lerPagamentosPorAbaEAno } from '../src/services/planilhaPagamentos.js';
 import { isEligibleSheet } from '../src/businessRules.js';
 import { loadFluxoPagamentosAno } from '../src/services/remapValidacaoVinculosFluxo.js';
 import { recuperarVinculosAposRemigracaoFluxo } from '../src/services/recuperarVinculosOrfaosFluxo.js';
+import {
+  aplicarOverlaysNaMigracao,
+  type FluxoAlunoOverlay,
+} from '../src/logic/fluxoRemigracaoOverlays.js';
 
 type AnyRow = Record<string, unknown>;
 
@@ -158,38 +162,29 @@ async function main() {
     process.exit(1);
   }
 
-  // Preserva regime_cobranca (bolsa/exceção) marcado no sistema — remigração não deve apagar.
-  const { data: regimesExistentes, error: regimesErr } = await supabase
+  // Snapshot de overlays do app ANTES do delete/upsert — remigração não desfaz operação.
+  const { data: overlaysExistentes, error: overlaysErr } = await supabase
     .from('fluxo_alunos_operacionais')
-    .select('aba, linha_planilha, aluno_nome, regime_cobranca')
-    .neq('regime_cobranca', 'normal')
+    .select(
+      'aba, linha_planilha, aluno_nome, ativo, regime_cobranca, pendencia_campos_ignorados, cobranca_tentativas',
+    )
     .limit(10000);
-  if (regimesErr) {
-    console.warn(`Aviso ao ler regimes existentes: ${regimesErr.message}`);
+  if (overlaysErr) {
+    console.warn(`Aviso ao ler overlays existentes: ${overlaysErr.message}`);
   }
-  const regimePorLinha = new Map<string, string>();
-  const regimePorNome = new Map<string, string>();
-  for (const r of regimesExistentes ?? []) {
-    const regime = String(r.regime_cobranca ?? '').trim();
-    if (regime !== 'bolsa' && regime !== 'excecao') continue;
-    const aba = String(r.aba ?? '').trim().toLowerCase();
-    const nome = String(r.aluno_nome ?? '').trim().toLowerCase();
-    regimePorLinha.set(`${aba}|${Number(r.linha_planilha)}`, regime);
-    if (nome) regimePorNome.set(`${aba}|${nome}`, regime);
-  }
-  for (const row of alunosPayload) {
-    const aba = String(row.aba ?? '').trim().toLowerCase();
-    const nome = String(row.aluno_nome ?? '').trim().toLowerCase();
-    const preserved =
-      regimePorLinha.get(`${aba}|${Number(row.linha_planilha)}`) ??
-      regimePorNome.get(`${aba}|${nome}`);
-    if (preserved) {
-      row.regime_cobranca = preserved;
-    } else {
-      const plano = String(row.plano ?? '').toLowerCase();
-      if (plano.includes('bolsa')) row.regime_cobranca = 'bolsa';
-    }
-  }
+  const overlays: FluxoAlunoOverlay[] = ((overlaysExistentes ?? []) as Record<string, unknown>[]).map(
+    (r) => ({
+      aba: String(r.aba ?? ''),
+      aluno_nome: String(r.aluno_nome ?? ''),
+      linha_planilha: Number(r.linha_planilha ?? 0),
+      ativo: r.ativo !== false,
+      regime_cobranca: r.regime_cobranca != null ? String(r.regime_cobranca) : null,
+      pendencia_campos_ignorados: r.pendencia_campos_ignorados ?? [],
+      cobranca_tentativas: r.cobranca_tentativas ?? [],
+    }),
+  );
+  const overlayResult = aplicarOverlaysNaMigracao(alunosPayload, overlays);
+  const alunosComOverlay = overlayResult.rows;
 
   // Limpa snapshot anterior da mesma origem para evitar acúmulo de linhas obsoletas
   // quando o parser muda ou quando alunos saem da planilha.
@@ -204,7 +199,7 @@ async function main() {
 
   const upAlunos = await supabase
     .from('fluxo_alunos_operacionais')
-    .upsert(alunosPayload, { onConflict: 'aba,linha_planilha' });
+    .upsert(alunosComOverlay, { onConflict: 'aba,linha_planilha' });
   if (upAlunos.error) {
     console.error(`Erro ao gravar fluxo_alunos_operacionais: ${upAlunos.error.message}`);
     process.exit(1);
@@ -275,13 +270,25 @@ async function main() {
     );
   }
 
+  // Wipe seguro: só reimporta origem=migracao_planilha. Preserva sistema_editor (e demais).
+  const { count: pagamentosSistemaPreservados, error: countPreservadosErr } = await supabase
+    .from('fluxo_pagamentos_operacionais')
+    .select('id', { count: 'exact', head: true })
+    .gte('data_pagamento', inicioAno)
+    .lte('data_pagamento', fimAno)
+    .neq('origem', 'migracao_planilha');
+  if (countPreservadosErr) {
+    console.warn(`Aviso ao contar pagamentos preservados: ${countPreservadosErr.message}`);
+  }
+
   const delYear = await supabase
     .from('fluxo_pagamentos_operacionais')
     .delete()
     .gte('data_pagamento', inicioAno)
-    .lte('data_pagamento', fimAno);
+    .lte('data_pagamento', fimAno)
+    .eq('origem', 'migracao_planilha');
   if (delYear.error) {
-    console.error(`Erro ao limpar pagamentos do ano ${ano}: ${delYear.error.message}`);
+    console.error(`Erro ao limpar pagamentos migrados do ano ${ano}: ${delYear.error.message}`);
     process.exit(1);
   }
 
@@ -316,7 +323,9 @@ async function main() {
   }
 
   // 3) Popular cadastro base (atividades + alunos) sem perder dados operacionais
-  const modalidades = Array.from(new Set(alunosPayload.map((r) => String(r.modalidade).trim()).filter(Boolean)));
+  const modalidades = Array.from(
+    new Set(alunosComOverlay.map((r) => String(r.modalidade).trim()).filter(Boolean)),
+  );
   const { data: atividadesAntes, error: atividadesAntesErr } = await supabase.from('atividades').select('nome');
   if (atividadesAntesErr) {
     console.error(`Erro ao ler atividades existentes: ${atividadesAntesErr.message}`);
@@ -365,12 +374,13 @@ async function main() {
   }
   const alunosExistentes = new Set((alunosBase ?? []).map((a: { nome: string }) => norm(a.nome)));
   const novosAlunos = Array.from(
-    new Set(alunosPayload.map((r) => norm(r.aluno_nome)).filter(Boolean))
+    new Set(alunosComOverlay.map((r) => norm(r.aluno_nome)).filter(Boolean))
   ).filter((n) => !alunosExistentes.has(n));
 
   if (novosAlunos.length > 0) {
     const rowsInsert = novosAlunos.map((nomeNorm) => {
-      const original = alunosPayload.find((r) => norm(r.aluno_nome) === nomeNorm)?.aluno_nome ?? nomeNorm;
+      const original =
+        alunosComOverlay.find((r) => norm(r.aluno_nome) === nomeNorm)?.aluno_nome ?? nomeNorm;
       return { nome: original };
     });
     const insAl = await supabase.from('alunos').insert(rowsInsert);
@@ -401,9 +411,13 @@ async function main() {
       {
         ok: true,
         ano,
-        linhasAlunosMigradas: alunosPayload.length,
+        linhasAlunosMigradas: alunosComOverlay.length,
+        overlaysAplicados: overlayResult.aplicados,
+        inativosPreservados: overlayResult.inativosPreservados,
+        overlaysSnapshot: overlays.length,
         pagamentosMigrados: pagamentosInseridos,
         pagamentosOrdemReajustada,
+        pagamentosSistemaPreservados: pagamentosSistemaPreservados ?? 0,
         abasConsideradas: abas.filter((a) => isEligibleSheet(a)).length,
         errosPagamentos,
         avisosPagamentos,

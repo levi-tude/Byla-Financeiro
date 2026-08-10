@@ -16,7 +16,7 @@ import {
   type ConciliacaoPagamentoStatus,
 } from '../services/backendApi';
 
-type StatusFiltro = ConciliacaoPagamentoStatus | 'todos';
+type StatusFiltro = ConciliacaoPagamentoStatus | 'todos' | 'cobranca';
 
 const STATUS_LABEL: Record<ConciliacaoPagamentoStatus, string> = {
   em_dia: 'Em dia',
@@ -26,6 +26,16 @@ const STATUS_LABEL: Record<ConciliacaoPagamentoStatus, string> = {
   bolsa: 'Bolsa',
   excecao: 'Exceção',
 };
+
+/** Visão padrão de cobrança (esconde bolsa/exceção). */
+const STATUS_COBRANCA: ConciliacaoPagamentoStatus[] = [
+  'em_dia',
+  'atrasado',
+  'pendente',
+  'sem_vencimento',
+];
+
+const STATUS_COBRANCA_SET = new Set<ConciliacaoPagamentoStatus>(STATUS_COBRANCA);
 
 /** Ordem de cobrança (mercado AR / aging): urgência primeiro. */
 const STATUS_SORT: Record<ConciliacaoPagamentoStatus, number> = {
@@ -82,7 +92,7 @@ type ConciliacaoNavPersisted = {
 };
 
 const CONCILIACAO_NAV_INITIAL: ConciliacaoNavPersisted = {
-  statusFiltro: 'todos',
+  statusFiltro: 'cobranca',
   busca: '',
   abaFiltro: '',
   modalidadeFiltro: '',
@@ -224,10 +234,12 @@ export function ConciliacaoPagamentosPage() {
       bolsa: 0,
       excecao: 0,
       total: 0,
+      total_cobranca: 0,
     };
     for (const item of itensComFiltrosGerais) {
       acc[item.status] += 1;
       acc.total += 1;
+      if (STATUS_COBRANCA_SET.has(item.status)) acc.total_cobranca += 1;
     }
     return acc;
   }, [itensComFiltrosGerais]);
@@ -254,8 +266,9 @@ export function ConciliacaoPagamentosPage() {
 
   const itensFiltrados = useMemo(() => {
     const filtered = itensComFiltrosGerais.filter((item) => {
-      if (statusFiltro !== 'todos' && item.status !== statusFiltro) return false;
-      return true;
+      if (statusFiltro === 'cobranca') return STATUS_COBRANCA_SET.has(item.status);
+      if (statusFiltro === 'todos') return true;
+      return item.status === statusFiltro;
     });
 
     return filtered.sort((a, b) => {
@@ -272,7 +285,7 @@ export function ConciliacaoPagamentosPage() {
   const colCount = isAdmin ? 9 : 5;
 
   const limparFiltros = () => {
-    setStatusFiltro('todos');
+    setStatusFiltro('cobranca');
     setBusca('');
     setAbaFiltro('');
     setModalidadeFiltro('');
@@ -285,15 +298,19 @@ export function ConciliacaoPagamentosPage() {
   };
 
   const temFiltro =
-    statusFiltro !== 'todos' ||
+    statusFiltro !== 'cobranca' ||
     Boolean(busca.trim() || abaFiltro || modalidadeFiltro || diaVencimentoFiltro);
 
   const chips: FilterChip[] = [];
-  if (statusFiltro !== 'todos') {
+  if (statusFiltro !== 'cobranca') {
+    const statusLabel =
+      statusFiltro === 'todos'
+        ? 'Todos (inclui bolsa/exceção)'
+        : STATUS_LABEL[statusFiltro];
     chips.push({
       id: 'status',
-      label: `Status: ${STATUS_LABEL[statusFiltro]}`,
-      onRemove: () => setStatusFiltro('todos'),
+      label: `Status: ${statusLabel}`,
+      onRemove: () => setStatusFiltro('cobranca'),
     });
   }
   if (abaFiltro) {
@@ -343,7 +360,7 @@ export function ConciliacaoPagamentosPage() {
       <button
         type="button"
         key={id}
-        onClick={() => setStatusFiltro((prev) => (prev === id ? 'todos' : id))}
+        onClick={() => setStatusFiltro((prev) => (prev === id ? 'cobranca' : id))}
         aria-pressed={active}
         className={`rounded-xl border border-t-4 p-4 text-left shadow-sm transition ${borderAccent} ${
           active
@@ -375,7 +392,7 @@ export function ConciliacaoPagamentosPage() {
       <button
         type="button"
         key={id}
-        onClick={() => setStatusFiltro((prev) => (prev === id ? 'todos' : id))}
+        onClick={() => setStatusFiltro((prev) => (prev === id ? 'cobranca' : id))}
         aria-pressed={active}
         className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
           active
@@ -393,12 +410,13 @@ export function ConciliacaoPagamentosPage() {
     <div className="mx-auto max-w-7xl space-y-4 p-6">
       <Topbar
         title="Conciliação de pagamentos"
-        subtitle="Quem pagou em dia, atrasado ou ainda não pagou no mês selecionado"
+        subtitle="Situação de cobrança no mês (em dia, atrasado ou pendente) — não é o vínculo com o banco"
       />
 
       <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-100">
-        Em dia = crédito no extrato até o dia do vencimento do cadastro, no mês selecionado. A lista
-        prioriza pendentes e atrasados (ordem de cobrança).
+        Conciliação ≠ Validação de pagamentos: aqui vemos cobrança vs dia de vencimento do cadastro.
+        Em dia = crédito no extrato até o vencimento, no mês selecionado. Bolsa e exceção ficam em
+        filtro secundário (não entram na visão padrão de cobrança).
       </div>
 
       {alertasVendas.length > 0 ? (
@@ -581,6 +599,21 @@ export function ConciliacaoPagamentosPage() {
       </section>
 
       <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setStatusFiltro('cobranca')}
+          aria-pressed={statusFiltro === 'cobranca'}
+          className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+            statusFiltro === 'cobranca'
+              ? 'border-indigo-400 bg-indigo-50 text-indigo-900 dark:border-indigo-500 dark:bg-indigo-950/50 dark:text-indigo-100'
+              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300'
+          }`}
+        >
+          Cobrança
+          <span className="ml-1 tabular-nums opacity-80">
+            ({query.isLoading ? '…' : totaisVisiveis.total_cobranca})
+          </span>
+        </button>
         <button
           type="button"
           onClick={() => setStatusFiltro('todos')}
