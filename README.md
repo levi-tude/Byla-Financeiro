@@ -69,6 +69,3 @@ Três templates didáticos, sem credenciais nem IDs de produção:
 - Google Sheets → Supabase
 - Resumo de aluguel → WhatsApp
 
-## O que não está neste repositório
-
-Documentação operacional, contratos, relatórios, regras financeiras internas e integrações (Pluggy, PagBank EDI) foram arquivadas.
