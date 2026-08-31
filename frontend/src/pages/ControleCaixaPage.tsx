@@ -21,6 +21,7 @@ import {
   ControleLinhaComposicaoModal,
   type ControleLinhaComposicaoTarget,
 } from '../components/ControleLinhaComposicaoModal';
+import { ControleCaixaComparacaoPanel } from '../components/ControleCaixaComparacaoPanel';
 import { Link } from 'react-router-dom';
 import { FilterBar } from '../components/finance/FilterBar';
 import {
@@ -303,6 +304,13 @@ export function ControleCaixaPage() {
     staleTime: 5 * 60 * 1000,
   });
 
+  const modoOutro: ControleModo = modo === 'oficial' ? 'sistema' : 'oficial';
+  const controleOutroQuery = useQuery({
+    queryKey: ['controle-caixa', monthYear.mes, monthYear.ano, modoOutro],
+    queryFn: () => getControleCaixa(monthYear.mes, monthYear.ano, modoOutro),
+    staleTime: 60_000,
+  });
+
   useEffect(() => {
     if (!controleQuery.data || modoEscolhidoManual) return;
     if (modo === 'oficial' && controleQuery.data.existe === false) {
@@ -355,14 +363,14 @@ export function ControleCaixaPage() {
   const entradasPendQuery = useQuery({
     queryKey: ['entradas-resumo', monthYear.mes, monthYear.ano, 'competencia', 'controle-banner'],
     queryFn: () => getEntradasResumo(monthYear.mes, monthYear.ano, 'competencia'),
-    enabled: modo === 'sistema' && syncEntradasPermitido,
+    enabled: syncEntradasPermitido,
     staleTime: 60_000,
   });
 
   const despesasPendQuery = useQuery({
     queryKey: ['despesas-resumo', monthYear.mes, monthYear.ano, 'competencia', 'controle-banner'],
     queryFn: () => getDespesasResumo(monthYear.mes, monthYear.ano, 'competencia'),
-    enabled: modo === 'sistema' && syncEntradasPermitido,
+    enabled: syncEntradasPermitido,
     staleTime: 60_000,
   });
 
@@ -393,7 +401,7 @@ export function ControleCaixaPage() {
       setModoEscolhidoManual(true);
       setModo('sistema');
       setDraft(cloneState(data.controle));
-      showToast('Controle Sistema sincronizado (entradas, despesas e repasses). Oficial intacto.', 'success');
+      showToast('Controle Sistema sincronizado (entradas, despesas e repasses). Planilha intacta.', 'success');
       await queryClient.invalidateQueries({ queryKey: ['controle-caixa', monthYear.mes, monthYear.ano] });
       await queryClient.invalidateQueries({ queryKey: ['entradas-resumo', monthYear.mes, monthYear.ano] });
       await queryClient.invalidateQueries({ queryKey: ['despesas-resumo', monthYear.mes, monthYear.ano] });
@@ -467,6 +475,25 @@ export function ControleCaixaPage() {
       saidaSomaSecoesPrincipais: saidaSomaSecoesPrincipais || null,
     };
   }, [draft]);
+
+  const oficialExiste =
+    (modo === 'oficial' ? controleQuery.data : controleOutroQuery.data)?.existe === true;
+  const sistemaExiste =
+    (modo === 'sistema' ? controleQuery.data : controleOutroQuery.data)?.existe === true;
+
+  const oficialParaComparacao = useMemo(() => {
+    if (modo === 'oficial' && draft) {
+      return { totais: totaisCalculados, blocos: draft.blocos };
+    }
+    return modo === 'oficial' ? controleQuery.data : controleOutroQuery.data;
+  }, [modo, draft, totaisCalculados, controleQuery.data, controleOutroQuery.data]);
+
+  const sistemaParaComparacao = useMemo(() => {
+    if (modo === 'sistema' && draft) {
+      return { totais: totaisCalculados, blocos: draft.blocos };
+    }
+    return modo === 'sistema' ? controleQuery.data : controleOutroQuery.data;
+  }, [modo, draft, totaisCalculados, controleQuery.data, controleOutroQuery.data]);
 
   const totaisPorBloco = useMemo(() => {
     if (!draft) return { entradas: [] as Array<{ titulo: string; total: number }>, saidas: [] as Array<{ titulo: string; total: number }> };
@@ -557,7 +584,7 @@ export function ControleCaixaPage() {
           <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Fonte:</span>
           {(
             [
-              { id: 'oficial' as const, label: 'Oficial (planilha)' },
+              { id: 'oficial' as const, label: 'Planilha' },
               { id: 'sistema' as const, label: 'Sistema' },
             ] as const
           ).map((opt) => (
@@ -577,8 +604,8 @@ export function ControleCaixaPage() {
         </div>
         <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
           {modo === 'oficial'
-            ? 'Modo Oficial: valores migrados da planilha. Somente leitura — não mistura com a sincronização do extrato.'
-            : 'Modo Sistema: valores do extrato classificado e edições manuais. Totais deste modo não somam com o Oficial.'}
+            ? 'Modo Planilha: valores migrados do CONTROLE DE CAIXA. Somente leitura — não mistura com a sincronização do extrato.'
+            : 'Modo Sistema: valores do extrato classificado e edições manuais. Totais deste modo não somam com a Planilha.'}
         </p>
         {modo === 'sistema' && syncEntradasPermitido ? (
           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -677,7 +704,7 @@ export function ControleCaixaPage() {
 
       {draft && modo === 'oficial' && controleQuery.data?.existe === false ? (
         <div className="rounded-xl border border-sky-200 bg-sky-50/80 p-5 dark:border-sky-800 dark:bg-sky-950/30">
-          <h2 className="text-sm font-semibold text-sky-950 dark:text-sky-100">Sem fechamento oficial neste mês</h2>
+          <h2 className="text-sm font-semibold text-sky-950 dark:text-sky-100">Sem fechamento da planilha neste mês</h2>
           <p className="mt-1 text-sm text-sky-900/80 dark:text-sky-200/80">
             Ainda não há dados migrados da planilha CONTROLE DE CAIXA para{' '}
             {mesExtenso(monthYear.mes, monthYear.ano)}. O modo Sistema continua disponível com a
@@ -712,7 +739,7 @@ export function ControleCaixaPage() {
                       : 'bg-violet-100 text-violet-900 dark:bg-violet-950/50 dark:text-violet-200'
                   }`}
                 >
-                  {modo === 'oficial' ? 'Oficial (planilha)' : 'Sistema'}
+                  {modo === 'oficial' ? 'Planilha' : 'Sistema'}
                 </span>
                 <span
                   className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
@@ -819,6 +846,22 @@ export function ControleCaixaPage() {
             </details>
           </section>
 
+          <ControleCaixaComparacaoPanel
+            modoAtivo={modo}
+            oficial={oficialParaComparacao}
+            sistema={sistemaParaComparacao}
+            oficialExiste={oficialExiste}
+            sistemaExiste={sistemaExiste}
+            loadingOutro={controleOutroQuery.isLoading}
+            mostrarPendencias={syncEntradasPermitido}
+            pendencias={{
+              entradasValor: pendenciasClassificacao.entradasValor,
+              despesasValor: pendenciasClassificacao.despesasValor,
+              entradasTx: pendenciasClassificacao.entradasTx,
+              despesasTx: pendenciasClassificacao.despesasTx,
+            }}
+          />
+
           <details className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
             <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200">
               Saúde da estrutura e aba de referência
@@ -856,7 +899,7 @@ export function ControleCaixaPage() {
               </div>
               <div className="flex gap-2">
                 {somenteLeitura ? (
-                  <span className="text-xs text-slate-500">Consulta do fechamento oficial — sem edição.</span>
+                  <span className="text-xs text-slate-500">Consulta do fechamento da planilha — sem edição.</span>
                 ) : (
                   <>
                     <button
