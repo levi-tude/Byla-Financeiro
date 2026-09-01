@@ -13,7 +13,8 @@ export interface ConfigAbaBloco {
 
 /** Configuração por aba: limite de linha para ativos. Ordem pode importar. */
 export const CONFIG_ABAS_BLOCOS: ConfigAbaBloco[] = [
-  { nomeAba: 'BYLA DANÇA', linhaLimiteAtivos: 81 },
+  /** Ativos até antes do bloco inativos/histórico. Jazz Naluh (linhas ~84–88) entrou após limite 81. */
+  { nomeAba: 'BYLA DANÇA', linhaLimiteAtivos: 92 },
   // Nova aba PILATES (planilha FLUXO DE CAIXA BYLA). Ativos até a linha 33.
   { nomeAba: 'PILATES', linhaLimiteAtivos: 32 },
   // Mantido para compatibilidade com a aba antiga PILATES MARINA, se ainda existir na planilha.
