@@ -736,6 +736,8 @@ export interface TransacaoItem {
   competencia_sugerida_ano?: number;
   competencia_alinha_data?: boolean;
   alerta_duplicata_competencia?: boolean;
+  fluxo_vinculo_label?: string | null;
+  fluxo_alunos_vinculados?: string[];
 }
 
 export interface TransacoesPorMesResponse {
