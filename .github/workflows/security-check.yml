@@ -9,6 +9,8 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       # fetch-depth: 0 — gitleaks-action precisa do histórico para
       # resolver ranges tipo SHA^..SHA em push/PR (shallow clone quebra com "unknown revision").
@@ -22,6 +24,9 @@ jobs:
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Upload SARIF via gitleaks-action falha intermitente (403) em repos individuais;
+          # o scan em si continua — só desliga o anexo. Falha real = secret no diff.
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'false'
       - name: Vercel build config (painel, não landing)
         run: node scripts/verify-vercel-config.mjs
       - name: Security config
