@@ -27,6 +27,10 @@ import {
   type CategoriasFiltroModo,
 } from '../components/finance/classificacao/FiltroCategoriasMulti';
 import { CompetenciaTransacaoEditor } from '../components/finance/classificacao/CompetenciaTransacaoEditor';
+import {
+  ValidacaoVinculoExcecaoDialog,
+  type BancoExcecaoPreselect,
+} from '../components/validacao/ValidacaoVinculoExcecaoDialog';
 import { labelCompetenciaMesAno } from '../utils/competenciaPagamento';
 import {
   FILTRO_TIPO_PENDENTE,
@@ -239,6 +243,7 @@ export function TransacoesPage() {
   const [savedViews, setSavedViews] = useState<SavedView[]>([]);
   const [novaViewNome, setNovaViewNome] = useState('');
   const [editCompetenciaId, setEditCompetenciaId] = useState<string | null>(null);
+  const [excecaoBanco, setExcecaoBanco] = useState<BancoExcecaoPreselect | null>(null);
   /** Evita persistir antes de carregar do storage (não sobrescrever com lista vazia). */
   const viewsCarregadasRef = useRef(false);
   const calendarioPopoverRef = useRef<HTMLDivElement>(null);
@@ -1159,6 +1164,32 @@ export function TransacoesPage() {
               </span>
             ),
           },
+          {
+            id: 'vinculo_excecao',
+            header: 'Validação',
+            optional: true,
+            render: (t) =>
+              t.tipo === 'entrada' ? (
+                <button
+                  type="button"
+                  className="rounded px-1.5 py-0.5 text-[11px] font-medium text-violet-700 hover:bg-violet-50 hover:underline dark:text-violet-300"
+                  title="Vincular esta entrada a um pagamento do fluxo (modo exceção)"
+                  onClick={() =>
+                    setExcecaoBanco({
+                      id: t.id,
+                      pessoa: t.pessoa ?? '',
+                      valor: Math.abs(Number(t.valor ?? 0)),
+                      data: t.data,
+                      descricao: t.descricao,
+                    })
+                  }
+                >
+                  exceção
+                </button>
+              ) : (
+                '—'
+              ),
+          },
         ]}
         loadingRows={query.isLoading ? <LoadingRow colSpan={7} rows={5} /> : undefined}
         emptyBlock={<EmptyState message="Sem transações para os filtros selecionados." />}
@@ -1223,6 +1254,15 @@ export function TransacoesPage() {
           </div>
         </div>
       ) : null}
+
+      <ValidacaoVinculoExcecaoDialog
+        open={excecaoBanco != null}
+        onClose={() => setExcecaoBanco(null)}
+        mesInicial={monthYear.mes}
+        anoInicial={monthYear.ano}
+        bancoPreselecionado={excecaoBanco}
+        onSuccess={() => void qc.invalidateQueries({ queryKey: ['transacoes'] })}
+      />
     </div>
   );
 }

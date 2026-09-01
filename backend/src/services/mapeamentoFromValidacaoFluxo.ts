@@ -100,10 +100,11 @@ async function loadBancoPessoa(supabase: SupabaseClient, bancoId: string): Promi
   return p || null;
 }
 
-/** Não sobrescreve regra manual já confirmada. */
-function podeAplicarSugestao(existing: MapeamentoRow | null): boolean {
-  if (!existing) return true;
-  if (existing.confirmado !== false && existing.origem_regra !== 'validacao_fluxo') return false;
+/**
+ * Vínculo Validação↔Fluxo prevalece sobre mapeamento manual/heurística antigo.
+ * Conflito multi-modalidade no mesmo mês é filtrado antes (conflitoAbasTemplateKeys).
+ */
+function podeAplicarSugestao(_existing: MapeamentoRow | null): boolean {
   return true;
 }
 
@@ -227,30 +228,177 @@ export async function aplicarSugestaoMapeamentoFromVinculos(
   return result;
 }
 
+type GrupoPagadorMapeamento = {
+  pessoaNorm: string;
+  templateKeys: string[];
+  fluxo: FluxoPagamentoRow;
+  dataRef: string;
+  catalogMes: number;
+  catalogAno: number;
+};
+
+/** Reconciliação em lote (1 upsert por pagador) — evita N² na rotina mensal. */
+export async function reconciliarMapeamentoFromVinculosMesBatch(
+  supabase: SupabaseClient,
+  mes: number,
+  ano: number,
+): Promise<SugestaoFluxoResult> {
+  const result: SugestaoFluxoResult = { aplicados: 0, ignorados: 0, erros: [] };
+  const vinculos = await listVinculosMes(mes, ano);
+  if (vinculos.length === 0) return result;
+
+  const bancoIds = [...new Set(vinculos.map((v) => v.banco_id))];
+  const bancoPessoaById = new Map<string, string>();
+  const { data: bancos } = await supabase.from('transacoes').select('id, pessoa').in('id', bancoIds);
+  for (const row of bancos ?? []) {
+    const p = String((row as { pessoa?: string }).pessoa ?? '').trim();
+    if (p) bancoPessoaById.set(String((row as { id: string }).id), p);
+  }
+
+  const fluxoIds = [
+    ...new Set(
+      vinculos.map((v) => parseFluxoId(v.planilha_id)).filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const fluxoById = new Map<string, FluxoPagamentoRow>();
+  if (fluxoIds.length > 0) {
+    const { data: fluxos } = await supabase
+      .from('fluxo_pagamentos_operacionais')
+      .select('id, aba, modalidade, aluno_nome, pagador_pix, mes_competencia, ano_competencia')
+      .in('id', fluxoIds);
+    for (const f of (fluxos ?? []) as FluxoPagamentoRow[]) {
+      fluxoById.set(f.id, f);
+    }
+  }
+
+  const catalogCache = new Map<string, Awaited<ReturnType<typeof loadCatalogoEntradasControleMes>>>();
+  const grupos = new Map<string, GrupoPagadorMapeamento>();
+
+  for (const v of vinculos) {
+    const fluxoId = parseFluxoId(v.planilha_id);
+    if (!fluxoId) {
+      result.ignorados += 1;
+      continue;
+    }
+    const fluxo = fluxoById.get(fluxoId);
+    if (!fluxo) {
+      result.ignorados += 1;
+      continue;
+    }
+    const bancoPessoa = bancoPessoaById.get(v.banco_id) ?? null;
+    const pessoaNorm = pessoaNormParaMapeamentoEntrada({
+      bancoPessoa,
+      pagadorPix: fluxo.pagador_pix,
+      aluno: fluxo.aluno_nome,
+      fallbackId: fluxo.id,
+    });
+    if (!pessoaNorm) {
+      result.ignorados += 1;
+      continue;
+    }
+
+    const hint = hintAbaFluxoParaControle(fluxo.aba, fluxo.modalidade);
+    if (!hint) {
+      result.ignorados += 1;
+      continue;
+    }
+
+    const catalogMes = fluxo.mes_competencia >= 1 && fluxo.mes_competencia <= 12 ? fluxo.mes_competencia : mes;
+    const catalogAno = fluxo.ano_competencia >= 2000 ? fluxo.ano_competencia : ano;
+    const catalogKey = `${catalogMes}:${catalogAno}`;
+    let catalog = catalogCache.get(catalogKey);
+    if (!catalog) {
+      try {
+        catalog = await loadCatalogoEntradasControleMes(catalogMes, catalogAno);
+        catalogCache.set(catalogKey, catalog);
+      } catch (e) {
+        result.erros.push(e instanceof Error ? e.message : String(e));
+        continue;
+      }
+    }
+
+    const cat = resolveHintNoCatalogo(catalog, hint);
+    if (!cat || isCategoriaEntradaAluguelCoworking(cat) || !isCategoriaEntradaParceiros(cat)) {
+      result.ignorados += 1;
+      continue;
+    }
+
+    const tk = preferStableEntradaTemplateKey(cat);
+    const cur = grupos.get(pessoaNorm);
+    if (!cur) {
+      grupos.set(pessoaNorm, {
+        pessoaNorm,
+        templateKeys: [tk],
+        fluxo,
+        dataRef: v.data_ref,
+        catalogMes,
+        catalogAno,
+      });
+    } else if (!cur.templateKeys.includes(tk)) {
+      cur.templateKeys.push(tk);
+    }
+  }
+
+  for (const g of grupos.values()) {
+    if (conflitoAbasTemplateKeys(g.templateKeys)) {
+      result.ignorados += 1;
+      continue;
+    }
+
+    const catalogKey = `${g.catalogMes}:${g.catalogAno}`;
+    const catalog = catalogCache.get(catalogKey);
+    if (!catalog) {
+      result.ignorados += 1;
+      continue;
+    }
+
+    const hint = hintAbaFluxoParaControle(g.fluxo.aba, g.fluxo.modalidade);
+    if (!hint) {
+      result.ignorados += 1;
+      continue;
+    }
+    const cat = resolveHintNoCatalogo(catalog, hint);
+    if (!cat || isCategoriaEntradaAluguelCoworking(cat) || !isCategoriaEntradaParceiros(cat)) {
+      result.ignorados += 1;
+      continue;
+    }
+
+    const subcategoria =
+      g.fluxo.aba && g.fluxo.modalidade
+        ? `${g.fluxo.aba} · ${g.fluxo.modalidade}`
+        : g.fluxo.modalidade || g.fluxo.aba || null;
+
+    const row = {
+      pessoa_normalizada: g.pessoaNorm,
+      categoria: cat.label,
+      subcategoria,
+      template_key: preferStableEntradaTemplateKey(cat),
+      bloco_template_key: preferStableEntradaBlocoKey(cat),
+      aplica_tipo: 'entrada' as const,
+      ativo: true,
+      ...mapeamentoFluxoExtraFields(),
+      observacao: detalheSugestao(g.dataRef, g.fluxo.aluno_nome, g.fluxo.modalidade),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase
+      .from('mapeamento_pessoa_categoria')
+      .upsert(row, { onConflict: 'pessoa_normalizada,aplica_tipo' });
+
+    if (error) result.erros.push(error.message);
+    else result.aplicados += 1;
+  }
+
+  return result;
+}
+
 /** Garante sugestões de mapeamento para vínculos já salvos (não exige refazer validação). */
 export async function sincronizarMapeamentoSugestoesFromVinculosMes(
   supabase: SupabaseClient,
   mes: number,
   ano: number,
 ): Promise<SugestaoFluxoResult> {
-  const vinculos = await listVinculosMes(mes, ano);
-  const merged: SugestaoFluxoResult = { aplicados: 0, ignorados: 0, erros: [] };
-  const byBanco = new Map<string, { dataRef: string; planilhaIds: string[] }>();
-
-  for (const v of vinculos) {
-    const cur = byBanco.get(v.banco_id) ?? { dataRef: v.data_ref, planilhaIds: [] };
-    cur.planilhaIds.push(v.planilha_id);
-    byBanco.set(v.banco_id, cur);
-  }
-
-  for (const [bancoId, { dataRef, planilhaIds }] of byBanco) {
-    const r = await aplicarSugestaoMapeamentoFromVinculos(supabase, dataRef, mes, ano, bancoId, planilhaIds);
-    merged.aplicados += r.aplicados;
-    merged.ignorados += r.ignorados;
-    merged.erros.push(...r.erros);
-  }
-
-  return merged;
+  return reconciliarMapeamentoFromVinculosMesBatch(supabase, mes, ano);
 }
 
 /** Remove sugestão não confirmada quando o vínculo é desfeito (se não houver outro vínculo igual no mês). */
