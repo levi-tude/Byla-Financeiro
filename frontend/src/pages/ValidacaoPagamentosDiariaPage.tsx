@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Topbar } from '../app/Topbar';
 import { ValidacaoCalendarioGuia } from '../components/validacao/ValidacaoCalendarioGuia';
+import { ValidacaoVinculoExcecaoDialog } from '../components/validacao/ValidacaoVinculoExcecaoDialog';
 import {
   confirmarCreditoRecorrenteSugestao,
   createValidacaoVinculo,
@@ -423,6 +424,7 @@ export function ValidacaoPagamentosDiariaPage() {
   const [confirmandoSugestaoId, setConfirmandoSugestaoId] = useState<string | null>(null);
   /** Incrementa para forçar reload do dia após confirmar sugestão. */
   const [reloadDiaToken, setReloadDiaToken] = useState(0);
+  const [excecaoOpen, setExcecaoOpen] = useState(false);
 
   const mesData = Number(data.slice(5, 7));
   const anoData = Number(data.slice(0, 4));
@@ -840,6 +842,27 @@ export function ValidacaoPagamentosDiariaPage() {
       />
 
       <ValidacaoCalendarioGuia variant="validacao" />
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className="rounded-lg border border-violet-300 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-900 hover:bg-violet-100 dark:border-violet-700 dark:bg-violet-950/40 dark:text-violet-100"
+          onClick={() => setExcecaoOpen(true)}
+        >
+          Vincular exceção…
+        </button>
+        <span className="text-[11px] text-slate-500">
+          Liga extrato ↔ fluxo sem match automático (admin).
+        </span>
+      </div>
+
+      <ValidacaoVinculoExcecaoDialog
+        open={excecaoOpen}
+        onClose={() => setExcecaoOpen(false)}
+        mesInicial={mesData}
+        anoInicial={anoData}
+        onSuccess={() => setReloadDiaToken((n) => n + 1)}
+      />
 
       {veioDoCalendario ? (
         <div

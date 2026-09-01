@@ -1,6 +1,17 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { conflitoAbasTemplateKeys } from './mapeamentoFromValidacaoFluxo.js';
+import {
+  conflitoAbasTemplateKeys,
+  sincronizarMapeamentoSugestoesFromVinculosMes,
+} from './mapeamentoFromValidacaoFluxo.js';
+
+// Re-export interno via comportamento: vínculo Validação deve poder substituir manual.
+// Teste de integração leve documentado no script reconciliarMapeamentoValidacaoControle.
+describe('mapeamentoFromValidacaoFluxo exports', () => {
+  it('exporta sincronizarMapeamentoSugestoesFromVinculosMes', () => {
+    assert.equal(typeof sincronizarMapeamentoSugestoesFromVinculosMes, 'function');
+  });
+});
 
 describe('conflitoAbasTemplateKeys', () => {
   it('sem conflito com uma aba', () => {
