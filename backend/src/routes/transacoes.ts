@@ -18,6 +18,7 @@ import {
   type CategoriasControleFiltro,
 } from '../services/transacoesClassificacaoMap.js';
 import { loadCompetenciasMap } from '../services/transacaoCompetenciaService.js';
+import { loadVinculoFluxoPorBancoIds } from '../services/transacoesVinculoFluxoEnrich.js';
 import { competenciaFromDataIso } from '../domain/competencia/competenciaTransacao.js';
 
 const router = Router();
@@ -217,6 +218,21 @@ router.get('/transacoes', async (req: Request, res: Response) => {
           competencia_sugerida_mes: sug.mes,
           competencia_sugerida_ano: sug.ano,
           competencia_alinha_data: mesComp === sug.mes && anoComp === sug.ano,
+        };
+      });
+    }
+
+    const entradaIds = paginadas.filter((t) => t.tipo === 'entrada').map((t) => t.id);
+    if (entradaIds.length > 0) {
+      const vinculoFluxo = await loadVinculoFluxoPorBancoIds(supabase, entradaIds);
+      paginadas = paginadas.map((t) => {
+        if (t.tipo !== 'entrada') return t;
+        const info = vinculoFluxo.get(t.id);
+        if (!info?.label) return t;
+        return {
+          ...t,
+          fluxo_vinculo_label: info.label,
+          fluxo_alunos_vinculados: [...new Set(info.alunos.map((a) => a.trim()).filter(Boolean))],
         };
       });
     }

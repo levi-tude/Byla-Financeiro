@@ -1165,6 +1165,19 @@ export function TransacoesPage() {
             ),
           },
           {
+            id: 'fluxo_vinculo',
+            header: 'Aluno (Fluxo)',
+            optional: true,
+            render: (t) =>
+              t.tipo === 'entrada' && t.fluxo_vinculo_label ? (
+                <span className="text-slate-700 dark:text-slate-300" title="Vínculo Validação ↔ Fluxo">
+                  {t.fluxo_vinculo_label}
+                </span>
+              ) : (
+                '—'
+              ),
+          },
+          {
             id: 'vinculo_excecao',
             header: 'Validação',
             optional: true,
