@@ -30,6 +30,11 @@ import { ApiErrorPanel } from '../components/ui/ApiErrorPanel';
 import { TableSkeleton } from '../components/ui/TableSkeleton';
 import { normalizarAbaMulti, ordenarAbasPresentes } from '../fluxo/fluxoAbaHierarchy';
 import { getFluxoAbaTabStyle, getFluxoModalidadeTabStyle } from '../fluxo/fluxoPlanilhaCores';
+import {
+  isModalidadeCapacitacao,
+  isModalidadeProgramaBolsas,
+  ordenarModalidadesFluxo,
+} from '../fluxo/ordenarModalidadesFluxo';
 import { Link } from 'react-router-dom';
 import { PeriodoMesCalendarioPopover } from '../components/transacoes/PeriodoMesCalendarioPopover';
 import { FilterBar } from '../components/finance/FilterBar';
@@ -338,6 +343,7 @@ function agruparLinhasFluxo(linhas: LinhaUnificadaFluxo[]): GrupoAbaFluxo[] {
   for (const linha of linhas) {
     const aba = (linha.kind === 'com_pagamento' ? linha.pagamento.aba : linha.aluno.aba).trim() || '—';
     const modalidade = (linha.kind === 'com_pagamento' ? linha.pagamento.modalidade : linha.aluno.modalidade).trim() || '—';
+    if (isModalidadeProgramaBolsas(modalidade)) continue;
     if (!porAba.has(aba)) porAba.set(aba, new Map());
     const porMod = porAba.get(aba)!;
     if (!porMod.has(modalidade)) porMod.set(modalidade, []);
@@ -346,7 +352,7 @@ function agruparLinhasFluxo(linhas: LinhaUnificadaFluxo[]): GrupoAbaFluxo[] {
   const abas = [...porAba.keys()].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   return abas.map((aba) => {
     const porMod = porAba.get(aba)!;
-    const mods = [...porMod.keys()].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    const mods = ordenarModalidadesFluxo([...porMod.keys()]);
     return {
       aba,
       modalidades: mods.map((modalidade) => ({
@@ -1227,6 +1233,8 @@ export function FluxoCaixaOperacionalPage() {
       if (!m.has(aba)) m.set(aba, new Map());
       const porModalidade = m.get(aba)!;
       const modalidade = item.modalidade?.trim() || 'Sem modalidade';
+      // Programa de Bolsas é visão própria (/programa-bolsas), não modalidade do Fluxo.
+      if (isModalidadeProgramaBolsas(modalidade)) continue;
       if (!porModalidade.has(modalidade)) porModalidade.set(modalidade, []);
       porModalidade.get(modalidade)!.push(item);
     }
@@ -1306,7 +1314,7 @@ export function FluxoCaixaOperacionalPage() {
     if (modoVisao !== 'multi') return;
     const entries = multiAgrupadoPorAba.get(multiAbaAtiva);
     if (!entries) return;
-    const modalidades = [...entries.keys()].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    const modalidades = ordenarModalidadesFluxo([...entries.keys()]);
     setMultiModalidadeAbertaPorAba((prev) => {
       const atual = prev[multiAbaAtiva];
       if (modalidades.length === 1 && atual !== modalidades[0]) {
@@ -1469,7 +1477,7 @@ export function FluxoCaixaOperacionalPage() {
     (alunosQuery.data?.filtros.modalidades ?? []).forEach((x) => s.add(x));
     (pagamentosQuery.data?.filtros.modalidades ?? []).forEach((x) => s.add(x));
     if (modalidadeFiltro.trim()) s.add(modalidadeFiltro.trim());
-    return Array.from(s).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    return ordenarModalidadesFluxo(Array.from(s));
   }, [alunosQuery.data?.filtros.modalidades, pagamentosQuery.data?.filtros.modalidades, modalidadeFiltro]);
 
   const abasSugestao = useMemo(() => {
@@ -1483,7 +1491,7 @@ export function FluxoCaixaOperacionalPage() {
     const set = new Set<string>();
     (alunosQuery.data?.filtros.modalidades ?? []).forEach((x) => set.add(x));
     (pagamentosQuery.data?.filtros.modalidades ?? []).forEach((x) => set.add(x));
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
+    return ordenarModalidadesFluxo(Array.from(set));
   }, [alunosQuery.data?.filtros.modalidades, pagamentosQuery.data?.filtros.modalidades]);
 
   const alunosAtivosVisiveis = useMemo(
@@ -2450,6 +2458,15 @@ export function FluxoCaixaOperacionalPage() {
             <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-50">Alunos e pagamentos</h1>
             <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-600 dark:text-slate-400">
               Mês do painel: <strong>{mesReferenciaLegivel(monthYear.mes, monthYear.ano)}</strong>. Lista única: cada linha mostra o cadastro e, quando houver, o pagamento do mês (vários pagamentos no mês geram várias linhas).
+              {' '}
+              <Link
+                to="/programa-bolsas"
+                className="font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+              >
+                Ver Programa de Bolsas
+              </Link>
+              {' '}
+              (visão ligada à BYLA DANÇA, fora das turmas).
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -3106,7 +3123,7 @@ export function FluxoCaixaOperacionalPage() {
                       const chrome = getFluxoAbaTabStyle(aba);
                       const ativo = multiAbaAtiva === aba;
                       const modalidadesDaAba = multiAgrupadoPorAba.get(aba)
-                        ? [...multiAgrupadoPorAba.get(aba)!.keys()].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+                        ? ordenarModalidadesFluxo([...multiAgrupadoPorAba.get(aba)!.keys()])
                         : [];
                       return (
                         <button
@@ -3133,11 +3150,16 @@ export function FluxoCaixaOperacionalPage() {
                   </div>
                 </div>
 
-                {(multiAgrupadoPorAba.get(multiAbaAtiva) ? [...multiAgrupadoPorAba.get(multiAbaAtiva)!.entries()] : [])
-                  .sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'))
-                  .map(([modalidade, itens]) => {
+                {(multiAgrupadoPorAba.get(multiAbaAtiva)
+                  ? ordenarModalidadesFluxo([...multiAgrupadoPorAba.get(multiAbaAtiva)!.keys()]).map(
+                      (modalidade) =>
+                        [modalidade, multiAgrupadoPorAba.get(multiAbaAtiva)!.get(modalidade)!] as const,
+                    )
+                  : []
+                ).map(([modalidade, itens]) => {
                     const chrome = getFluxoModalidadeTabStyle(multiAbaAtiva, modalidade);
                     const modalidadeAberta = multiModalidadeAbertaPorAba[multiAbaAtiva];
+                    const seloFormacao = isModalidadeCapacitacao(modalidade);
                     const itensExibicao = itens
                       .filter((item) => {
                         if (abaFiltro && normalizarAbaMulti(item.aba) !== normalizarAbaMulti(abaFiltro)) return false;
@@ -3204,7 +3226,14 @@ export function FluxoCaixaOperacionalPage() {
                         style={{ borderLeftWidth: '5px', borderLeftColor: chrome.tab }}
                       >
                         <summary className="cursor-pointer list-none px-3 py-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
-                          Modalidade: <span style={{ color: chrome.tab }}>{modalidade}</span> · {itensExibicao.length} aluno(s)
+                          Modalidade:{' '}
+                          <span style={{ color: chrome.tab }}>{modalidade}</span>
+                          {seloFormacao ? (
+                            <span className="ml-2 rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                              Formação
+                            </span>
+                          ) : null}{' '}
+                          · {itensExibicao.length} aluno(s)
                         </summary>
                         <div className="overflow-x-auto border-t border-slate-100 p-3 dark:border-slate-700">
                           <table className="w-full min-w-[2200px] text-xs">

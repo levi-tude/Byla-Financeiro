@@ -34,6 +34,11 @@ export const navSections: NavSection[] = [
         primary: true,
       },
       {
+        path: '/programa-bolsas',
+        label: 'Programa de Bolsas',
+        roles: ['secretaria', 'admin'],
+      },
+      {
         path: '/aluguel-salas',
         label: 'Aluguel de salas',
         roles: ['secretaria', 'admin'],

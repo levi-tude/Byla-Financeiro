@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { analisarCasamentoOrfaosPorDataValor } from '../logic/vinculosOrfaosHeuristica.js';
+import { alunoNormKey } from '../logic/alunoPagadorMatch.js';
+import {
+  analisarCasamentoOrfaosPorDataValor,
+  buildStickyPagadorIndex,
+} from '../logic/vinculosOrfaosHeuristica.js';
 import { planRecuperarOrfaosHeuristica } from './recuperarVinculosOrfaosFluxo.js';
 
 test('planRecuperarOrfaosHeuristica: remap 1:1 inequívoco para planilha_id novo', () => {
@@ -17,12 +21,14 @@ test('planRecuperarOrfaosHeuristica: remap 1:1 inequívoco para planilha_id novo
       {
         id: 'new-uuid-demo',
         alunoKey: 'pilates|4|aluno demo silva',
+        alunoNorm: alunoNormKey('Aluno Demo Silva'),
         data_pagamento: '2026-05-04',
         valor: 250,
       },
       {
         id: 'outro',
         alunoKey: 'yoga|1|outra demo',
+        alunoNorm: alunoNormKey('Outra Demo'),
         data_pagamento: '2026-05-10',
         valor: 180,
       },
@@ -46,6 +52,7 @@ test('planRecuperarOrfaosHeuristica: ambíguo N→1 não remapeia', () => {
       {
         id: 'shared',
         alunoKey: 'pilates|1|aluno a',
+        alunoNorm: alunoNormKey('Aluno A'),
         data_pagamento: '2026-05-04',
         valor: 250,
       },
@@ -63,6 +70,7 @@ test('analisarCasamentoOrfaosPorDataValor: conta semCandidato', () => {
       {
         id: 'x',
         alunoKey: 'yoga|1|x',
+        alunoNorm: alunoNormKey('X'),
         data_pagamento: '2026-06-01',
         valor: 200,
       },

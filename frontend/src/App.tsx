@@ -21,6 +21,7 @@ import { AssinaturasCreditoRecorrentePage } from './pages/AssinaturasCreditoReco
 import { FinancasAlunosPage } from './pages/FinancasAlunosPage';
 import { MatchesProvaveisPage } from './pages/MatchesProvaveisPage';
 import { CadastroAlunosResumoPage } from './pages/CadastroAlunosResumoPage';
+import { ProgramaBolsasPage } from './pages/ProgramaBolsasPage';
 
 function HomeByRole() {
   const auth = useAuth();
@@ -134,6 +135,14 @@ export default function App() {
             element={
               <RequireAuth roles={['secretaria', 'admin']}>
                 <FluxoCaixaOperacionalPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="programa-bolsas"
+            element={
+              <RequireAuth roles={['secretaria', 'admin']}>
+                <ProgramaBolsasPage />
               </RequireAuth>
             }
           />

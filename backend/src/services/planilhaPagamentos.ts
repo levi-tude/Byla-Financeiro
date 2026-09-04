@@ -1,6 +1,6 @@
 import { config } from '../config.js';
 import { readSheetValues, readSheetValuesBySheetName } from './sheetsService.js';
-import { parsearAbaEmBlocos, getLimiteAtivosParaAba, type LinhaParseada } from '../logic/parsePlanilhaPorBlocos.js';
+import { parsearAbaEmBlocos, getLimiteAtivosParaAba, getDeteccaoAutomaticaParaAba, type LinhaParseada } from '../logic/parsePlanilhaPorBlocos.js';
 import { extrairDiaVencimento } from '../logic/vencimentoPlanilha.js';
 
 export interface PagamentoPlanilha {
@@ -400,6 +400,7 @@ export async function lerPagamentosPorAbaEAno(
   if (!spreadsheetId) return { alunos: [], error: 'Planilha FLUXO BYLA não configurada (GOOGLE_SHEETS_SPREADSHEET_ID).' };
 
   const limiteAtivos = getLimiteAtivosParaAba(aba) ?? 999999; // se não souber o limite, não corta
+  const deteccaoAuto = getDeteccaoAutomaticaParaAba(aba);
 
   // Precisamos ler mais colunas para capturar os blocos por mês (ex.: JANEIRO / Data / forma / Valor ...).
   // A:ZZZ cobre calendários à direita (ex.: coluna DM+) com folga; override via GOOGLE_SHEETS_PAGAMENTOS_COLS.
@@ -448,7 +449,7 @@ export async function lerPagamentosPorAbaEAno(
   if (regions.length === 0) return { alunos: [] };
 
   // Agora parseia as linhas de alunos/modalidades usando o mesmo array de valores.
-  const parsed = parsearAbaEmBlocos(valuesPadded, aba, limiteAtivos) as LinhaParseada[];
+  const parsed = parsearAbaEmBlocos(valuesPadded, aba, limiteAtivos, deteccaoAuto) as LinhaParseada[];
   if (!parsed.length) return { alunos: [] };
 
   const byStudent: Record<string, PagamentosAluno> = {};
@@ -456,6 +457,9 @@ export async function lerPagamentosPorAbaEAno(
   for (const l of parsed) {
     // Conciliação e telas derivadas devem considerar somente alunos ativos da aba.
     if (!l.ativo) continue;
+    // Seção "bolsas" (Programa de Bolsas) = metadados de desconto, não modalidade autônoma.
+    // As alunas já aparecem nas modalidades normais; pular aqui evita pagamentos duplicados.
+    if (l.secao === 'bolsas') continue;
 
     const row = l.row as Record<string, unknown>;
     const aluno = coerceForma(getCaseInsensitive(row, ['NOME', 'ALUNO', 'CLIENTE']) ?? row['nome']);
