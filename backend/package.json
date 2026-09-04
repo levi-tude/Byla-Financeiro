@@ -24,6 +24,7 @@
     "migrate:controle-mes": "tsx scripts/migrateControleCaixaMes.ts",
     "ensure:controle-mes": "tsx scripts/ensureControleMes.ts",
     "migrate:fluxo-operacional": "tsx scripts/migrateFluxoBylaOperacional.ts",
+    "sync:fluxo-incremental": "tsx scripts/syncFluxoIncremental.ts",
     "validate:fluxo-migracao": "tsx scripts/validateFluxoMigracao.ts",
     "recuperar:vinculos-orfaos": "tsx scripts/recuperarVinculosOrfaosFluxo.ts",
     "keepalive:ping": "tsx scripts/keepalivePing.ts"

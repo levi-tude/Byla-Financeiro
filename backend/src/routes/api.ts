@@ -16,6 +16,7 @@ import creditoRecorrenteRoutes from './creditoRecorrente.js';
 import assinaturasCreditoRecorrenteRoutes from './assinaturasCreditoRecorrente.js';
 import financasAlunosRoutes from './financasAlunos.js';
 import cadastroAlunosRoutes from './cadastroAlunos.js';
+import programaBolsasRoutes from './programaBolsas.js';
 import conciliacaoRoutes from './conciliacao.js';
 import matchesProvaveisRoutes from './matchesProvaveis.js';
 import { createRelatoriosRouter } from './relatorios.js';
@@ -69,8 +70,15 @@ router.use(createAluguelSalasAutomaticoRouter());
 
 // Rotas operacionais (secretária e admin)
 router.use(
-  ['/fluxo-operacional', '/ai/assistant', '/aluguel', '/conciliacao-pagamentos', '/cadastro-alunos'],
-  requireRoles(['secretaria', 'admin'])
+  [
+    '/fluxo-operacional',
+    '/ai/assistant',
+    '/aluguel',
+    '/conciliacao-pagamentos',
+    '/cadastro-alunos',
+    '/programa-bolsas',
+  ],
+  requireRoles(['secretaria', 'admin']),
 );
 
 router.use(['/ai/consulta'], requireRoles(['admin']));
@@ -150,6 +158,7 @@ router.use(creditoRecorrenteRoutes);
 router.use(assinaturasCreditoRecorrenteRoutes);
 router.use(financasAlunosRoutes);
 router.use(cadastroAlunosRoutes);
+router.use(programaBolsasRoutes);
 router.use(conciliacaoRoutes);
 router.use(matchesProvaveisRoutes);
 router.use(createAluguelSalasRouter());

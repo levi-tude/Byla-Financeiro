@@ -10,6 +10,7 @@ import { config } from '../config.js';
 import {
   parsearAbaEmBlocos,
   getLimiteAtivosParaAba,
+  getDeteccaoAutomaticaParaAba,
   CONFIG_ABAS_BLOCOS,
 } from '../logic/parsePlanilhaPorBlocos.js';
 import type { IPlanilhaAlunosRepository, PlanilhaRow } from '../ports/IPlanilhaAlunosRepository.js';
@@ -76,7 +77,7 @@ export class PlanilhaAlunosAdapter implements IPlanilhaAlunosRepository {
         }
         const { values, error } = result;
         if (error) continue;
-        const parseadas = parsearAbaEmBlocos(values, nomeAba, limite);
+        const parseadas = parsearAbaEmBlocos(values, nomeAba, limite, getDeteccaoAutomaticaParaAba(nomeAba));
         for (const { row } of parseadas) {
           todas.push(row as PlanilhaRow);
         }

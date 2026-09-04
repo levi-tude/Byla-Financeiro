@@ -1,29 +1,63 @@
 /**
  * Parser para abas com estrutura em blocos: linha de modalidade → linha de cabeçalhos → linhas de dados.
- * Usado em BYLA DANÇA, PILATES MARINA, TEATRO, YOGA, G.R., TEATRO INFANTIL.
- * Inclui limite de linha para separar ativos (até linha N) de inativos (após linha N).
+ * Usado em BYLA DANÇA, PILATES, TEATRO, YOGA, G.R., TEATRO INFANTIL.
+ *
+ * ## Detecção de ativo/inativo (sem limite fixo de linha)
+ *
+ * O parser detecta seções pelo **nome do bloco** (linha colorida de modalidade):
+ *
+ * - Seção `normal`      → aluno ativo, pagamentos sincronizados normalmente
+ * - Seção `bolsas`      → bloco "PROGRAMA DE BOLSAS" — aluno marcado _secao='bolsas';
+ *                         pagamentos são lidos mas descartados no sync (a aluna já aparece
+ *                         nas modalidades normais). Serve para registrar metadata de desconto.
+ * - Seção `capacitacao` → bloco "CURSO DE CAPACITAÇÃO" — tratado como modalidade normal,
+ *                         mas com _secao='capacitacao' para a UI diferenciar visualmente.
+ * - Seção `inativo`     → bloco explicitamente marcado "INATIVO", "INATIVOS", "HISTÓRICO",
+ *                         "HISTORICO", "CANCELADO" etc. — aluno inativo.
+ *
+ * Dessa forma o parser se adapta automaticamente quando você adiciona linhas ou blocos
+ * na planilha — sem precisar ajustar nenhum número.
+ *
+ * ## Fallback por número de linha (abas simples)
+ *
+ * Abas que ainda usam limite fixo (PILATES, TEATRO, etc.) mantêm compatibilidade via
+ * `CONFIG_ABAS_BLOCOS`. O limite fixo só é usado quando nenhuma seção especial é detectada.
  */
 
+export type SecaoBloco = 'normal' | 'bolsas' | 'capacitacao' | 'inativo';
+
 export interface ConfigAbaBloco {
-  /** Nome exato da aba (ou regex). */
+  /** Nome exato da aba. */
   nomeAba: string;
-  /** Linha máxima (1-based, Excel/Sheets) até onde são alunos ativos. Acima = inativos. */
+  /**
+   * Linha máxima (1-based) até onde são alunos ativos — fallback para abas que não têm
+   * blocos explícitos de "INATIVOS". Ignorado para abas que detectam seções automaticamente.
+   * Use Number.MAX_SAFE_INTEGER para desabilitar.
+   */
   linhaLimiteAtivos: number;
+  /**
+   * Se true, o parser usa detecção de seção automática pelo nome do bloco
+   * e ignora linhaLimiteAtivos. Default: false.
+   */
+  deteccaoAutomatica?: boolean;
 }
 
-/** Configuração por aba: limite de linha para ativos. Ordem pode importar. */
+/** Configuração por aba. */
 export const CONFIG_ABAS_BLOCOS: ConfigAbaBloco[] = [
-  { nomeAba: 'BYLA DANÇA', linhaLimiteAtivos: 81 },
-  // Nova aba PILATES (planilha FLUXO DE CAIXA BYLA). Ativos até a linha 33.
-  { nomeAba: 'PILATES', linhaLimiteAtivos: 32 },
-  // Mantido para compatibilidade com a aba antiga PILATES MARINA, se ainda existir na planilha.
-  { nomeAba: 'PILATES MARINA', linhaLimiteAtivos: 32 },
-  { nomeAba: 'TEATRO', linhaLimiteAtivos: 14 },
-  /** Última linha (1-based) de alunos ativos; abaixo = inativos/histórico. 7 era insuficiente e ocultava alunos (ex.: pagamentos planilha). */
-  { nomeAba: 'YOGA', linhaLimiteAtivos: 90 },
-  { nomeAba: 'G.R.', linhaLimiteAtivos: 21 },
-  { nomeAba: 'TEATRO INFANTIL', linhaLimiteAtivos: 7 },
+  // Detecção automática: o parser lê os blocos "PROGRAMA DE BOLSAS", "CURSO DE CAPACITAÇÃO"
+  // e "INATIVOS" diretamente do nome da seção — sem número de linha fixo.
+  { nomeAba: 'BYLA DANÇA', linhaLimiteAtivos: Number.MAX_SAFE_INTEGER, deteccaoAutomatica: true },
+  { nomeAba: 'PILATES', linhaLimiteAtivos: Number.MAX_SAFE_INTEGER, deteccaoAutomatica: true },
+  { nomeAba: 'PILATES MARINA', linhaLimiteAtivos: Number.MAX_SAFE_INTEGER, deteccaoAutomatica: true },
+  { nomeAba: 'TEATRO', linhaLimiteAtivos: Number.MAX_SAFE_INTEGER, deteccaoAutomatica: true },
+  { nomeAba: 'YOGA', linhaLimiteAtivos: Number.MAX_SAFE_INTEGER, deteccaoAutomatica: true },
+  { nomeAba: 'G.R.', linhaLimiteAtivos: Number.MAX_SAFE_INTEGER, deteccaoAutomatica: true },
+  { nomeAba: 'TEATRO INFANTIL', linhaLimiteAtivos: Number.MAX_SAFE_INTEGER, deteccaoAutomatica: true },
 ];
+
+// ---------------------------------------------------------------------------
+// Helpers de detecção
+// ---------------------------------------------------------------------------
 
 const HEADER_ALUNO = 'ALUNO';
 const HEADER_CLIENTE = 'CLIENTE';
@@ -42,9 +76,77 @@ const MODALIDADE_MARKERS = [
   'JAZZ',
   'KPOP',
   'PROGRAMA DE BOLSAS',
+  'PROGRAMA',
+  'BOLSA',
   'CURSO DE CAPACITACAO',
   'CURSO DE CAPACITAÇÃO',
+  'CAPACITACAO',
+  'CAPACITAÇÃO',
+  'INATIVOS',
+  'INATIVO',
+  'EX ALUNOS',
+  'EX-ALUNOS',
+  'HISTORICO',
+  'HISTÓRICO',
 ];
+
+/** Rótulos de seção que nunca são nome de aluno (ex.: linha "INATIVOS" sozinha). */
+function isRotuloSecaoNaoAluno(nome: string): boolean {
+  const n = norm(nome);
+  return (
+    n === 'INATIVOS' ||
+    n === 'INATIVO' ||
+    n === 'EX ALUNOS' ||
+    n === 'EX-ALUNOS' ||
+    n === 'EXALUNOS' ||
+    n === 'HISTORICO' ||
+    n === 'HISTÓRICO' ||
+    n === 'CANCELADOS' ||
+    n === 'DESLIGADOS'
+  );
+}
+
+function norm(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toUpperCase()
+    .trim();
+}
+
+/**
+ * Detecta a "seção" de um bloco a partir do nome da modalidade.
+ * Retorna null para blocos normais (sem classificação especial).
+ */
+function detectarSecao(nomeBloco: string): SecaoBloco | null {
+  const n = norm(nomeBloco);
+  // Inativo / histórico — vem antes das outras para não confundir "HISTORICO JAZZ" com jazz normal
+  if (
+    n === 'INATIVOS' ||
+    n === 'INATIVO' ||
+    n.includes('HISTORICO') ||
+    n.includes('CANCELADO') ||
+    n.includes('DESLIGADO') ||
+    n === 'EX-ALUNOS' ||
+    n.includes('EX ALUNO')
+  ) return 'inativo';
+
+  // Programa de bolsas — só o bloco organizacional (não "Carolina Bolsa Provisória" etc.)
+  if (
+    n.includes('PROGRAMA DE BOLSAS') ||
+    n.includes('PROGRAMA BOLSA') ||
+    n === 'BOLSAS' ||
+    n.startsWith('BOLSAS ')
+  ) {
+    return 'bolsas';
+  }
+
+  // Curso de capacitação / formação
+  if (n.includes('CAPACITAC') || n.includes('CAPACITAÇ') || n.includes('FORMACAO') || n.includes('FORMAÇÃO') || n.includes('CURSO DE'))
+    return 'capacitacao';
+
+  return null;
+}
 
 /** Verifica se a linha parece ser a linha de cabeçalhos do bloco (contém ALUNO/CLIENTE e/ou WPP). */
 function isHeaderRow(cells: string[]): boolean {
@@ -68,11 +170,8 @@ function extrairModalidade(linha: string[]): string {
 
 function pareceLinhaModalidade(cells: string[]): boolean {
   const first = (cells[0] ?? '').trim();
-  if (!first || first.length < 8) return false;
-  const normalized = first
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-    .toUpperCase();
+  if (!first || first.length < 4) return false;
+  const normalized = norm(first);
   if (!MODALIDADE_MARKERS.some((m) => normalized.includes(m))) return false;
 
   // Linha de modalidade costuma ter só a primeira célula preenchida.
@@ -144,24 +243,39 @@ function normalizarChave(k: string): string {
   return k;
 }
 
+// ---------------------------------------------------------------------------
+// Tipos públicos
+// ---------------------------------------------------------------------------
+
 export interface LinhaParseada {
   row: Record<string, string | number | boolean>;
   modalidade: string;
   linha1Based: number;
   ativo: boolean;
+  /** Seção detectada automaticamente. Presente apenas quando deteccaoAutomatica=true. */
+  secao?: SecaoBloco;
 }
+
+// ---------------------------------------------------------------------------
+// Parser principal
+// ---------------------------------------------------------------------------
 
 /**
  * Parseia valores brutos de uma aba com estrutura em blocos.
- * Retorna linhas com _aba, _modalidade, _linha, _ativo e colunas do bloco.
+ * Retorna linhas com _aba, _modalidade, _linha, _ativo, _secao e colunas do bloco.
+ *
+ * Quando deteccaoAutomatica=true (ex.: BYLA DANÇA), o campo _ativo é derivado da seção
+ * detectada pelo nome do bloco — não pelo número de linha.
  */
 export function parsearAbaEmBlocos(
   values: string[][],
   nomeAba: string,
-  linhaLimiteAtivos: number
+  linhaLimiteAtivos: number,
+  deteccaoAutomatica = false,
 ): LinhaParseada[] {
   const resultado: LinhaParseada[] = [];
   let modalidadeAtual = '(modalidade)';
+  let secaoAtual: SecaoBloco = 'normal';
   let headerAtual: string[] = [];
   let linha1Based = 0;
 
@@ -173,35 +287,66 @@ export function parsearAbaEmBlocos(
     if (isHeaderRow(cells)) {
       headerAtual = cells.map(normalizarChave);
       modalidadeAtual = modalidadeAntesDe(values, r);
+      if (deteccaoAutomatica) {
+        // Header sozinho não mantém seção anterior: se o bloco não for especial, volta a normal.
+        secaoAtual = detectarSecao(modalidadeAtual) ?? 'normal';
+      }
       continue;
     }
 
     if (pareceLinhaModalidade(cells)) {
       modalidadeAtual = extrairModalidade(cells);
+      if (deteccaoAutomatica) {
+        secaoAtual = detectarSecao(modalidadeAtual) ?? 'normal';
+      }
       continue;
+    }
+
+    // Linha "INATIVOS" / "EX ALUNOS" etc. — muda seção e NÃO vira aluno.
+    if (deteccaoAutomatica) {
+      const firstCell = (cells[0] ?? '').trim();
+      if (firstCell && isRotuloSecaoNaoAluno(firstCell)) {
+        const filled = cells.filter((c) => String(c ?? '').trim().length > 0).length;
+        if (filled <= 2) {
+          secaoAtual = detectarSecao(firstCell) ?? 'inativo';
+          continue;
+        }
+      }
     }
 
     if (headerAtual.length === 0) continue;
 
     const aluno = extrairNomeAlunoNaLinha(headerAtual, cells);
     if (!aluno) continue;
+    if (isRotuloSecaoNaoAluno(aluno)) {
+      if (deteccaoAutomatica) {
+        secaoAtual = detectarSecao(aluno) ?? 'inativo';
+      }
+      continue;
+    }
     if (aluno.trim().toUpperCase() === modalidadeAtual.trim().toUpperCase()) continue;
     if (COLS_BLOCO.includes(aluno.toUpperCase()) || aluno === 'Sub total' || aluno === 'Subtotal' || aluno === 'TOTAL') continue;
 
-    const alunoUpper = aluno
-      .normalize('NFD')
-      .replace(/\p{Diacritic}/gu, '')
-      .toUpperCase();
+    const alunoUpper = norm(aluno);
     const linhaPareceModalidade =
       MODALIDADE_MARKERS.some((m) => alunoUpper.includes(m)) &&
       cells.filter((c) => String(c ?? '').trim().length > 0).length <= 2;
     if (linhaPareceModalidade) continue;
 
+    // Determina ativo
+    let ativo: boolean;
+    if (deteccaoAutomatica) {
+      ativo = secaoAtual !== 'inativo';
+    } else {
+      ativo = linha1Based <= linhaLimiteAtivos;
+    }
+
     const obj = rowToObj(headerAtual, cells) as Record<string, string | number | boolean>;
     obj._aba = nomeAba;
     obj._modalidade = modalidadeAtual;
     obj._linha = linha1Based;
-    obj._ativo = linha1Based <= linhaLimiteAtivos;
+    obj._ativo = ativo;
+    obj._secao = secaoAtual;
     if (!obj['nome']) {
       const nome = obj['ALUNO'] ?? obj['CLIENTE'] ?? obj['NOME'];
       if (nome) obj['nome'] = nome;
@@ -211,7 +356,8 @@ export function parsearAbaEmBlocos(
       row: obj,
       modalidade: modalidadeAtual,
       linha1Based,
-      ativo: linha1Based <= linhaLimiteAtivos,
+      ativo,
+      secao: secaoAtual,
     });
   }
 
@@ -219,9 +365,17 @@ export function parsearAbaEmBlocos(
 }
 
 export function getLimiteAtivosParaAba(nomeAba: string): number | null {
-  const norm = nomeAba.trim().toUpperCase();
+  const n = nomeAba.trim().toUpperCase();
   const found = CONFIG_ABAS_BLOCOS.find(
-    (c) => c.nomeAba.toUpperCase() === norm || norm.includes(c.nomeAba.toUpperCase())
+    (c) => c.nomeAba.toUpperCase() === n || n.includes(c.nomeAba.toUpperCase()),
   );
   return found ? found.linhaLimiteAtivos : null;
+}
+
+export function getDeteccaoAutomaticaParaAba(nomeAba: string): boolean {
+  const n = nomeAba.trim().toUpperCase();
+  const found = CONFIG_ABAS_BLOCOS.find(
+    (c) => c.nomeAba.toUpperCase() === n || n.includes(c.nomeAba.toUpperCase()),
+  );
+  return found?.deteccaoAutomatica ?? false;
 }

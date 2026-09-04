@@ -1,5 +1,9 @@
 /**
  * Migração operacional da planilha FLUXO DE CAIXA BYLA para Supabase.
+ *
+ * ATENÇÃO: apaga e recria pagamentos do ano (UUIDs novos) — quebra vínculos.
+ * Rotina: `npm run sync:fluxo-incremental`. Este comando é só emergência.
+ *
  * Uso:
  *   npm run migrate:fluxo-operacional -- 2026
  */
@@ -87,6 +91,10 @@ async function main() {
     console.error('Uso: npm run migrate:fluxo-operacional -- <ano>');
     process.exit(1);
   }
+
+  console.warn(
+    'ATENÇÃO: migrate:fluxo-operacional apaga e recria pagamentos do ano (IDs novos). Rotina: npm run sync:fluxo-incremental.',
+  );
 
   const supabase = getSupabase();
   if (!supabase) {

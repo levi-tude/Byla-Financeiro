@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { readSheetValues, readSheetValuesBySheetName, listSheetNames } from '../services/sheetsService.js';
-import { parsearAbaEmBlocos, getLimiteAtivosParaAba } from '../logic/parsePlanilhaPorBlocos.js';
+import { parsearAbaEmBlocos, getLimiteAtivosParaAba, getDeteccaoAutomaticaParaAba } from '../logic/parsePlanilhaPorBlocos.js';
 import { config } from '../config.js';
 import { lerPagamentosPorAbaEAno } from '../services/planilhaPagamentos.js';
 import { isEligibleSheet } from '../businessRules.js';
@@ -45,7 +45,7 @@ router.get('/planilha-fluxo-byla/verificar-aba', async (req: Request, res: Respo
 
     const limite = getLimiteAtivosParaAba(nomeAba);
     if (limite != null) {
-      const parseadas = parsearAbaEmBlocos(values, nomeAba, limite);
+      const parseadas = parsearAbaEmBlocos(values, nomeAba, limite, getDeteccaoAutomaticaParaAba(nomeAba));
       const rows = parseadas.map((p) => p.row);
       const ativos = parseadas.filter((p) => p.ativo).length;
       const inativos = parseadas.filter((p) => !p.ativo).length;

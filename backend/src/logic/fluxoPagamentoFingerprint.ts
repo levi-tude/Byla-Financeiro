@@ -31,6 +31,22 @@ export function fluxoPagamentoFingerprint(p: FluxoPagamentoIdentity): string {
   ].join('|');
 }
 
+/** Mesma identidade sem ordem — casa quando só a sequência na linha mudou. */
+export function fluxoPagamentoFingerprintSemOrdem(p: FluxoPagamentoIdentity): string {
+  return fluxoPagamentoFingerprint({ ...p, ordem_lancamento: 0 });
+}
+
+/** Slot estável na planilha: aba + linha + ordem. */
+export function fluxoPagamentoSlotKey(
+  p: Pick<FluxoPagamentoIdentity, 'aba' | 'linha_planilha' | 'ordem_lancamento'>,
+): string {
+  return [
+    String(p.aba ?? '').trim(),
+    String(Number(p.linha_planilha) || 0),
+    String(Number(p.ordem_lancamento) || 0),
+  ].join('|');
+}
+
 export function planilhaIdFromFluxoUuid(id: string): string {
   const t = String(id ?? '').trim();
   if (t.startsWith('fluxo::')) return t;

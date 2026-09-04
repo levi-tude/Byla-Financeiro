@@ -2425,6 +2425,28 @@ export type CadastroAlunosResumoResponse = {
   secoes: CadastroAlunoSecao[];
 };
 
+export type ProgramaBolsaItem = {
+  alunoNome: string;
+  modalidadeOriginal: string | null;
+  plano: string | null;
+  valorReferencia: number | null;
+  venc: string | null;
+  responsaveis: string | null;
+  wpp: string | null;
+  observacoes: string | null;
+};
+
+export type ProgramaBolsasResponse = {
+  aba: string;
+  origem: 'programa_bolsas';
+  atualizadoEm: string;
+  itens: ProgramaBolsaItem[];
+};
+
+export async function getProgramaBolsas(): Promise<ProgramaBolsasResponse> {
+  return request<ProgramaBolsasResponse>('/api/programa-bolsas');
+}
+
 export async function getCadastroAlunosResumo(params?: {
   aba?: string;
   modalidade?: string;

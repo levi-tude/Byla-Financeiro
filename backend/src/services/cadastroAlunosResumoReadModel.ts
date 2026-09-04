@@ -172,6 +172,7 @@ export function atribuirOrfaosAoCadastro(args: {
   const pagamentos = args.pagamentos.map((p) => ({
     id: String(p.id),
     alunoKey: alunoMatchKey(String(p.aba), Number(p.linha_planilha), String(p.aluno_nome)),
+    alunoNorm: alunoNormKey(String(p.aluno_nome)),
     data_pagamento: p.data_pagamento,
     valor: Number(p.valor ?? 0),
   }));

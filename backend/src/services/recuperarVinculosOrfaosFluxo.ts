@@ -6,14 +6,19 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   analisarCasamentoOrfaosPorDataValor,
+  buildStickyPagadorIndex,
   type OrfaoParaHeuristica,
 } from '../logic/vinculosOrfaosHeuristica.js';
+import { alunoNormKey } from '../logic/alunoPagadorMatch.js';
 import {
   fluxoUuidFromAnyPlanilhaId,
   planilhaIdFromFluxoUuid,
   planRemapVinculosFluxo,
 } from '../logic/fluxoPagamentoFingerprint.js';
-import { sincronizarMapeamentoAlunoPagadorFromVinculosAno } from './mapeamentoAlunoPagador.js';
+import {
+  listMapeamentoAlunoPagadorAtivos,
+  sincronizarMapeamentoAlunoPagadorFromVinculosAno,
+} from './mapeamentoAlunoPagador.js';
 import {
   aplicarRemapVinculosFluxo,
   loadFluxoPagamentosAno,
@@ -52,6 +57,8 @@ export type RecuperarOrfaosReport = {
   ano: number;
   dryRun: boolean;
   orfaosEncontrados: number;
+  /** Órfão redundante: mesmo banco_id já tem vínculo vivo. */
+  duplicadosRemovidos: number;
   remapeados: number;
   ambiguosIgnorados: number;
   semCandidato: number;
@@ -170,9 +177,11 @@ export function planRecuperarOrfaosHeuristica(args: {
   pagamentosLivres: Array<{
     id: string;
     alunoKey: string;
+    alunoNorm: string;
     data_pagamento: string | null;
     valor: number;
   }>;
+  stickyPagadorIndex?: Map<string, Set<string>>;
 }): {
   updates: Array<{ oldPlanilhaId: string; newPlanilhaId: string; alunoKey: string }>;
   ambiguosIgnorados: number;
@@ -181,6 +190,7 @@ export function planRecuperarOrfaosHeuristica(args: {
   const analise = analisarCasamentoOrfaosPorDataValor({
     orfaos: args.orfaos,
     pagamentos: args.pagamentosLivres,
+    stickyPagadorIndex: args.stickyPagadorIndex,
   });
   return {
     updates: analise.matches.map((m) => ({
@@ -194,7 +204,48 @@ export function planRecuperarOrfaosHeuristica(args: {
 }
 
 /**
- * Job principal: órfãos do ano → remap 1:1 inequívoco → sticky backfill.
+ * Remove órfãos redundantes quando o mesmo banco_id já tem planilha_id vivo.
+ */
+async function removerOrfaosDuplicadosPorBanco(
+  supabase: SupabaseClient,
+  args: {
+    orfaosRows: Array<{ planilha_id: string; banco_id: string; data_ref: string }>;
+    vinculos: Array<{ planilha_id: string; banco_id: string }>;
+    vivos: Set<string>;
+    dryRun: boolean;
+  },
+): Promise<{ removidos: number; erros: string[]; restantes: typeof args.orfaosRows }> {
+  const liveByBanco = new Set<string>();
+  for (const v of args.vinculos) {
+    const uuid = fluxoUuidFromAnyPlanilhaId(v.planilha_id);
+    if (uuid && args.vivos.has(uuid) && v.banco_id) {
+      liveByBanco.add(v.banco_id);
+    }
+  }
+
+  const duplicados = args.orfaosRows.filter((o) => o.banco_id && liveByBanco.has(o.banco_id));
+  const restantes = args.orfaosRows.filter((o) => !o.banco_id || !liveByBanco.has(o.banco_id));
+  const erros: string[] = [];
+  let removidos = 0;
+
+  for (const o of duplicados) {
+    if (args.dryRun) {
+      removidos += 1;
+      continue;
+    }
+    const { error } = await supabase
+      .from('validacao_pagamentos_vinculos')
+      .delete()
+      .eq('planilha_id', o.planilha_id);
+    if (error) erros.push(`${o.planilha_id}: ${error.message}`);
+    else removidos += 1;
+  }
+
+  return { removidos, erros, restantes };
+}
+
+/**
+ * Job principal: órfãos do ano → dedup banco → remap 1:1 inequívoco → sticky backfill.
  */
 export async function recuperarVinculosOrfaosFluxoAno(
   supabase: SupabaseClient,
@@ -206,6 +257,7 @@ export async function recuperarVinculosOrfaosFluxoAno(
     ano,
     dryRun,
     orfaosEncontrados: 0,
+    duplicadosRemovidos: 0,
     remapeados: 0,
     ambiguosIgnorados: 0,
     semCandidato: 0,
@@ -219,11 +271,22 @@ export async function recuperarVinculosOrfaosFluxoAno(
   const vivos = new Set(pagamentos.map((p) => p.id));
   const vinculos = await loadVinculosFluxoAno(supabase, ano);
 
-  const orfaosRows = vinculos.filter((v) => {
+  const orfaosRowsInitial = vinculos.filter((v) => {
     const uuid = fluxoUuidFromAnyPlanilhaId(v.planilha_id);
     return Boolean(uuid) && !vivos.has(uuid!);
   });
-  report.orfaosEncontrados = orfaosRows.length;
+  report.orfaosEncontrados = orfaosRowsInitial.length;
+
+  const dedup = await removerOrfaosDuplicadosPorBanco(supabase, {
+    orfaosRows: orfaosRowsInitial,
+    vinculos,
+    vivos,
+    dryRun,
+  });
+  report.duplicadosRemovidos = dedup.removidos;
+  report.erros.push(...dedup.erros);
+
+  const orfaosRows = dedup.restantes;
   if (orfaosRows.length === 0) {
     if (!args.skipSticky && !dryRun) {
       const sticky = await sincronizarMapeamentoAlunoPagadorFromVinculosAno(supabase, ano);
@@ -259,11 +322,15 @@ export async function recuperarVinculosOrfaosFluxoAno(
     .map((p) => ({
       id: p.id,
       alunoKey: alunoMatchKey(p.aba, p.linha_planilha, p.aluno_nome),
+      alunoNorm: alunoNormKey(p.aluno_nome),
       data_pagamento: p.data_pagamento,
       valor: p.valor,
     }));
 
-  const plan = planRecuperarOrfaosHeuristica({ orfaos, pagamentosLivres });
+  const stickyRegras = await listMapeamentoAlunoPagadorAtivos(supabase);
+  const stickyPagadorIndex = buildStickyPagadorIndex(stickyRegras);
+
+  const plan = planRecuperarOrfaosHeuristica({ orfaos, pagamentosLivres, stickyPagadorIndex });
   report.ambiguosIgnorados = plan.ambiguosIgnorados;
   report.semCandidato = plan.semCandidato;
   report.amostraRemap = plan.updates.slice(0, 20).map((u) => ({
