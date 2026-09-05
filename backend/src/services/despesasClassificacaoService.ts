@@ -26,6 +26,7 @@ import {
   loadCompetenciasMap,
   transacaoContaNaCompetencia,
 } from './transacaoCompetenciaService.js';
+import { criarConfiancaClassificacao } from '../logic/classificacaoConfianca.js';
 
 type ExportRow = SaidaTransacaoRow;
 
@@ -172,10 +173,16 @@ export async function buildDespesasContext(
 export function sugestaoHeuristicaParaGrupo(
   itens: TransacaoClassificada[],
   catalog: CategoriaSaidaLinha[],
+  repeticoes = 0,
 ): {
   label: string;
+  template_key: string;
   confianca: string;
   regra: string;
+  score: number;
+  ambiguo: boolean;
+  pode_confirmar: boolean;
+  motivos: string[];
 } | null {
   if (itens.length === 0) return null;
   const t = itens[0];
@@ -188,9 +195,32 @@ export function sugestaoHeuristicaParaGrupo(
   );
   const label = (sug.linha_planilha_ref ?? '').trim();
   if (!label || sug.regra === 'nenhuma') return null;
-  const noCatalogo = catalog.some((c) => c.label.trim().toLowerCase() === label.toLowerCase());
+  const noCatalogo = catalog.find((c) => c.label.trim().toLowerCase() === label.toLowerCase());
   if (!noCatalogo) return null;
-  return { label, confianca: sug.confianca, regra: sug.regra };
+
+  const scoreBase =
+    sug.score ??
+    (sug.confianca === 'alta' ? 86 : sug.confianca === 'media' ? 62 : 40);
+  const explicacao = criarConfiancaClassificacao({
+    scoreBase,
+    repeticoes,
+    ambiguo: sug.ambiguo,
+    motivos: [
+      ...(sug.motivos ?? []),
+      sug.regra === 'nome_na_planilha' ? 'Nome encontrado no Controle de caixa' : '',
+      sug.regra === 'funcionario' ? 'Profissional reconhecido' : '',
+      repeticoes > 0 ? 'Destinatário recorrente' : '',
+    ],
+  });
+  return {
+    label,
+    template_key: preferStableSaidaTemplateKey(noCatalogo),
+    regra: sug.regra,
+    ...explicacao,
+    // Replay de agosto/2026 mostrou falsos positivos em todas as regras atuais.
+    // Até a heurística provar precisão em vários meses, Despesas fica somente como sugestão.
+    pode_confirmar: false,
+  };
 }
 
 export function buildResumoFromContext(ctx: DespesasClassificacaoContext, visao: VisaoControle = 'caixa') {

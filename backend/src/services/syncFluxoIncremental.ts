@@ -19,6 +19,11 @@ import {
   type FluxoAlunoOverlay,
 } from '../logic/fluxoRemigracaoOverlays.js';
 import {
+  gravarOverlaysSticky,
+  lerOverlaysSticky,
+  mesclarOverlays,
+} from './fluxoAlunoOverlaySticky.js';
+import {
   planAlunosIncremental,
   planPagamentosIncremental,
   type PagamentoDesiredIncremental,
@@ -100,6 +105,23 @@ async function loadOverlays(
     pendencia_campos_ignorados: r.pendencia_campos_ignorados ?? [],
     cobranca_tentativas: r.cobranca_tentativas ?? [],
   }));
+}
+
+async function loadOverlaysPreservados(
+  supabase: SupabaseClient,
+): Promise<{ overlays: FluxoAlunoOverlay[]; aviso?: string }> {
+  const atuais = await loadOverlays(supabase);
+  try {
+    const sticky = await lerOverlaysSticky(supabase);
+    return { overlays: mesclarOverlays(atuais, sticky) };
+  } catch (e) {
+    return {
+      overlays: atuais,
+      aviso: `overlay permanente indisponível; preservação feita pelo cadastro atual: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    };
+  }
 }
 
 async function loadAlunosExisting(
@@ -204,7 +226,7 @@ async function aplicarAlunos(
     const out = Object.fromEntries(Object.entries(r).filter(([k]) => !k.startsWith('_') && !CAMPOS_INTERNOS.has(k)));
     // Garantir campos NOT NULL com default (Supabase não aplica column default quando o valor chega explicitamente como null)
     if (out['pendencia_campos_ignorados'] == null) out['pendencia_campos_ignorados'] = [];
-    if (out['cobranca_tentativas'] == null) out['cobranca_tentativas'] = 0;
+    if (out['cobranca_tentativas'] == null) out['cobranca_tentativas'] = [];
     return out;
   };
 
@@ -344,7 +366,9 @@ export async function syncFluxoIncremental(
     return report;
   }
 
-  const overlays = await loadOverlays(supabase);
+  const overlaysResult = await loadOverlaysPreservados(supabase);
+  const overlays = overlaysResult.overlays;
+  if (overlaysResult.aviso) report.avisos.push(overlaysResult.aviso);
   const overlayResult = aplicarOverlaysNaMigracao(alunosDesired, overlays);
   // Capacitação / seções ativas: a planilha manda no ativo.
   // Corrige sticky falso de quando o limite de linha marcava o bloco como inativo.
@@ -381,6 +405,15 @@ export async function syncFluxoIncremental(
     dryRun,
   );
   report.erros.push(...alunosErros);
+  if (!dryRun && alunosErros.length === 0) {
+    const stickyResult = await gravarOverlaysSticky(
+      supabase,
+      overlayResult.rows as FluxoAlunoOverlay[],
+    ).catch((e) => ({ gravados: 0, erro: e instanceof Error ? e.message : String(e) }));
+    if (stickyResult.erro) {
+      report.avisos.push(`não foi possível atualizar o overlay permanente: ${stickyResult.erro}`);
+    }
+  }
 
   if (alunosOnly) {
     report.ok = report.erros.length === 0;

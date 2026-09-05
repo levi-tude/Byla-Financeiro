@@ -198,6 +198,24 @@ export function DespesasPage() {
     },
   });
 
+  const confirmarSugestaoMut = useMutation({
+    mutationFn: (grupo: DespesaGrupo) => {
+      const sugestao = grupo.sugestao_heuristica;
+      if (!sugestao?.pode_confirmar || !sugestao.template_key) {
+        throw new Error('Esta sugestão precisa de revisão manual.');
+      }
+      return putDespesasMapeamento(mes, ano, {
+        pessoa_normalizada: grupo.pessoa_normalizada,
+        template_key: sugestao.template_key,
+      });
+    },
+    onSuccess: () => {
+      showToast('Sugestão confirmada. A regra passa a valer para os próximos meses.', 'success');
+      invalidate();
+    },
+    onError: () => showToast('Não foi possível confirmar a sugestão.', 'error'),
+  });
+
   const competenciaCategoriaMut = useMutation({
     mutationFn: (args: {
       id: string;
@@ -446,8 +464,20 @@ export function DespesasPage() {
               scoreRepeticao={g.score_repeticao}
               regraDesativada={g.regra_desativada}
               sugestaoHint={
-                g.sugestao_heuristica ? `Sugestão: ${g.sugestao_heuristica.label}` : null
+                g.sugestao_heuristica
+                  ? `Sugestão ${g.sugestao_heuristica.confianca} (${g.sugestao_heuristica.score}%): ${g.sugestao_heuristica.label}${
+                      g.sugestao_heuristica.motivos.length
+                        ? ` · ${g.sugestao_heuristica.motivos.join(' · ')}`
+                        : ''
+                    }`
+                  : null
               }
+              onConfirmarSugestao={
+                g.sugestao_heuristica?.pode_confirmar
+                  ? () => confirmarSugestaoMut.mutate(g)
+                  : undefined
+              }
+              confirmarPending={confirmarSugestaoMut.isPending}
               onClassificar={() => setModalGrupo(g)}
               onDesativar={
                 g.estado === 'classificado' && g.mapeamento_id

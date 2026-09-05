@@ -159,7 +159,10 @@ export function createDespesasClassificacaoRouter(): Router {
         const itens = byNorm.get(g.pessoa_normalizada) ?? [];
         const base = { ...g };
         if (parsed.data.filtro === 'pendente') {
-          return { ...base, sugestao_heuristica: sugestaoHeuristicaParaGrupo(itens, ctx.catalog) };
+          return {
+            ...base,
+            sugestao_heuristica: sugestaoHeuristicaParaGrupo(itens, ctx.catalog, g.score_repeticao),
+          };
         }
         return base;
       });

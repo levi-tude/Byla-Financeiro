@@ -46,6 +46,10 @@ import {
   loadCompetenciasMap,
   transacaoContaNaCompetencia,
 } from './transacaoCompetenciaService.js';
+import {
+  criarConfiancaClassificacao,
+  type ConfiancaClassificacao,
+} from '../logic/classificacaoConfianca.js';
 
 async function loadMapeamentosEntrada(supabase: SupabaseClient): Promise<MapeamentoRow[]> {
   return loadMapeamentosEntradaRows(supabase);
@@ -404,9 +408,21 @@ export function sugestaoEntradaParaGrupo(
   label: string | null;
   origem: string;
   confianca: string;
-} | null {
+} & ConfiancaClassificacao | null {
   const t = itens[0];
   if (!t) return null;
+
+  const confianca = (
+    scoreBase: number,
+    motivos: string[],
+    ambiguo = false,
+  ): ConfiancaClassificacao =>
+    criarConfiancaClassificacao({
+      scoreBase,
+      repeticoes: grupo.score_repeticao,
+      ambiguo,
+      motivos,
+    });
 
   if (grupo.sugestao_fluxo) {
     return {
@@ -416,7 +432,7 @@ export function sugestaoEntradaParaGrupo(
       template_key: grupo.sugestao_fluxo.template_key,
       label: grupo.sugestao_fluxo.label,
       origem: 'validacao_fluxo',
-      confianca: 'alta',
+      ...confianca(92, ['Pagamento vinculado na Validação', 'Modalidade identificada no Fluxo']),
     };
   }
 
@@ -428,7 +444,10 @@ export function sugestaoEntradaParaGrupo(
       template_key: grupo.match_aluguel.template_key,
       label: grupo.match_aluguel.label,
       origem: 'aluguel_nome_valor',
-      confianca: grupo.match_aluguel.confianca,
+      ...confianca(
+        grupo.match_aluguel.confianca === 'alta' ? 86 : grupo.match_aluguel.confianca === 'media' ? 64 : 42,
+        ['Nome do pagador compatível', grupo.match_aluguel.motivo],
+      ),
     };
   }
 
@@ -444,7 +463,7 @@ export function sugestaoEntradaParaGrupo(
           template_key: cat.templateKey,
           label: cat.label,
           origem: 'fluxo_operacional',
-          confianca: 'media',
+          ...confianca(68, ['Pagador encontrado no cadastro', 'Modalidade compatível com a categoria']),
         };
       }
     }
@@ -461,7 +480,7 @@ export function sugestaoEntradaParaGrupo(
         template_key: cat.templateKey,
         label: cat.label,
         origem: 'cadastro_mensalidade',
-        confianca: 'alta',
+        ...confianca(84, ['Cadastro de mensalidade reconhecido', 'Modalidade compatível com a categoria']),
       };
     }
   }
@@ -476,7 +495,7 @@ export function sugestaoEntradaParaGrupo(
         template_key: hint.templateKeyPreferido,
         label: hint.labelEsperado,
         origem: 'heuristica_aba',
-        confianca: 'baixa',
+        ...confianca(40, ['Atividade sugere a categoria', 'Sem vínculo suficiente para confirmação']),
       };
     }
   }
