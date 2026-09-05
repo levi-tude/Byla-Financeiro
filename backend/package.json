@@ -28,6 +28,7 @@
     "validate:fluxo-migracao": "tsx scripts/validateFluxoMigracao.ts",
     "recuperar:vinculos-orfaos": "tsx scripts/recuperarVinculosOrfaosFluxo.ts",
     "audit:classificacao-replay": "tsx scripts/auditClassificacaoReplay.ts",
+    "audit:matches-replay": "tsx scripts/auditMatchesProvaveisReplay.ts",
     "keepalive:ping": "tsx scripts/keepalivePing.ts"
   },
   "dependencies": {
