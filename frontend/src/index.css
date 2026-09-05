@@ -91,6 +91,7 @@ html.byla-sensitive-blur-active .byla-outlet input:not([type='checkbox']):not([t
 html.byla-sensitive-blur-active .byla-outlet textarea,
 html.byla-sensitive-blur-active .byla-outlet select,
 html.byla-sensitive-blur-active .byla-outlet .recharts-wrapper text,
+html.byla-sensitive-blur-active .byla-outlet .byla-sensitive-content,
 html.byla-sensitive-blur-active .byla-outlet [class*='text-2xl'][class*='font-semibold'],
 html.byla-sensitive-blur-active .byla-outlet [class*='text-xl'][class*='font-semibold'],
 html.byla-sensitive-blur-active .byla-outlet [class*='text-lg'][class*='font-bold'] {

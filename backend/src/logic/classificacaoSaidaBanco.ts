@@ -29,6 +29,9 @@ export type ClassificacaoSaidaCompleta = SugestaoCategoriaPlanilha & {
   secao_planilha: string | null;
   detalhe: string | null;
   regra: RegraClassificacaoSaida;
+  score?: number;
+  motivos?: string[];
+  ambiguo?: boolean;
 };
 
 function haystack(pessoa: string, descricao: string | null): string {
@@ -184,6 +187,9 @@ export function classificarSaidaCompleta(
       secao_planilha: matchC.linha.titulo,
       detalhe: detalheParts.join(' · '),
       regra: 'match_controle',
+      score: Math.round(matchC.score * 1000) / 10,
+      motivos: matchC.motivos.filter((m) => m !== 'ambiguo'),
+      ambiguo: amb,
     };
   }
 

@@ -79,7 +79,7 @@ function sugestaoConfirmavel(g: EntradaGrupo): { template_key: string; label: st
   const s = g.sugestao;
   if (
     s?.template_key &&
-    (s.confianca === 'alta' || s.confianca === 'media') &&
+    s.pode_confirmar &&
     (s.origem === 'validacao_fluxo' ||
       s.origem === 'fluxo_operacional' ||
       s.origem === 'cadastro_mensalidade' ||
@@ -758,7 +758,11 @@ export function EntradasPage() {
                   : g.match_aluguel
                     ? `${g.match_aluguel.label} · ${g.match_aluguel.motivo}`
                     : g.sugestao
-                      ? `Sugestão: ${g.sugestao.label}${g.sugestao.aluno_nome ? ` · ${g.sugestao.aluno_nome}` : ''} (${g.sugestao.origem})`
+                      ? `Sugestão ${g.sugestao.confianca}${g.sugestao.score != null ? ` (${g.sugestao.score}%)` : ''}: ${g.sugestao.label}${
+                          g.sugestao.aluno_nome ? ` · ${g.sugestao.aluno_nome}` : ''
+                        }${
+                          (g.sugestao.motivos ?? []).length ? ` · ${g.sugestao.motivos.join(' · ')}` : ''
+                        }`
                       : null
               }
               onConfirmarSugestao={sugConf ? () => confirmarSugestaoMut.mutate(g) : undefined}

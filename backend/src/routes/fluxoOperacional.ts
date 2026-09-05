@@ -16,6 +16,7 @@ import {
 import { resolverRegimeCobranca } from '../logic/regimeCobrancaAluno.js';
 import { findPagamentoDuplicado } from '../logic/fluxoPagamentoDedupe.js';
 import { competenciaNoCicloAtual } from '../logic/planoCicloPrevisto.js';
+import { gravarOverlayStickyDoAluno } from '../services/fluxoAlunoOverlaySticky.js';
 import {
   CACHE_TTL_SEC,
   cacheGetOrSet,
@@ -150,6 +151,21 @@ function toNullable(v?: string | null): string | null {
   if (v == null) return null;
   const t = String(v).trim();
   return t ? t : null;
+}
+
+async function preservarOverlayAluno(
+  supabase: NonNullable<ReturnType<typeof getSupabase>>,
+  id: string,
+): Promise<void> {
+  const { data, error } = await supabase
+    .from('fluxo_alunos_operacionais')
+    .select(
+      'aba, aluno_nome, linha_planilha, ativo, regime_cobranca, pendencia_campos_ignorados, cobranca_tentativas',
+    )
+    .eq('id', id)
+    .maybeSingle();
+  if (error || !data) return;
+  await gravarOverlayStickyDoAluno(supabase, data).catch(() => undefined);
 }
 
 async function getNextLinhaPlanilha(supabase: NonNullable<ReturnType<typeof getSupabase>>, aba: string): Promise<number> {
@@ -580,6 +596,7 @@ export default function createFluxoOperacionalRouter(): Router {
       beforeData: null,
       afterData: data,
     });
+    await preservarOverlayAluno(supabase, String(data.id ?? ''));
     await invalidateCachesOperacionais();
     return res.json({ item: data });
   });
@@ -653,6 +670,7 @@ export default function createFluxoOperacionalRouter(): Router {
       beforeData: beforeData ?? null,
       afterData: data,
     });
+    await preservarOverlayAluno(supabase, String(data.id ?? id));
     await invalidateCachesOperacionais();
     return res.json({ item: data });
   });
@@ -693,6 +711,7 @@ export default function createFluxoOperacionalRouter(): Router {
       beforeData: { ativo: beforeRow.ativo },
       afterData: { ativo: data.ativo },
     });
+    await preservarOverlayAluno(supabase, id);
     await invalidateCachesOperacionais();
     return res.json({ item: data });
   });
@@ -731,6 +750,7 @@ export default function createFluxoOperacionalRouter(): Router {
       beforeData: { pendencia_campos_ignorados: beforeRow.pendencia_campos_ignorados },
       afterData: data,
     });
+    await preservarOverlayAluno(supabase, id);
     await invalidateCachesOperacionais();
     return res.json({
       pendenciaCamposIgnorados: parsePendenciaCamposIgnorados(data?.pendencia_campos_ignorados),
@@ -774,6 +794,7 @@ export default function createFluxoOperacionalRouter(): Router {
       beforeData: { cobranca_tentativas: prev },
       afterData: { cobranca_tentativas: next },
     });
+    await preservarOverlayAluno(supabase, id);
     await invalidateCachesOperacionais();
     return res.json({ cobrancaTentativas: parseCobrancaTentativasIn(data?.cobranca_tentativas) });
   });

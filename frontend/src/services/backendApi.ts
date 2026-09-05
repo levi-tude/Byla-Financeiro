@@ -910,7 +910,16 @@ export type DespesaGrupo = {
   origem_categoria: string;
   mapeamento_id: string | null;
   regra_desativada: boolean;
-  sugestao_heuristica?: { label: string; confianca: string; regra: string } | null;
+  sugestao_heuristica?: {
+    label: string;
+    template_key: string;
+    confianca: 'alta' | 'media' | 'baixa';
+    regra: string;
+    score: number;
+    ambiguo: boolean;
+    pode_confirmar: boolean;
+    motivos: string[];
+  } | null;
 };
 
 export type DespesasGruposResponse = {
@@ -1143,6 +1152,10 @@ export type EntradaGrupo = {
     label: string | null;
     origem: string;
     confianca: string;
+    score: number;
+    ambiguo: boolean;
+    pode_confirmar: boolean;
+    motivos: string[];
   } | null;
 };
 

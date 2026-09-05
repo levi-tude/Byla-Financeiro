@@ -5,7 +5,7 @@
  * Rotina: `npm run sync:fluxo-incremental`. Este comando é só emergência.
  *
  * Uso:
- *   npm run migrate:fluxo-operacional -- 2026
+ *   npm run migrate:fluxo-operacional -- 2026 --confirm-destructive
  */
 import dotenv from 'dotenv';
 import path from 'path';
@@ -24,6 +24,11 @@ import {
   aplicarOverlaysNaMigracao,
   type FluxoAlunoOverlay,
 } from '../src/logic/fluxoRemigracaoOverlays.js';
+import {
+  gravarOverlaysSticky,
+  lerOverlaysSticky,
+  mesclarOverlays,
+} from '../src/services/fluxoAlunoOverlaySticky.js';
 
 type AnyRow = Record<string, unknown>;
 
@@ -88,7 +93,17 @@ function canonicalSheetName(name: string): string {
 async function main() {
   const ano = Number(process.argv[2] ?? new Date().getFullYear());
   if (!Number.isFinite(ano) || ano < 2000) {
-    console.error('Uso: npm run migrate:fluxo-operacional -- <ano>');
+    console.error('Uso: npm run migrate:fluxo-operacional -- <ano> --confirm-destructive');
+    process.exit(1);
+  }
+  if (!process.argv.includes('--confirm-destructive')) {
+    console.error(
+      [
+        'BLOQUEADO: esta remigração apaga e recria pagamentos, alterando UUIDs e podendo quebrar vínculos.',
+        `Use a rotina segura: npm run sync:fluxo-incremental -- ${ano}`,
+        'Somente em recuperação de desastre, execute novamente com --confirm-destructive.',
+      ].join('\n'),
+    );
     process.exit(1);
   }
 
@@ -180,7 +195,7 @@ async function main() {
   if (overlaysErr) {
     console.warn(`Aviso ao ler overlays existentes: ${overlaysErr.message}`);
   }
-  const overlays: FluxoAlunoOverlay[] = ((overlaysExistentes ?? []) as Record<string, unknown>[]).map(
+  const overlaysAtuais: FluxoAlunoOverlay[] = ((overlaysExistentes ?? []) as Record<string, unknown>[]).map(
     (r) => ({
       aba: String(r.aba ?? ''),
       aluno_nome: String(r.aluno_nome ?? ''),
@@ -191,6 +206,21 @@ async function main() {
       cobranca_tentativas: r.cobranca_tentativas ?? [],
     }),
   );
+  let overlays = overlaysAtuais;
+  try {
+    const sticky = await lerOverlaysSticky(supabase);
+    overlays = mesclarOverlays(overlaysAtuais, sticky);
+    const stickySnapshot = await gravarOverlaysSticky(supabase, overlays);
+    if (stickySnapshot.erro) {
+      console.warn(`Aviso ao preservar overlays permanentes: ${stickySnapshot.erro}`);
+    }
+  } catch (e) {
+    console.warn(
+      `Aviso: overlay permanente indisponível; usando snapshot atual: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    );
+  }
   const overlayResult = aplicarOverlaysNaMigracao(alunosPayload, overlays);
   const alunosComOverlay = overlayResult.rows;
 
