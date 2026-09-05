@@ -23,6 +23,11 @@ import {
   ranquearMatchesProvaveis,
   type MatchesProvaveisSugestao,
 } from '../logic/matchesProvaveisRanking.js';
+import {
+  analiseIdParaSeguros,
+  grupoUiParaMatch,
+  type GrupoUiMatch,
+} from '../logic/matchesProvaveisLote.js';
 import { shiftISODate } from '../logic/conciliacaoTexto.js';
 import { listMapeamentoAlunoPagadorAtivos } from './mapeamentoAlunoPagador.js';
 import { carregarGruposFamiliaNoMatch } from './gruposFamiliaPagamento.js';
@@ -48,6 +53,7 @@ function parseResponsaveis(raw: unknown): string[] {
 
 export type MatchesProvaveisApiItem = {
   bucket: 'alto' | 'medio';
+  grupo_ui: GrupoUiMatch;
   confianca: string;
   score: number;
   ambiguo: boolean;
@@ -56,6 +62,7 @@ export type MatchesProvaveisApiItem = {
   planilha_ids: string[];
   banco_id: string;
   aluno: string;
+  ativo: boolean;
   aba: string;
   modalidade: string;
   forma: string;
@@ -66,18 +73,45 @@ export type MatchesProvaveisApiItem = {
   pessoa_banco: string;
   motivos: string[];
   gap_2o: number | null;
+  candidatos_alternativos: Array<{
+    banco_id: string;
+    pessoa_banco: string;
+    data_banco: string;
+    valor_banco: number;
+    score: number;
+    motivos: string[];
+  }>;
+};
+
+export type MatchesProvaveisSemCandidatoItem = {
+  planilha_id: string;
+  aluno: string;
+  ativo: boolean;
+  aba: string;
+  modalidade: string;
+  forma: string;
+  data_fluxo: string;
+  valor_fluxo: number;
+  motivo: string;
 };
 
 export type MatchesProvaveisMesResult = {
   mes: number;
   ano: number;
+  analise_id: string;
   parametros: {
     pesos: typeof MATCHES_PROVAVEIS_PESOS;
     buckets: typeof MATCHES_PROVAVEIS_BUCKETS;
     flex_dias: number;
   };
   resumo: {
+    total_pagamentos: number;
+    ja_reconhecidos: number;
     sem_vinculo: number;
+    seguro: number;
+    precisa_confirmar: number;
+    ambiguo: number;
+    nao_encontrado: number;
     alto: number;
     medio: number;
     baixo: number;
@@ -90,12 +124,17 @@ export type MatchesProvaveisMesResult = {
     data_fluxo: string;
     itens: MatchesProvaveisApiItem[];
   }>;
+  sem_candidato_itens: MatchesProvaveisSemCandidatoItem[];
 };
 
-function toApiItem(s: MatchesProvaveisSugestao): MatchesProvaveisApiItem | null {
+function toApiItem(
+  s: MatchesProvaveisSugestao,
+  ativoPorPlanilha: Map<string, boolean>,
+): MatchesProvaveisApiItem | null {
   if (s.bucket !== 'alto' && s.bucket !== 'medio') return null;
   return {
     bucket: s.bucket,
+    grupo_ui: grupoUiParaMatch(s),
     confianca: confiancaLabel(s.bucket),
     score: s.score,
     ambiguo: s.ambiguo,
@@ -104,6 +143,7 @@ function toApiItem(s: MatchesProvaveisSugestao): MatchesProvaveisApiItem | null 
     planilha_ids: s.planilha_ids,
     banco_id: s.banco_id,
     aluno: s.aluno,
+    ativo: s.planilha_ids.every((id) => ativoPorPlanilha.get(normalizePlanilhaId(id)) !== false),
     aba: s.aba,
     modalidade: s.modalidade,
     forma: s.forma,
@@ -114,13 +154,25 @@ function toApiItem(s: MatchesProvaveisSugestao): MatchesProvaveisApiItem | null 
     pessoa_banco: s.pessoa_banco,
     motivos: rotulosRazoesAdmin(s.breakdown.razoes),
     gap_2o: s.gap_2o,
+    candidatos_alternativos: s.candidatos_alternativos.map((c) => ({
+      banco_id: c.banco_id,
+      pessoa_banco: c.pessoa_banco,
+      data_banco: c.data_banco,
+      valor_banco: c.valor_banco,
+      score: c.score,
+      motivos: rotulosRazoesAdmin(c.razoes),
+    })),
   };
 }
 
 /**
  * GET payload: sugestões alto/médio da competência, agrupadas por dia do Fluxo.
  */
-export async function getMatchesProvaveisMes(mes: number, ano: number): Promise<MatchesProvaveisMesResult> {
+export async function getMatchesProvaveisMes(
+  mes: number,
+  ano: number,
+  options?: { replayPlanilhaIds?: Set<string> },
+): Promise<MatchesProvaveisMesResult> {
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase não configurado.');
 
@@ -141,17 +193,20 @@ export async function getMatchesProvaveisMes(mes: number, ano: number): Promise<
 
   const { data: alunosRows, error: alunosErr } = await supabase
     .from('fluxo_alunos_operacionais')
-    .select('aba, linha_planilha, aluno_nome, plano, regime_cobranca')
-    .eq('ativo', true)
+    .select('aba, linha_planilha, aluno_nome, plano, regime_cobranca, ativo')
     .limit(10000);
   if (alunosErr) throw new Error(alunosErr.message);
 
-  const regimePorAluno = new Map<string, { regime_cobranca: string | null; plano: string | null }>();
+  const regimePorAluno = new Map<
+    string,
+    { regime_cobranca: string | null; plano: string | null; ativo: boolean }
+  >();
   for (const a of alunosRows ?? []) {
     const key = `${String(a.aba ?? '').trim().toLowerCase()}|${Number(a.linha_planilha)}|${String(a.aluno_nome ?? '').trim().toLowerCase()}`;
     regimePorAluno.set(key, {
       regime_cobranca: a.regime_cobranca != null ? String(a.regime_cobranca) : null,
       plano: a.plano != null ? String(a.plano) : null,
+      ativo: a.ativo !== false,
     });
     // fallback por aba+nome (quando linha muda na remigração)
     const keyNome = `${String(a.aba ?? '').trim().toLowerCase()}|${String(a.aluno_nome ?? '').trim().toLowerCase()}`;
@@ -159,6 +214,7 @@ export async function getMatchesProvaveisMes(mes: number, ano: number): Promise<
       regimePorAluno.set(keyNome, {
         regime_cobranca: a.regime_cobranca != null ? String(a.regime_cobranca) : null,
         plano: a.plano != null ? String(a.plano) : null,
+        ativo: a.ativo !== false,
       });
     }
   }
@@ -180,8 +236,14 @@ export async function getMatchesProvaveisMes(mes: number, ano: number): Promise<
     };
     return enriquecerPlanilhaComPagadoresAprendidos(base, regrasAlunoPagador);
   });
+  const replayIds = options?.replayPlanilhaIds
+    ? new Set([...options.replayPlanilhaIds].map((id) => normalizePlanilhaId(id)))
+    : null;
+  const planilhasEscopo = replayIds
+    ? planilhasAll.filter((p) => replayIds.has(planilhaIdFromFluxoUuid(p.id)))
+    : planilhasAll;
 
-  const vinculos = await listVinculosPorPlanilhaIds(planilhasAll.map((p) => p.id));
+  const vinculos = await listVinculosPorPlanilhaIds(planilhasEscopo.map((p) => p.id));
   const vinculadosPlanilha = new Set(vinculos.map((v) => normalizePlanilhaId(v.planilha_id)));
   const vinculadosBanco = new Set(vinculos.map((v) => v.banco_id));
 
@@ -196,14 +258,26 @@ export async function getMatchesProvaveisMes(mes: number, ano: number): Promise<
   const isVinculadoFluxo = (p: PlanilhaItem) =>
     vinculadosPlanilha.has(planilhaIdFromFluxoUuid(p.id)) || vinculadosPlanilha.has(p.id);
 
-  const pendentes = planilhasAll.filter((p) => {
-    if (isFormaPagamentoDinheiro(p.forma) || isVinculadoFluxo(p)) return false;
+  const pendentes = planilhasEscopo.filter((p) => {
+    if (isFormaPagamentoDinheiro(p.forma) || (!replayIds && isVinculadoFluxo(p))) return false;
     const keyLinha = `${p.aba.trim().toLowerCase()}|${p.linha}|${p.aluno.trim().toLowerCase()}`;
     const keyNome = `${p.aba.trim().toLowerCase()}|${p.aluno.trim().toLowerCase()}`;
     const cad = regimePorAluno.get(keyLinha) ?? regimePorAluno.get(keyNome);
     if (cad && alunoSemCobrancaObrigatoria(cad)) return false;
     return true;
   });
+  const jaReconhecidos = planilhasEscopo.filter(
+    (p) => !isFormaPagamentoDinheiro(p.forma) && isVinculadoFluxo(p),
+  ).length;
+  const ativoPorPlanilha = new Map<string, boolean>();
+  for (const p of planilhasEscopo) {
+    const keyLinha = `${p.aba.trim().toLowerCase()}|${p.linha}|${p.aluno.trim().toLowerCase()}`;
+    const keyNome = `${p.aba.trim().toLowerCase()}|${p.aluno.trim().toLowerCase()}`;
+    ativoPorPlanilha.set(
+      planilhaIdFromFluxoUuid(p.id),
+      (regimePorAluno.get(keyLinha) ?? regimePorAluno.get(keyNome))?.ativo !== false,
+    );
+  }
 
   // Janela ampla: cobre ±flex, D+5 Vendas e legado ~D+30
   const inicioMes = `${ano}-${String(mes).padStart(2, '0')}-01`;
@@ -237,7 +311,7 @@ export async function getMatchesProvaveisMes(mes: number, ano: number): Promise<
     descricao: r.descricao ?? null,
     valor: Number(r.valor || 0),
   }));
-  const bancoLivres = bancoAll.filter((b) => !vinculadosBanco.has(b.id));
+  const bancoLivres = replayIds ? bancoAll : bancoAll.filter((b) => !vinculadosBanco.has(b.id));
 
   const flexDays = businessRules.conciliacao.bancoJanelaDias;
   const ranked = ranquearMatchesProvaveis({
@@ -249,11 +323,11 @@ export async function getMatchesProvaveisMes(mes: number, ano: number): Promise<
 
   const listados: MatchesProvaveisApiItem[] = [];
   for (const s of ranked.sugestoes) {
-    const item = toApiItem(s);
+    const item = toApiItem(s, ativoPorPlanilha);
     if (item) listados.push(item);
   }
   for (const s of ranked.n1) {
-    const item = toApiItem(s);
+    const item = toApiItem(s, ativoPorPlanilha);
     if (item) listados.push(item);
   }
 
@@ -273,17 +347,36 @@ export async function getMatchesProvaveisMes(mes: number, ano: number): Promise<
   const por_dia = [...porDiaMap.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([data_fluxo, itens]) => ({ data_fluxo, itens }));
+  const seguros = listados.filter((item) => item.grupo_ui === 'seguro');
+  const sem_candidato_itens: MatchesProvaveisSemCandidatoItem[] = ranked.semCandidato.map((p) => ({
+    planilha_id: planilhaIdFromFluxoUuid(p.id),
+    aluno: p.aluno,
+    ativo: ativoPorPlanilha.get(planilhaIdFromFluxoUuid(p.id)) !== false,
+    aba: p.aba,
+    modalidade: p.modalidade || p.aba,
+    forma: p.forma,
+    data_fluxo: p.data.slice(0, 10),
+    valor_fluxo: Number(p.valor || 0),
+    motivo: 'Nenhuma entrada bancária compatível com segurança',
+  }));
 
   return {
     mes,
     ano,
+    analise_id: analiseIdParaSeguros(seguros),
     parametros: {
       pesos: MATCHES_PROVAVEIS_PESOS,
       buckets: MATCHES_PROVAVEIS_BUCKETS,
       flex_dias: flexDays,
     },
     resumo: {
+      total_pagamentos: jaReconhecidos + pendentes.length,
+      ja_reconhecidos: jaReconhecidos,
       sem_vinculo: ranked.stats.sem_vinculo,
+      seguro: seguros.length,
+      precisa_confirmar: listados.filter((item) => item.grupo_ui === 'medio').length,
+      ambiguo: listados.filter((item) => item.grupo_ui === 'ambiguo').length,
+      nao_encontrado: sem_candidato_itens.length,
       alto: ranked.stats.alto,
       medio: ranked.stats.medio + ranked.n1.filter((s) => s.bucket === 'medio').length,
       baixo: ranked.stats.baixo,
@@ -292,5 +385,6 @@ export async function getMatchesProvaveisMes(mes: number, ano: number): Promise<
       listados: listados.length,
     },
     por_dia,
+    sem_candidato_itens,
   };
 }

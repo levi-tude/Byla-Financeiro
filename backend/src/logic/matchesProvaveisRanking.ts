@@ -38,6 +38,14 @@ export type MatchesProvaveisSugestao = {
   pessoa_banco: string;
   breakdown: MatchesProvaveisScoreBreakdown;
   gap_2o: number | null;
+  candidatos_alternativos: Array<{
+    banco_id: string;
+    pessoa_banco: string;
+    data_banco: string;
+    valor_banco: number;
+    score: number;
+    razoes: string[];
+  }>;
   /** true só quando alto, único, sem N→1 — seguro para Confirmar na UI. */
   pode_confirmar: boolean;
 };
@@ -45,6 +53,7 @@ export type MatchesProvaveisSugestao = {
 export type MatchesProvaveisRankingResult = {
   sugestoes: MatchesProvaveisSugestao[];
   n1: MatchesProvaveisSugestao[];
+  semCandidato: PlanilhaItem[];
   stats: {
     sem_vinculo: number;
     alto: number;
@@ -77,10 +86,15 @@ function buildSugestao(params: {
   pessoa_banco: string;
   breakdown: MatchesProvaveisScoreBreakdown;
   gap_2o: number | null;
+  candidatos_alternativos?: MatchesProvaveisSugestao['candidatos_alternativos'];
 }): MatchesProvaveisSugestao {
   const pode_confirmar =
     params.bucket === 'alto' && !params.ambiguo && !params.n_para_1 && params.planilha_ids.length === 1;
-  return { ...params, pode_confirmar };
+  return {
+    ...params,
+    candidatos_alternativos: params.candidatos_alternativos ?? [],
+    pode_confirmar,
+  };
 }
 
 /**
@@ -116,7 +130,10 @@ export function ranquearMatchesProvaveis(params: {
     const top = scored[0];
     const second = scored[1];
     const gap = second ? top.bd.total - second.bd.total : 99;
+    // Segurança do lote: "alto" exige exatamente um candidato compatível.
+    // O gap serve para explicar o ranking, nunca para escolher sozinho entre dois bancos.
     const ambiguo =
+      scored.length > 1 ||
       scored.filter((s) => s.bd.total >= top.bd.total - MATCHES_PROVAVEIS_GAP_ALTO).length > 1 ||
       (engine.status === 'possivel' && engine.candidatos.length > 1 && gap < 10);
 
@@ -149,6 +166,14 @@ export function ranquearMatchesProvaveis(params: {
         pessoa_banco: top.banco.pessoa || '',
         breakdown: top.bd,
         gap_2o: second ? Math.round(gap * 10) / 10 : null,
+        candidatos_alternativos: scored.slice(0, 3).map(({ banco, bd }) => ({
+          banco_id: banco.id,
+          pessoa_banco: banco.pessoa || '',
+          data_banco: String(banco.data).slice(0, 10),
+          valor_banco: Number(banco.valor || 0),
+          score: bd.total,
+          razoes: bd.razoes,
+        })),
       }),
     );
   }
@@ -161,6 +186,16 @@ export function ranquearMatchesProvaveis(params: {
     if (!prev || s.score > prev.score) bestByFluxo.set(id, s);
   }
   const sugestoes = [...bestByFluxo.values()].sort((a, b) => b.score - a.score);
+
+  // Um mesmo banco concorrendo com mais de um pagamento nunca é confirmação automática.
+  const qtdPorBanco = new Map<string, number>();
+  for (const s of sugestoes) qtdPorBanco.set(s.banco_id, (qtdPorBanco.get(s.banco_id) ?? 0) + 1);
+  for (const s of sugestoes) {
+    if ((qtdPorBanco.get(s.banco_id) ?? 0) <= 1) continue;
+    s.ambiguo = true;
+    s.pode_confirmar = false;
+    if (s.bucket === 'alto') s.bucket = 'medio';
+  }
 
   // N→1: mesmo dia, mesmo aluno / família / pagador
   const n1: MatchesProvaveisSugestao[] = [];
@@ -238,17 +273,32 @@ export function ranquearMatchesProvaveis(params: {
           pessoa_banco: banco.pessoa || '',
           breakdown: bd,
           gap_2o: null,
+          candidatos_alternativos: agg.candidatos.slice(0, 3).map((candidato) => ({
+            banco_id: candidato.id,
+            pessoa_banco: candidato.pessoa || '',
+            data_banco: String(candidato.data).slice(0, 10),
+            valor_banco: Number(candidato.valor || 0),
+            score: bd.total,
+            razoes: bd.razoes,
+          })),
         }),
       );
     }
   }
 
-  const matchedAfter = new Set(sugestoes.map((s) => s.planilha_ids[0]));
-  semCandidato = pendentes.filter((p) => !matchedAfter.has(toPlanilhaId(p.id))).length;
+  const matchedAfter = new Set([
+    ...sugestoes
+      .filter((s) => s.bucket === 'alto' || s.bucket === 'medio')
+      .flatMap((s) => s.planilha_ids),
+    ...n1.flatMap((s) => s.planilha_ids),
+  ]);
+  const semCandidatoItens = pendentes.filter((p) => !matchedAfter.has(toPlanilhaId(p.id)));
+  semCandidato = semCandidatoItens.length;
 
   return {
     sugestoes,
     n1,
+    semCandidato: semCandidatoItens,
     stats: {
       sem_vinculo: pendentes.length,
       alto: sugestoes.filter((s) => s.bucket === 'alto').length,

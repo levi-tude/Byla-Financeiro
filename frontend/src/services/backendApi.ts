@@ -2318,6 +2318,7 @@ export async function getFinancasAlunos(
 
 export type MatchesProvaveisApiItem = {
   bucket: 'alto' | 'medio';
+  grupo_ui: 'seguro' | 'medio' | 'ambiguo';
   confianca: string;
   score: number;
   ambiguo: boolean;
@@ -2326,6 +2327,7 @@ export type MatchesProvaveisApiItem = {
   planilha_ids: string[];
   banco_id: string;
   aluno: string;
+  ativo: boolean;
   aba: string;
   modalidade: string;
   forma: string;
@@ -2336,13 +2338,28 @@ export type MatchesProvaveisApiItem = {
   pessoa_banco: string;
   motivos: string[];
   gap_2o: number | null;
+  candidatos_alternativos: Array<{
+    banco_id: string;
+    pessoa_banco: string;
+    data_banco: string;
+    valor_banco: number;
+    score: number;
+    motivos: string[];
+  }>;
 };
 
 export type MatchesProvaveisMesResponse = {
   mes: number;
   ano: number;
+  analise_id: string;
   resumo: {
+    total_pagamentos: number;
+    ja_reconhecidos: number;
     sem_vinculo: number;
+    seguro: number;
+    precisa_confirmar: number;
+    ambiguo: number;
+    nao_encontrado: number;
     alto: number;
     medio: number;
     baixo: number;
@@ -2353,6 +2370,17 @@ export type MatchesProvaveisMesResponse = {
   por_dia: Array<{
     data_fluxo: string;
     itens: MatchesProvaveisApiItem[];
+  }>;
+  sem_candidato_itens: Array<{
+    planilha_id: string;
+    aluno: string;
+    ativo: boolean;
+    aba: string;
+    modalidade: string;
+    forma: string;
+    data_fluxo: string;
+    valor_fluxo: number;
+    motivo: string;
   }>;
 };
 
@@ -2369,7 +2397,53 @@ export async function getMatchesProvaveisMes(
   if (!res.ok) throw new Error(await parseBackendError(res, text));
   return text
     ? (JSON.parse(text) as MatchesProvaveisMesResponse)
-    : { mes, ano, resumo: { sem_vinculo: 0, alto: 0, medio: 0, baixo: 0, sem_candidato: 0, n1: 0, listados: 0 }, por_dia: [] };
+    : {
+        mes,
+        ano,
+        analise_id: '',
+        resumo: {
+          total_pagamentos: 0,
+          ja_reconhecidos: 0,
+          sem_vinculo: 0,
+          seguro: 0,
+          precisa_confirmar: 0,
+          ambiguo: 0,
+          nao_encontrado: 0,
+          alto: 0,
+          medio: 0,
+          baixo: 0,
+          sem_candidato: 0,
+          n1: 0,
+          listados: 0,
+        },
+        por_dia: [],
+        sem_candidato_itens: [],
+      };
+}
+
+export type AplicarMatchesProvaveisLoteResponse = {
+  status: 'aplicado' | 'desatualizado';
+  lote_id: string | null;
+  analisados: number;
+  aplicados: number;
+  ignorados: number;
+  erros: number;
+};
+
+export async function aplicarMatchesProvaveisSeguros(
+  mes: number,
+  ano: number,
+  analiseId: string,
+): Promise<AplicarMatchesProvaveisLoteResponse> {
+  if (!BASE_URL) throw new Error('VITE_BACKEND_URL não configurado');
+  const res = await apiFetch('/api/validacao/matches-provaveis/aplicar-seguros', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mes, ano, analise_id: analiseId }),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(await parseBackendError(res, text));
+  return JSON.parse(text) as AplicarMatchesProvaveisLoteResponse;
 }
 
 /* ——— Cadastro de alunos (resumo para secretária) ——— */
