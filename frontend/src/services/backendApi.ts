@@ -2785,13 +2785,17 @@ export type ConciliacaoPagamentosResponse = {
     /** Dia de cobrança no Fluxo, para abrir a Validação na data certa. */
     data_pagamento_fluxo?: string | null;
     status: ConciliacaoPagamentoStatus;
+    extrato_status?: 'confirmado' | 'nao' | 'nao_aplicavel';
+    fluxo_lancamento_status?: 'ok' | 'pendente';
+    /** Rótulo humano (extrato × Fluxo). */
+    status_resumo?: string;
     valor_cobranca?: number | null;
     data_credito?: string | null;
     valor_credito?: number | null;
     pessoa_banco?: string | null;
     transacao_id?: string | null;
     vinculo_id?: string | null;
-    banco_status?: 'vinculo' | 'match' | 'nenhum';
+    banco_status?: 'vinculo' | 'match' | 'dinheiro' | 'extrato_antes' | 'nenhum';
   }>;
 };
 
@@ -2802,5 +2806,34 @@ export async function getConciliacaoPagamentos(
   return request<ConciliacaoPagamentosResponse>(
     `/api/conciliacao-pagamentos?mes=${mes}&ano=${ano}`,
   );
+}
+
+export async function confirmarExtratoAntesFluxo(input: {
+  aluno_id: string;
+  mes: number;
+  ano: number;
+  banco_id: string;
+  data_ref: string;
+  observacao?: string;
+}): Promise<{ ok: boolean }> {
+  return requestPost<{ ok: boolean }>('/api/conciliacao-pagamentos/extrato-antes-fluxo', input);
+}
+
+export async function removerExtratoAntesFluxo(input: {
+  aluno_id: string;
+  mes: number;
+  ano: number;
+}): Promise<{ ok: boolean }> {
+  if (!BASE_URL) throw new Error('VITE_BACKEND_URL não configurado');
+  const res = await apiFetch('/api/conciliacao-pagamentos/extrato-antes-fluxo', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(await parseBackendError(res, text));
+  }
+  return res.json();
 }
 

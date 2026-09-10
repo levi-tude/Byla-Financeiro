@@ -21,8 +21,14 @@ import {
 } from '../logic/conciliacaoPagamentoMatch.js';
 import { normalizeText } from '../logic/conciliacaoTexto.js';
 import { planilhaIdFromFluxoUuid } from '../logic/fluxoPagamentoFingerprint.js';
+import {
+  rotuloConciliacaoExtratoFluxo,
+  type ExtratoConfirmadoStatus,
+  type FluxoLancamentoStatus,
+} from '../logic/conciliacaoExtratoFluxoLabels.js';
 import { isFormaPagamentoDinheiro } from '../logic/pagamentoDinheiroFluxo.js';
 import { getSupabase } from './supabaseClient.js';
+import { listExtratoAntesFluxoMes } from './extratoAntesFluxo.js';
 import { listVinculosPorPlanilhaIds } from './validacaoVinculos.js';
 import { filtrarTransacoesOficiais, type TransacaoBase } from './transacoesFiltro.js';
 
@@ -37,6 +43,11 @@ export type ConciliacaoPagamentoItem = {
   /** Dia de cobrança no Fluxo (ISO), quando houver pagamento no mês. */
   data_pagamento_fluxo?: string | null;
   status: ConciliacaoPagamentoStatus;
+  /** Extrato confirmado (banco) vs lançamento ainda só no Fluxo. */
+  extrato_status?: ExtratoConfirmadoStatus;
+  fluxo_lancamento_status?: FluxoLancamentoStatus;
+  /** Rótulo humano (secretária/admin): não trata extrato ok como “não pagou”. */
+  status_resumo?: string;
   /** Valor para lista da secretária: crédito, senão lançamento Fluxo, senão referência. */
   valor_cobranca?: number | null;
   data_credito?: string | null;
@@ -44,7 +55,7 @@ export type ConciliacaoPagamentoItem = {
   pessoa_banco?: string | null;
   transacao_id?: string | null;
   vinculo_id?: string | null;
-  banco_status?: 'vinculo' | 'match' | 'dinheiro' | 'nenhum';
+  banco_status?: 'vinculo' | 'match' | 'dinheiro' | 'extrato_antes' | 'nenhum';
 };
 
 export type ConciliacaoPagamentosTotais = {
@@ -107,7 +118,14 @@ type CreditoResolvido = {
   pessoa: string;
   transacao_id: string | null;
   vinculo_id: string | null;
-  banco_status: 'vinculo' | 'match' | 'dinheiro';
+  banco_status: 'vinculo' | 'match' | 'dinheiro' | 'extrato_antes';
+};
+
+export type ExtratoAntesFluxoFixture = {
+  aluno_id: string;
+  banco_id: string;
+  data_ref: string;
+  id?: string;
 };
 
 function pad2(n: number): string {
@@ -164,20 +182,24 @@ function emptyTotais(): ConciliacaoPagamentosTotais {
 }
 
 function resolverCreditoAluno(params: {
+  alunoId: string;
   pagamentosAluno: ConciliacaoPagamentoFixture[];
   entradasById: Map<string, BancoItem>;
   entradasLista: BancoItem[];
   vinculosByPlanilha: Map<string, { banco_id: string; id: string }>;
+  extratoAntesByAluno: Map<string, ExtratoAntesFluxoFixture>;
   usadosBanco: Set<string>;
   pilatesNomePagadorRows: PilatesNomePagadorRow[];
   mes: number;
   ano: number;
 }): CreditoResolvido | null {
   const {
+    alunoId,
     pagamentosAluno,
     entradasById,
     entradasLista,
     vinculosByPlanilha,
+    extratoAntesByAluno,
     usadosBanco,
     pilatesNomePagadorRows,
     mes,
@@ -239,6 +261,36 @@ function resolverCreditoAluno(params: {
     }
   }
 
+  // Confirmado no extrato antes do lançamento no Fluxo (Admin).
+  if (creditos.length === 0) {
+    const antes = extratoAntesByAluno.get(alunoId);
+    if (antes && !usadosBanco.has(antes.banco_id)) {
+      const banco = entradasById.get(antes.banco_id);
+      if (banco) {
+        usadosBanco.add(banco.id);
+        creditos.push({
+          data: banco.data.slice(0, 10),
+          valor: Number(banco.valor || 0),
+          pessoa: banco.pessoa ?? '',
+          transacao_id: banco.id,
+          vinculo_id: antes.id ?? null,
+          banco_status: 'extrato_antes',
+        });
+      } else {
+        // Transação fora da janela carregada: ainda conta a data_ref confirmada.
+        usadosBanco.add(antes.banco_id);
+        creditos.push({
+          data: antes.data_ref.slice(0, 10),
+          valor: 0,
+          pessoa: '',
+          transacao_id: antes.banco_id,
+          vinculo_id: antes.id ?? null,
+          banco_status: 'extrato_antes',
+        });
+      }
+    }
+  }
+
   if (creditos.length === 0) return null;
   creditos.sort((a, b) => a.data.localeCompare(b.data));
   return creditos[0];
@@ -257,12 +309,15 @@ export function montarItensConciliacaoPagamentos(input: {
   pagamentos: ConciliacaoPagamentoFixture[];
   entradas: Array<ConciliacaoTransacaoFixture | TransacaoBase | BancoItem>;
   vinculosByPlanilha: Map<string, { banco_id: string; id: string }>;
+  /** Confirmações de extrato antes do lançamento no Fluxo (por aluno_id). */
+  extratoAntesByAluno?: Map<string, ExtratoAntesFluxoFixture>;
   pilatesNomePagadorRows?: PilatesNomePagadorRow[];
   /** Mês civil atual (default: hoje). */
   referenciaCivil?: { mes: number; ano: number };
 }): ConciliacaoPagamentosMesResult {
   const { mes, ano, alunos, pagamentos, vinculosByPlanilha } = input;
   const pilatesNomePagadorRows = input.pilatesNomePagadorRows ?? [];
+  const extratoAntesByAluno = input.extratoAntesByAluno ?? new Map();
   const agora = new Date();
   const refCivil = input.referenciaCivil ?? {
     mes: agora.getMonth() + 1,
@@ -294,17 +349,20 @@ export function montarItensConciliacaoPagamentos(input: {
     const diaVenc = parseDiaVencimentoCadastro(a.venc);
     const key = chaveAlunoAba(a.aba, a.aluno_nome);
     const pags = pagamentosPorAluno.get(key) ?? [];
+    const temExtratoAntes = extratoAntesByAluno.has(a.id);
 
-    // Futuro: só previsto (sem lançamento) não gera linha/pendente na Conciliação.
-    if (competenciaFutura && pags.length === 0) {
+    // Futuro: só previsto (sem lançamento e sem extrato confirmado) não gera linha.
+    if (competenciaFutura && pags.length === 0 && !temExtratoAntes) {
       continue;
     }
 
     const credito = resolverCreditoAluno({
+      alunoId: a.id,
       pagamentosAluno: pags,
       entradasById,
       entradasLista,
       vinculosByPlanilha,
+      extratoAntesByAluno,
       usadosBanco,
       pilatesNomePagadorRows,
       mes,
@@ -322,6 +380,26 @@ export function montarItensConciliacaoPagamentos(input: {
     const dataPagamentoFluxo =
       pags.length > 0 ? (pags[0].data_pagamento ?? '').slice(0, 10) || null : null;
 
+    const fluxoLancamento: FluxoLancamentoStatus =
+      dataPagamentoFluxo && /^\d{4}-\d{2}-\d{2}$/.test(dataPagamentoFluxo) ? 'ok' : 'pendente';
+
+    let extratoStatus: ExtratoConfirmadoStatus = 'nao';
+    if (credito?.banco_status === 'dinheiro') {
+      extratoStatus = 'nao_aplicavel';
+    } else if (
+      credito?.banco_status === 'vinculo' ||
+      credito?.banco_status === 'match' ||
+      credito?.banco_status === 'extrato_antes'
+    ) {
+      extratoStatus = 'confirmado';
+    }
+
+    const statusResumo = rotuloConciliacaoExtratoFluxo({
+      status,
+      extrato: extratoStatus,
+      fluxo: fluxoLancamento,
+    });
+
     const valorFluxo =
       pags.length > 0 && Number.isFinite(Number(pags[0].valor)) ? Number(pags[0].valor) : null;
     const valorRef =
@@ -329,7 +407,7 @@ export function montarItensConciliacaoPagamentos(input: {
         ? Number(a.valor_referencia)
         : null;
     const valorCobranca =
-      credito?.valor != null && Number.isFinite(Number(credito.valor))
+      credito?.valor != null && Number.isFinite(Number(credito.valor)) && Number(credito.valor) > 0
         ? Number(credito.valor)
         : (valorFluxo ?? valorRef);
 
@@ -345,9 +423,12 @@ export function montarItensConciliacaoPagamentos(input: {
       data_vencimento_efetiva: vencEfetiva,
       data_pagamento_fluxo: dataPagamentoFluxo,
       status,
+      extrato_status: extratoStatus,
+      fluxo_lancamento_status: fluxoLancamento,
+      status_resumo: statusResumo,
       valor_cobranca: valorCobranca,
       data_credito: credito?.data ?? null,
-      valor_credito: credito?.valor ?? null,
+      valor_credito: credito?.valor != null && Number(credito.valor) > 0 ? credito.valor : null,
       pessoa_banco: credito?.pessoa ?? null,
       transacao_id: credito?.transacao_id ?? null,
       vinculo_id: credito?.vinculo_id ?? null,
@@ -389,6 +470,9 @@ export function stripCamposBancariosConciliacao(
       dia_vencimento: item.dia_vencimento,
       data_vencimento_efetiva: item.data_vencimento_efetiva ?? null,
       status: item.status,
+      extrato_status: item.extrato_status,
+      fluxo_lancamento_status: item.fluxo_lancamento_status,
+      status_resumo: item.status_resumo,
       valor_cobranca: item.valor_cobranca ?? null,
     })),
   };
@@ -434,7 +518,7 @@ export async function getConciliacaoPagamentosMes(
   if (txErr) throw new Error(txErr.message);
 
   const todas = (txRows ?? []) as TransacaoBase[];
-  const { entradas } = filtrarTransacoesOficiais(todas);
+  let { entradas } = filtrarTransacoesOficiais(todas);
 
   const pagamentos: ConciliacaoPagamentoFixture[] = ((pagRows ?? []) as Record<string, unknown>[]).map(
     (r) => ({
@@ -460,6 +544,32 @@ export async function getConciliacaoPagamentosMes(
     vinculosByPlanilha.set(planilhaIdFromFluxoUuid(v.planilha_id), { banco_id: v.banco_id, id: v.id });
   }
 
+  const extratosAntes = await listExtratoAntesFluxoMes(mes, ano).catch(() => []);
+  const extratoAntesByAluno = new Map<string, ExtratoAntesFluxoFixture>();
+  for (const e of extratosAntes) {
+    extratoAntesByAluno.set(e.aluno_id, {
+      aluno_id: e.aluno_id,
+      banco_id: e.banco_id,
+      data_ref: e.data_ref,
+      id: e.id,
+    });
+  }
+
+  // Garante crédito do extrato_antes mesmo se a tx cair fora do mês civil da competência.
+  const faltandoBancoIds = [...extratoAntesByAluno.values()]
+    .map((e) => e.banco_id)
+    .filter((id) => !entradas.some((t) => t.id === id));
+  if (faltandoBancoIds.length > 0) {
+    const { data: extraTx, error: extraErr } = await supabase
+      .from('transacoes')
+      .select('id, data, pessoa, valor, descricao, tipo')
+      .in('id', faltandoBancoIds);
+    if (!extraErr && Array.isArray(extraTx)) {
+      const { entradas: extraEntradas } = filtrarTransacoesOficiais(extraTx as TransacaoBase[]);
+      entradas.push(...extraEntradas);
+    }
+  }
+
   const alunos: ConciliacaoAlunoFixture[] = ((alunosRows ?? []) as Record<string, unknown>[]).map(
     (r) => ({
       id: String(r.id),
@@ -482,5 +592,6 @@ export async function getConciliacaoPagamentosMes(
     pagamentos,
     entradas,
     vinculosByPlanilha,
+    extratoAntesByAluno,
   });
 }

@@ -30,6 +30,7 @@ import {
   type PagamentoExistingIncremental,
 } from '../logic/syncFluxoIncrementalPlan.js';
 import { lerPagamentosPorAbaEAno } from './planilhaPagamentos.js';
+import { promoverExtratoAntesFluxoPendentes } from './extratoAntesFluxo.js';
 
 const SELECT_PAG_EXISTING =
   'id, aba, modalidade, linha_planilha, ordem_lancamento, aluno_nome, data_pagamento, forma, valor, mes_competencia, ano_competencia, responsaveis, pagador_pix, raw_pagamento, origem';
@@ -58,6 +59,8 @@ export type SyncFluxoIncrementalReport = {
   }>;
   avisos: string[];
   erros: string[];
+  /** Promoções extrato→fluxo após inserts/updates. */
+  extratoAntesPromovidos?: number;
 };
 
 function abaNoFiltro(aba: string, filtro?: string[]): boolean {
@@ -495,6 +498,24 @@ export async function syncFluxoIncremental(
 
   const pagErros = await aplicarPagamentos(supabase, pagPlan, dryRun);
   report.erros.push(...pagErros);
+
+  if (!dryRun && report.erros.length === 0) {
+    try {
+      const promo = await promoverExtratoAntesFluxoPendentes(supabase, { ano });
+      report.extratoAntesPromovidos = promo.promovidos;
+      if (promo.promovidos > 0) {
+        report.avisos.push(
+          `${promo.promovidos} confirmação(ões) de extrato promovida(s) para vínculo do Fluxo`,
+        );
+      }
+      report.avisos.push(...promo.avisos.slice(0, 5));
+    } catch (e) {
+      report.avisos.push(
+        `promoção extrato_antes: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
   report.ok = report.erros.length === 0;
   return report;
 }

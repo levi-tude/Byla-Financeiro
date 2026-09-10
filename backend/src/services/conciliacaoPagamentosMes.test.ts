@@ -212,6 +212,50 @@ test('montarItens: sem pagamento na competência → pendente (mesmo com crédit
 
   assert.equal(result.itens[0].status, 'pendente');
   assert.equal(result.itens[0].data_credito, null);
+  assert.equal(result.itens[0].status_resumo, 'Pendente');
+  assert.equal(result.itens[0].fluxo_lancamento_status, 'pendente');
+});
+
+test('montarItens: extrato confirmado antes do Fluxo → em_dia e Fluxo pendente', () => {
+  const alunoId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  const result = montarItensConciliacaoPagamentos({
+    mes: MES,
+    ano: ANO,
+    alunos: [aluno({ id: alunoId, aluno_nome: 'Fiona Extrato Antes', venc: '10' })],
+    pagamentos: [],
+    entradas: [
+      tx({
+        id: 'banco-fiona',
+        data: '2026-07-09',
+        pessoa: 'Fiona Pagadora',
+        valor: 200,
+        descricao: null,
+        tipo: 'entrada',
+      }),
+    ],
+    vinculosByPlanilha: new Map(),
+    extratoAntesByAluno: new Map([
+      [
+        alunoId,
+        {
+          aluno_id: alunoId,
+          banco_id: 'banco-fiona',
+          data_ref: '2026-07-09',
+          id: 'ea1',
+        },
+      ],
+    ]),
+  });
+
+  const item = result.itens[0];
+  assert.equal(item.status, 'em_dia');
+  assert.equal(item.banco_status, 'extrato_antes');
+  assert.equal(item.extrato_status, 'confirmado');
+  assert.equal(item.fluxo_lancamento_status, 'pendente');
+  assert.equal(item.status_resumo, 'Pago no banco · Fluxo pendente');
+  assert.equal(item.data_credito, '2026-07-09');
+  assert.equal(result.totais.pendente, 0);
+  assert.equal(result.totais.em_dia, 1);
 });
 
 test('montarItens: pagamento em dinheiro usa data do Fluxo e não exige vínculo', () => {

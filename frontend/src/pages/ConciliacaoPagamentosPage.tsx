@@ -13,8 +13,13 @@ import {
   getAlertasParouDePagar,
   getAlertasVendasSemVinculo,
   getConciliacaoPagamentos,
+  removerExtratoAntesFluxo,
   type ConciliacaoPagamentoStatus,
+  type ConciliacaoPagamentosResponse,
 } from '../services/backendApi';
+import { ConfirmarExtratoAntesFluxoDialog } from '../components/conciliacao/ConfirmarExtratoAntesFluxoDialog';
+
+type ConciliacaoItem = ConciliacaoPagamentosResponse['itens'][number];
 
 type StatusFiltro = ConciliacaoPagamentoStatus | 'todos' | 'cobranca';
 
@@ -26,6 +31,13 @@ const STATUS_LABEL: Record<ConciliacaoPagamentoStatus, string> = {
   bolsa: 'Bolsa',
   excecao: 'Exceção',
 };
+
+function labelStatusItem(item: {
+  status: ConciliacaoPagamentoStatus;
+  status_resumo?: string;
+}): string {
+  return (item.status_resumo ?? '').trim() || STATUS_LABEL[item.status];
+}
 
 /** Visão padrão de cobrança (esconde bolsa/exceção). */
 const STATUS_COBRANCA: ConciliacaoPagamentoStatus[] = [
@@ -147,6 +159,7 @@ export function ConciliacaoPagamentosPage() {
   const [classificandoId, setClassificandoId] = useState<string | null>(null);
   const [listaSecretariaAberta, setListaSecretariaAberta] = useState(false);
   const [copiaFeedback, setCopiaFeedback] = useState<string | null>(null);
+  const [extratoDialogItem, setExtratoDialogItem] = useState<ConciliacaoItem | null>(null);
 
   const query = useQuery({
     queryKey: ['conciliacao-pagamentos', mes, ano],
@@ -193,7 +206,7 @@ export function ConciliacaoPagamentosPage() {
       if (modalidadeFiltro && (item.modalidade ?? '').trim() !== modalidadeFiltro) return false;
       if (q) {
         const hay = normalizeSearch(
-          `${item.aluno_nome} ${item.aba} ${item.modalidade} ${STATUS_LABEL[item.status]}`,
+          `${item.aluno_nome} ${item.aba} ${item.modalidade} ${labelStatusItem(item)}`,
         );
         if (!hay.includes(q)) return false;
       }
@@ -314,7 +327,7 @@ export function ConciliacaoPagamentosPage() {
         item.valor_cobranca != null && Number.isFinite(Number(item.valor_cobranca))
           ? formatBrl(Number(item.valor_cobranca))
           : '—';
-      return `- ${item.aluno_nome} — ${STATUS_LABEL[item.status]} — ${valor}`;
+      return `- ${item.aluno_nome} — ${labelStatusItem(item)} — ${valor}`;
     };
 
     const blocos: string[] = [
@@ -961,9 +974,10 @@ export function ConciliacaoPagamentosPage() {
                   </td>
                   <td className="px-3 py-2.5">
                     <span
-                      className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadgeClass(item.status)}`}
+                      className={`inline-flex max-w-[14rem] rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadgeClass(item.status)}`}
+                      title={labelStatusItem(item)}
                     >
-                      {STATUS_LABEL[item.status]}
+                      {labelStatusItem(item)}
                     </span>
                   </td>
                   {isAdmin ? (
@@ -978,20 +992,61 @@ export function ConciliacaoPagamentosPage() {
                         {item.pessoa_banco?.trim() || '—'}
                       </td>
                       <td className="px-3 py-2.5">
-                        {item.status === 'pendente' || item.status === 'atrasado' ? (
-                          <Link
-                            to={
-                              item.data_pagamento_fluxo
-                                ? `/validacao-pagamentos-diaria?data=${encodeURIComponent(item.data_pagamento_fluxo.slice(0, 10))}`
-                                : '/validacao-pagamentos-diaria'
-                            }
-                            className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
-                          >
-                            Conferir na Validação
-                          </Link>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
+                        <div className="flex flex-col items-start gap-1">
+                          {item.fluxo_lancamento_status === 'pendente' &&
+                          item.extrato_status !== 'confirmado' &&
+                          item.status !== 'bolsa' &&
+                          item.status !== 'excecao' ? (
+                            <button
+                              type="button"
+                              onClick={() => setExtratoDialogItem(item)}
+                              className="text-xs font-semibold text-emerald-700 hover:text-emerald-900 dark:text-emerald-400 dark:hover:text-emerald-300"
+                            >
+                              Confirmar extrato
+                            </button>
+                          ) : null}
+                          {item.fluxo_lancamento_status === 'pendente' &&
+                          item.extrato_status === 'confirmado' &&
+                          item.banco_status === 'extrato_antes' ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void removerExtratoAntesFluxo({
+                                  aluno_id: item.aluno_id,
+                                  mes,
+                                  ano,
+                                }).then(() => {
+                                  void queryClient.invalidateQueries({
+                                    queryKey: ['conciliacao-pagamentos', mes, ano],
+                                  });
+                                });
+                              }}
+                              className="text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400"
+                            >
+                              Desfazer extrato
+                            </button>
+                          ) : null}
+                          {item.status === 'pendente' || item.status === 'atrasado' ? (
+                            <Link
+                              to={
+                                item.data_pagamento_fluxo
+                                  ? `/validacao-pagamentos-diaria?data=${encodeURIComponent(item.data_pagamento_fluxo.slice(0, 10))}`
+                                  : item.data_credito
+                                    ? `/validacao-pagamentos-diaria?data=${encodeURIComponent(item.data_credito.slice(0, 10))}`
+                                    : '/validacao-pagamentos-diaria'
+                              }
+                              className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
+                            >
+                              Conferir na Validação
+                            </Link>
+                          ) : null}
+                          {item.fluxo_lancamento_status === 'pendente' &&
+                          item.extrato_status === 'confirmado' &&
+                          item.status !== 'pendente' &&
+                          item.status !== 'atrasado' ? (
+                            <span className="text-xs text-slate-500">Aguardando Fluxo</span>
+                          ) : null}
+                        </div>
                       </td>
                     </>
                   ) : null}
@@ -1001,6 +1056,14 @@ export function ConciliacaoPagamentosPage() {
           </tbody>
         </table>
       </div>
+
+      <ConfirmarExtratoAntesFluxoDialog
+        open={extratoDialogItem != null}
+        onClose={() => setExtratoDialogItem(null)}
+        item={extratoDialogItem}
+        mes={mes}
+        ano={ano}
+      />
     </div>
   );
 }
