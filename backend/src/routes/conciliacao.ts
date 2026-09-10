@@ -26,7 +26,7 @@ import {
   mesclarVinculosComAutoGravados,
   persistirConfirmadosAutomaticosValidacao,
 } from '../services/autoPersistirVinculosValidacao.js';
-import { mesAnoQuerySchema, parseQuery, validacaoPagamentosDiariaQuerySchema } from '../validation/apiQuery.js';
+import { mesAnoQuerySchema, parseBody, parseQuery, validacaoPagamentosDiariaQuerySchema } from '../validation/apiQuery.js';
 import {
   getConciliacaoVencimentosMesData,
   ConciliacaoVencimentosMesError,
@@ -36,10 +36,32 @@ import {
   stripCamposBancariosConciliacao,
 } from '../services/conciliacaoPagamentosMes.js';
 import {
+  removeExtratoAntesFluxo,
+  upsertExtratoAntesFluxo,
+} from '../services/extratoAntesFluxo.js';
+import {
   CACHE_TTL_SEC,
   cacheGetOrSet,
   cacheKeyConciliacao,
+  invalidateCachesOperacionais,
 } from '../services/responseCache.js';
+import { requireRoles } from '../middleware/auth.js';
+import { z } from 'zod';
+
+const extratoAntesFluxoUpsertBodySchema = z.object({
+  aluno_id: z.string().uuid(),
+  mes: z.coerce.number().int().min(1).max(12),
+  ano: z.coerce.number().int().min(2000).max(2100),
+  banco_id: z.string().min(1),
+  data_ref: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.'),
+  observacao: z.string().max(400).optional(),
+});
+
+const extratoAntesFluxoDeleteBodySchema = z.object({
+  aluno_id: z.string().uuid(),
+  mes: z.coerce.number().int().min(1).max(12),
+  ano: z.coerce.number().int().min(2000).max(2100),
+});
 
 const router = Router();
 
@@ -394,6 +416,68 @@ router.get('/conciliacao-pagamentos', async (req: Request, res: Response) => {
     return res.status(500).json({ error: msg });
   }
 });
+
+/** Admin: confirma extrato para aluno/competência antes do lançamento no Fluxo. */
+router.post(
+  '/conciliacao-pagamentos/extrato-antes-fluxo',
+  requireRoles(['admin']),
+  async (req: Request, res: Response) => {
+    try {
+      const parsed = parseBody(extratoAntesFluxoUpsertBodySchema, req.body);
+      if (!parsed.ok) return res.status(400).json({ error: parsed.message });
+      const { aluno_id, mes, ano, banco_id, data_ref, observacao } = parsed.data;
+
+      const supabase = getSupabase();
+      if (supabase) {
+        const { data: aluno, error } = await supabase
+          .from('fluxo_alunos_operacionais')
+          .select('id')
+          .eq('id', aluno_id)
+          .maybeSingle();
+        if (error) return res.status(502).json({ error: error.message });
+        if (!aluno) return res.status(404).json({ error: 'Aluno operacional não encontrado.' });
+
+        const { data: tx, error: txErr } = await supabase
+          .from('transacoes')
+          .select('id, data, tipo')
+          .eq('id', banco_id)
+          .maybeSingle();
+        if (txErr) return res.status(502).json({ error: txErr.message });
+        if (!tx) return res.status(404).json({ error: 'Transação do extrato não encontrada.' });
+      }
+
+      const result = await upsertExtratoAntesFluxo({
+        aluno_id,
+        mes,
+        ano,
+        banco_id,
+        data_ref,
+        observacao: observacao ?? 'extrato_antes_fluxo',
+      });
+      await invalidateCachesOperacionais();
+      return res.json({ ok: true, ...result });
+    } catch (e) {
+      return res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+    }
+  },
+);
+
+router.delete(
+  '/conciliacao-pagamentos/extrato-antes-fluxo',
+  requireRoles(['admin']),
+  async (req: Request, res: Response) => {
+    try {
+      const parsed = parseBody(extratoAntesFluxoDeleteBodySchema, req.body);
+      if (!parsed.ok) return res.status(400).json({ error: parsed.message });
+      const { aluno_id, mes, ano } = parsed.data;
+      const result = await removeExtratoAntesFluxo(aluno_id, mes, ano);
+      await invalidateCachesOperacionais();
+      return res.json({ ok: true, ...result });
+    } catch (e) {
+      return res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+    }
+  },
+);
 
 export default router;
 
