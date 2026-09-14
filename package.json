@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "verify:commit": "node scripts/verify-forbidden-paths.mjs --staged-only",
     "verify:push": "node scripts/verify-git-push-safety.mjs",
     "verify:push:quick": "node scripts/verify-git-push-safety.mjs --no-build",
     "verify:vercel": "node scripts/verify-vercel-config.mjs",

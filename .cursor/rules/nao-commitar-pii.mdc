@@ -1,0 +1,29 @@
+---
+description: Commit e push — nunca PII, segredos, estágio ou dumps; usar lista oficial
+alwaysApply: true
+---
+
+# Não commitar / não vazar (Byla Financeiro)
+
+GitHub público = portfólio. **Nenhum dado real de cliente** no Git.
+
+## Quando o usuário falar em commit, push, stage, subir ou publicar
+
+1. Ler **`docs/NAO_COMMITAR.md`** (lista oficial do que não pode ir de jeito nenhum).
+2. Seguir a skill **`.cursor/skills/nao-commitar-ou-vazar/SKILL.md`**.
+3. Rodar **`npm run verify:commit`** (commit) ou **`npm run verify:push`** (push).
+4. Se for publicar no site: também **`.cursor/skills/subir-alteracoes-site/SKILL.md`**.
+
+## Bloqueio imediato — nunca stagear/commitar
+
+- `.env` e credenciais (JSON service account, tokens, chaves PEM)
+- PII: nomes reais de alunos/responsáveis, e-mails, telefones, documentos
+- Relatório de estágio, `docs/anexos/`, PDFs pessoais
+- `backend/_tmp*`, `scripts/_*`, `backend/scripts/_audit*`, `_diag*`
+- Seeds com cadastro real; exports JSON/CSV de produção
+- Workflows n8n com credenciais/URLs reais (só templates sanitizados)
+
+## Dados reais
+
+- Operação → **Supabase** (app autenticado) ou pasta **fora do Git** (`Byla-Privado`).
+- Testes no Git → **nomes fictícios** apenas.
