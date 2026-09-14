@@ -53,6 +53,13 @@ try {
   fail('scripts/verify-security-config.mjs falhou — corrija antes do push.');
 }
 
+console.log('[verify-git-push-safety] Paths proibidos (PII / local-only)…');
+try {
+  sh('node scripts/verify-forbidden-paths.mjs');
+} catch {
+  fail('scripts/verify-forbidden-paths.mjs falhou — paths proibidos no Git (docs/NAO_COMMITAR.md).');
+}
+
 // 1) Arquivos rastreados que não devem estar no Git
 let tracked;
 try {
