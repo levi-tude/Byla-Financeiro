@@ -1,57 +1,58 @@
 #!/usr/bin/env node
 /**
- * Bloqueia paths da lista oficial (docs/NAO_COMMITAR.md) no Git.
- * Uso (raiz do repo):
- *   node scripts/verify-forbidden-paths.mjs
- *   node scripts/verify-forbidden-paths.mjs --staged-only
+ * Bloqueia commit/push se arquivos proibidos estiverem staged ou rastreados.
+ * Uso: node scripts/verify-forbidden-paths.mjs [--staged-only]
+ * Fonte: docs/NAO_COMMITAR.md
  */
 import { execSync } from 'node:child_process';
 import { findForbiddenInList } from './forbidden-git-paths.mjs';
 
-const args = new Set(process.argv.slice(2));
-const stagedOnly = args.has('--staged-only');
+const stagedOnly = process.argv.includes('--staged-only');
 
 function fail(msg) {
   console.error(`\n[verify-forbidden-paths] BLOQUEADO: ${msg}\n`);
+  console.error('Lista completa: docs/NAO_COMMITAR.md\n');
   process.exit(1);
 }
 
 function sh(cmd) {
-  return execSync(cmd, {
-    encoding: 'utf8',
-    maxBuffer: 10 * 1024 * 1024,
-    shell: true,
-  }).trim();
+  return execSync(cmd, { encoding: 'utf8', shell: true }).trim();
 }
 
 let root;
 try {
   root = sh('git rev-parse --show-toplevel');
 } catch {
-  fail('Execute este script dentro de um repositório Git.');
+  fail('Execute dentro de um repositório Git.');
 }
 process.chdir(root);
 
-const cmd = stagedOnly
-  ? 'git diff --cached --name-only --diff-filter=ACMR'
-  : 'git ls-files';
+const paths = new Set();
 
-let raw;
-try {
-  raw = sh(cmd);
-} catch {
-  fail(`${cmd} falhou.`);
+if (stagedOnly) {
+  try {
+    sh('git diff --cached --name-only').split(/\r?\n/).filter(Boolean).forEach((p) => paths.add(p));
+  } catch {
+    /* vazio */
+  }
+} else {
+  try {
+    sh('git ls-files').split(/\r?\n/).filter(Boolean).forEach((p) => paths.add(p));
+  } catch {
+    fail('git ls-files falhou.');
+  }
+  try {
+    sh('git diff --cached --name-only').split(/\r?\n/).filter(Boolean).forEach((p) => paths.add(p));
+  } catch {
+    /* ok */
+  }
 }
 
-const paths = raw ? raw.split(/\r?\n/).filter(Boolean) : [];
-const hits = findForbiddenInList(paths);
-
+const hits = findForbiddenInList([...paths]);
 if (hits.length) {
-  const lines = hits.map((h) => `  - ${h.path}  (${h.id}: ${h.reason})`).join('\n');
-  fail(
-    `paths proibidos no ${stagedOnly ? 'stage' : 'Git'} (ver docs/NAO_COMMITAR.md):\n${lines}`,
-  );
+  const lines = hits.map((h) => `  • ${h.path} — ${h.reason}`).join('\n');
+  const scope = stagedOnly ? 'no stage (commit)' : 'rastreados ou no stage';
+  fail(`Arquivo(s) proibido(s) ${scope}:\n${lines}`);
 }
 
-const scope = stagedOnly ? 'stage' : 'arquivos rastreados';
-console.log(`[verify-forbidden-paths] OK — nenhum path proibido ${stagedOnly ? 'no' : 'nos'} ${scope}.`);
+console.log('[verify-forbidden-paths] OK — nenhum caminho proibido detectado.');

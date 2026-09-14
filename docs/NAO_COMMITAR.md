@@ -1,108 +1,101 @@
-# Não commitar / não vazar
+# O que NUNCA pode ir para o Git (Byla Financeiro)
 
-Lista **oficial** do que nunca entra no GitHub público `levi-tude/Byla-Financeiro`.
+**Lista oficial.** Usar em todo **commit**, **push** ou **publicação no site**.
 
-GitHub público = portfólio + fonte do deploy (Render/Vercel). Dados reais de clientes ficam no **Supabase** (app autenticado) ou numa pasta **fora do Git** (`Byla-Privado`). Testes e fixtures no Git usam **somente nomes fictícios**.
+Repositório público = portfólio. Dados reais de clientes ficam no **Supabase** (app autenticado) ou em pasta **fora do Git** (ex.: `Byla-Privado`).
 
-Agentes e clones devem seguir este arquivo, a rule `.cursor/rules/nao-commitar-pii.mdc` e a skill `.cursor/skills/nao-commitar-ou-vazar/SKILL.md`. O portão automático é `npm run verify:commit` / `npm run verify:push`.
+---
 
 ## 1. Segredos e credenciais
 
-Nunca stagear, commitar ou colar no PR:
+| Nunca commitar | Motivo |
+|----------------|--------|
+| `.env`, `.env.local`, `.env.production`, etc. | Chaves reais (Supabase, Google, IA, sync) |
+| `**/service-account*.json`, `**/*.credentials.json` | Service account Google |
+| `backend/n8n-byla-*.json` | Credencial n8n |
+| Chaves PEM/PFX, tokens Pluggy/PagBank, API keys em código | Vazamento imediato |
+| Valores reais em `.env.example` | Só nomes de variável + placeholders |
 
-- `.env`, `.env.*` (exceto `.env.example` só com nomes de variáveis)
-- JSON de service account (`**/service-account*.json`)
-- `**/*.credentials.json`, tokens, chaves PEM/P12/PFX
-- `.cursor/mcp.json` (MCP com chaves)
-- `backend/n8n-byla-14b9ea6e929d.json` e qualquer dump de credencial n8n
-- Headers, webhooks, connection strings ou API keys com valores reais
+**Pode:** `backend/.env.example`, `frontend/.env.example` (sem valores reais).
 
-`.env.example` pode existir; nunca copie valores de produção para o Git.
+---
 
-## 2. PII — dados reais de clientes
+## 2. PII — dados de pessoas reais
 
-Nunca no Git:
+| Nunca commitar | Motivo |
+|----------------|--------|
+| Nomes reais de **alunos** ou **responsáveis** da operação Byla | LGPD / privacidade |
+| E-mails, telefones, CPF/CNPJ de clientes | PII |
+| Seeds SQL com cadastro real (`seed-modalidades-alunos*`, `seed-profiles-roles*`, etc.) | Dump de produção |
+| JSON/CSV exportados do Supabase ou planilha com dados reais | Dump operacional |
+| `backend/_tmp*.json` e similares | Exports locais de validação |
 
-- Nomes reais de **alunos** ou **responsáveis**
-- E-mails, telefones, documentos (RG, CPF, etc.)
-- Endereços, dados de pagamento pessoais, prints de planilha operacional
-- Seeds, CSV, JSON ou dumps de **produção** / cadastro real
-- Catálogos família/casal com pessoas reais (isso vive no Supabase)
+**Pode:** `scripts/seed-demo-synthetic.sql` e fixtures com nomes **claramente fictícios** (ex.: "Aluno Demo Um").
 
-Operação diária → Supabase. Demonstração / teste → personas fictícias.
+**Regra de negócio com pessoas reais** (grupos família/casal, mapeamentos): tabela/config no **Supabase**, não catálogo hardcoded no Git público.
 
-## 3. Relatório de estágio, anexos e PDFs pessoais
+---
 
-Nunca:
+## 3. Documentos pessoais e de estágio
 
-- `docs/RELATORIO_PARCIAL*`
-- `docs/PROMPT_*ESTAGIO*`, `docs/PROMPT_ANEXO*`
-- `docs/anexos/`
-- PDFs, DOCX ou prints pessoais / de estágio
-- `docs/AUDITORIA_CYBER*`, `docs/CYBER_SKILLS*`, `docs/HARDENING_*` (inventário local)
-- `docs/superpowers/audits/`
+| Nunca commitar | Motivo |
+|----------------|--------|
+| `docs/RELATORIO_PARCIAL*` (DOCX, PDF) | Relatório de estágio |
+| `docs/anexos/` (contratos, prints, anexos I/II) | Documentos pessoais/empresa |
+| `docs/PROMPT_*ESTAGIO*`, `docs/PROMPT_ANEXO*` | Prompts com contexto privado |
+| `docs/AUDITORIA_CYBER*`, `docs/CYBER_SKILLS*`, `docs/HARDENING_*` | Inventário interno sensível |
+| `docs/superpowers/audits/` com exports JSON de produção | Auditorias com dados reais |
 
-Esses materiais, se ainda forem úteis, ficam em `Byla-Privado` (fora do Git).
+**Pode:** docs curados de portfólio (`ARQUITETURA_PUBLICA.md`, `SEGURANCA_E_PRIVACIDADE.md`, specs de design sem PII).
 
-## 4. Scripts e dumps locais
+---
 
-Nunca:
+## 4. Scripts e ferramentas só locais
 
-- `_tmp*`, `backend/_tmp*`, `_publish-wave/`
-- `backend/scripts/_audit*`, `_diag*`, `_check*`, `_list*`
-- `scripts/_*` (underscore = rascunho local, não produto)
-- `scripts/build_anexo*`, `scripts/generate_relatorio*`, `scripts/merge_relatorio*`, `scripts/generate_quimica*`
-- `scripts/setup-gh-e-renomear-repo.ps1`
-- `.worktrees/`, `.superpowers/`
-- Skills genéricas de cyber em `.cursor/skills/` listadas no `.gitignore` (não são código do produto)
-- Exports JSON/CSV de produção, dumps de banco, planilhas baixadas
+| Nunca commitar | Motivo |
+|----------------|--------|
+| `backend/scripts/_audit*`, `_diag*`, `_check*`, `_list*` | Scripts de auditoria com dados reais |
+| `scripts/_*` (prefixo underscore) | Utilitários locais / estágio |
+| `scripts/build_anexo*`, `generate_relatorio*`, `merge_relatorio*` | Geração de relatório de estágio |
+| `scripts/setup-gh-e-renomear-repo.ps1` | Setup local com contexto privado |
 
-Scripts de **produto** versionados (ex.: `scripts/verify-*.mjs`, `backend/scripts/auditClassificacaoReplay.ts` sem prefixo `_`) são outra coisa — não confundir com rascunhos `_audit*`.
+---
 
-## 5. n8n obsoleto / com credenciais
+## 5. Integrações obsoletas / credenciais em workflow
 
-Nunca:
+| Nunca commitar | Motivo |
+|----------------|--------|
+| Workflows n8n com URLs/credenciais/IDs reais de produção | Vazamento operacional |
+| `workflow-pluggy*`, `verificar-retorno-edi*`, EDI PagBank | Integrações descontinuadas com segredos |
 
-- Workflows com credenciais, IDs reais, URLs, telefones ou planilhas de produção
-- JSON de credencial n8n, service account Google, tokens de WhatsApp
-- Workflows **inativos** / experimentos (Pluggy, PagBank API, EDI, etc.)
+**Pode:** templates em `n8n-workflows/*/workflow.template.json` + README (sem credenciais).
 
-Pode ir no Git **somente** templates sanitizados em `n8n-workflows/` (credential-free, `active: false`, placeholders). Ver `scripts/sanitize-n8n-workflow.mjs`.
+---
 
-## 6. Nomes da equipe vs nomes de alunos
+## 6. Nomes de equipe vs alunos
 
-| Pode aparecer no Git | Nunca no Git |
-| --- | --- |
-| Papéis do produto (Secretária, Admin, gestão) | Nome real de aluno |
-| Nome do mantenedor em commits/docs de processo, se já for público | Nome real de responsável / pagador |
-| Personas **fictícias** em testes e seeds de demo | E-mail, telefone, documento de cliente |
+| Pode no Git (com cuidado) | Nunca no Git |
+|---------------------------|--------------|
+| Nomes de **funcionários/equipe** em regras de despesa (Nilson, etc.) — regra de negócio documentada | Nomes de **alunos** ou responsáveis reais em código, seeds ou testes |
 
-Se a regra de negócio depende de pessoas reais (família, casal, exceção), a decisão fica no **Supabase**, não hardcoded no código público.
+---
 
-## Antes de commitar
+## Antes de commit ou push
 
-1. Ler este arquivo.
-2. Inventário: `git status` e `git diff --cached --stat` — conferir **cada** path.
-3. Checklist rápido: segredos? PII? estágio/anexos? scripts `_tmp`/`_audit`? n8n com credencial? seed real?
-4. Rodar **`npm run verify:commit`** (`node scripts/verify-forbidden-paths.mjs --staged-only`).
-5. Se for push / publicar no site: **`npm run verify:push`** (ou `verify:push:quick`) e a skill `.cursor/skills/subir-alteracoes-site/SKILL.md`.
-6. Base = `origin/main` limpa; branch + PR. **Sem force-push** em `main` sem pedido explícito.
+1. Ler esta lista (ou a skill `.cursor/skills/nao-commitar-ou-vazar/SKILL.md`).
+2. `git status` — nada da tabela acima no stage.
+3. `npm run verify:push` (push) ou `npm run verify:commit` (commit).
+4. Publicação no site: também seguir `.cursor/skills/subir-alteracoes-site/SKILL.md`.
 
-## Se já foi commitado
+## Se algo sensível já foi commitado
 
-1. Tirar do stage: `git restore --staged -- <path>` (ou equivalente).
-2. Tirar do commit local **ainda não publicado** (amend/reset só no que você criou nesta branch, sem reescrever `main`).
-3. Mover o arquivo para fora do Git (`Byla-Privado`) ou apagar a cópia local se for lixo.
-4. Se **já foi para o GitHub**: parar. Rotacionar o segredo se vazou. **Não** fazer force-push em `main` sem o mantenedor pedir com essas palavras.
-5. Avisar o mantenedor: o que vazou (tipo, não o valor), em qual commit/PR.
+- **Não** fazer push.
+- Remover do stage, adicionar ao `.gitignore`, usar `git rm --cached` se já estava rastreado.
+- Se já foi para o GitHub: rotacionar credenciais expostas e avaliar rewrite de histórico (só com aprovação explícita).
 
 ## Referências
 
-- Rule: `.cursor/rules/nao-commitar-pii.mdc`
-- Rule de publicação: `.cursor/rules/publicar-site-sem-pii.mdc`
-- Skill: `.cursor/skills/nao-commitar-ou-vazar/SKILL.md`
-- Skill de publicar: `.cursor/skills/subir-alteracoes-site/SKILL.md`
-- Portão: `scripts/forbidden-git-paths.mjs`, `scripts/verify-forbidden-paths.mjs`
-- `.gitignore` (bloco Local-only / PII)
+- Regra Cursor: `.cursor/rules/nao-commitar-pii.mdc`
+- Skill commit/push: `.cursor/skills/nao-commitar-ou-vazar/SKILL.md`
+- Skill publicar site: `.cursor/skills/subir-alteracoes-site/SKILL.md`
 - Spec: `docs/superpowers/specs/2026-07-25-publicar-site-sem-pii-design.md`
-- `docs/SEGURANCA_E_PRIVACIDADE.md`, `SECURITY.md`
