@@ -39,6 +39,7 @@ import createControleCaixaRouter from './controleCaixa.js';
 import createFluxoOperacionalRouter from './fluxoOperacional.js';
 import { createAiAssistantRouter } from './aiAssistant.js';
 import { createAiConsultaRouter } from './aiConsulta.js';
+import { createSyncFluxoAutoRouter } from './syncFluxoAuto.js';
 import {
   createAluguelSalasAutomaticoRouter,
   createAluguelSalasRouter,
@@ -67,6 +68,8 @@ const fluxoUseCase = new GetFluxoCompletoUseCase(
 
 // n8n (sync secret) — antes do guard JWT em /aluguel
 router.use(createAluguelSalasAutomaticoRouter());
+// Apps Script (SYNC_WEBHOOK_SECRET) — sync só-inserir do Fluxo
+router.use(createSyncFluxoAutoRouter());
 
 // Rotas operacionais (secretária e admin)
 router.use(
