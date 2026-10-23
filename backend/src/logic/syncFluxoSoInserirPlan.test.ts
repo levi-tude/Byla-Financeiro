@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { planAlunosSoInserir, planPagamentosSoInserir } from './syncFluxoSoInserirPlan.js';
+import { colisoesSemEspaco, planAlunosSoInserir, planPagamentosSoInserir } from './syncFluxoSoInserirPlan.js';
 
 const base = {
   aluno_nome: 'Aluna Fictícia',
@@ -47,4 +47,29 @@ test('aluno existente não é reinserido; novo é', () => {
     [{ aba: 'aba x', modalidade: 'm', aluno_nome: 'PESSOA TESTE' }],
   );
   assert.deepEqual(plan.inserts.map((a) => a.aluno_nome), ['Pessoa Nova']);
+});
+
+test('ignora espaços no nome do aluno: "Nome Teste" == "NOMETESTE"', () => {
+  const pag = planPagamentosSoInserir(
+    [{ ...base, aluno_nome: 'Nome Teste' }],
+    [{ ...base, aluno_nome: 'NOMETESTE' }],
+  );
+  assert.equal(pag.inserts.length, 0);
+  const al = planAlunosSoInserir(
+    [{ aba: 'ABA X', modalidade: 'M', aluno_nome: 'Nome Teste' }],
+    [{ aba: 'ABA X', modalidade: 'M', aluno_nome: 'NOMETESTE' }],
+  );
+  assert.equal(al.inserts.length, 0);
+});
+
+test('colisoesSemEspaco lista nomes que só se igualam sem espaços, por aba', () => {
+  const c = colisoesSemEspaco([
+    { aba: 'ABA X', aluno_nome: 'Ana Bela' },
+    { aba: 'ABA X', aluno_nome: 'ANABELA' },
+    { aba: 'ABA X', aluno_nome: 'ana bela' },
+    { aba: 'ABA Y', aluno_nome: 'Ana Bela' },
+    { aba: 'ABA X', aluno_nome: 'Outra Pessoa' },
+  ]);
+  assert.equal(c.length, 1);
+  assert.deepEqual(c[0].variacoes, ['ana bela', 'anabela']);
 });

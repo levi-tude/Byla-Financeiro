@@ -35,7 +35,9 @@ import { fluxoUuidFromAnyPlanilhaId } from '../src/logic/fluxoPagamentoFingerpri
 import type { PagamentoDesiredIncremental } from '../src/logic/syncFluxoIncrementalPlan.js';
 import {
   planAlunosSoInserir,
+  colisoesSemEspaco,
   normNome,
+  normNomeAluno,
   planPagamentosSoInserir,
 } from '../src/logic/syncFluxoSoInserirPlan.js';
 import { lerPagamentosPorAbaEAno } from '../src/services/planilhaPagamentos.js';
@@ -210,21 +212,24 @@ async function main() {
   // A linha da planilha pode ter mudado: o pagamento herda a linha do aluno no BANCO
   // (casado por aba + modalidade + nome). Pagamento de aluno novo em conflito de linha é pulado.
   const chaveAl = (aba: unknown, mod: unknown, nome: unknown) =>
-    [normNome(aba), normNome(mod), normNome(nome)].join('|');
-  const linhaBanco = new Map<string, number>();
-  for (const a of existAlunos) linhaBanco.set(chaveAl(a.aba, a.modalidade, a.aluno_nome), Number(a.linha_planilha));
-  for (const a of alunosInserir) linhaBanco.set(chaveAl(a.aba, a.modalidade, a.aluno_nome), a.linha_planilha);
+    [normNome(aba), normNome(mod), normNomeAluno(nome)].join('|');
+  // Aluno existente: usa linha E nome exatamente como estão no banco.
+  const linhaBanco = new Map<string, { linha: number; nome: string }>();
+  for (const a of existAlunos)
+    linhaBanco.set(chaveAl(a.aba, a.modalidade, a.aluno_nome), { linha: Number(a.linha_planilha), nome: String(a.aluno_nome) });
+  for (const a of alunosInserir)
+    linhaBanco.set(chaveAl(a.aba, a.modalidade, a.aluno_nome), { linha: a.linha_planilha, nome: a.aluno_nome });
   const pagsSemAluno: typeof pagPlan.inserts = [];
   const pagsComLinha: typeof pagPlan.inserts = [];
   let pagsLinhaRemapeada = 0;
   for (const p of pagPlan.inserts) {
-    const linha = linhaBanco.get(chaveAl(p.aba, p.modalidade, p.aluno_nome));
-    if (linha == null) {
+    const alvo = linhaBanco.get(chaveAl(p.aba, p.modalidade, p.aluno_nome));
+    if (alvo == null) {
       pagsSemAluno.push(p);
       continue;
     }
-    if (linha !== p.linha_planilha) pagsLinhaRemapeada += 1;
-    pagsComLinha.push({ ...p, linha_planilha: linha });
+    if (alvo.linha !== p.linha_planilha) pagsLinhaRemapeada += 1;
+    pagsComLinha.push({ ...p, linha_planilha: alvo.linha, aluno_nome: alvo.nome });
   }
   if (pagsSemAluno.length) {
     avisos.push(
@@ -262,6 +267,15 @@ async function main() {
       origem: 'migracao_planilha',
     };
   });
+
+  // Nomes que só se igualam ao ignorar espaços (mesma aba): possível junção indevida.
+  const colisoes = colisoesSemEspaco([
+    ...existAlunos.map((a) => ({ aba: String(a.aba ?? ''), aluno_nome: String(a.aluno_nome ?? '') })),
+    ...alunosPlanilha.map((a) => ({ aba: a.aba, aluno_nome: a.aluno_nome })),
+  ]);
+  if (colisoes.length) {
+    avisos.push(`${colisoes.length} nome(s) que só se igualam ignorando espaços — conferir em colisoesSemEspaco`);
+  }
 
   const porModalidade: Record<string, number> = {};
   for (const p of pagsInserir) {
@@ -317,6 +331,7 @@ async function main() {
       pagamentosNovosPorModalidade: porModalidade,
       ...(apply ? { alunosInseridos, pagsInseridos } : {}),
     },
+    colisoesSemEspaco: colisoes,
     alunosAInserir: alunosInserir.map((a) => ({
       aba: a.aba,
       modalidade: a.modalidade,
