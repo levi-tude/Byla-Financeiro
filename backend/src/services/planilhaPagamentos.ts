@@ -318,7 +318,7 @@ function monthNumFromCell(monthRow: string[], idx: number): number | null {
   return MESES_PT[k] ?? null;
 }
 
-function buildTripletsFromMonthAndPaymentRows(
+export function buildTripletsFromMonthAndPaymentRows(
   monthRow: string[],
   paymentHeaderRow: string[],
   anoFallback: number,
@@ -375,6 +375,28 @@ function buildTripletsFromMonthAndPaymentRows(
     triplets.push({ startIdx: i, month: monthNum, year, colunas: 2 });
   }
 
+  // YOGA: anos novos (ex.: 2026) têm JANEIRO…DEZEMBRO na linha de meses sem repetir
+  // o cabeçalho Data/forma/Valor. Só completa anos sem nenhum cabeçalho, para não
+  // criar colunas falsas em abas que já têm o padrão completo. Exige uma linha de
+  // meses real (vários meses), não uma célula solta "MARÇO" numa linha de aluno.
+  const mesesNaLinha = new Set(
+    monthRow
+      .map((c) => normalizeMonthLabel(c))
+      .filter((k) => Object.prototype.hasOwnProperty.call(MESES_PT, k)),
+  );
+  const anosComCabecalho = new Set(triplets.map((t) => t.year));
+  const seen = new Set(triplets.map((t) => t.startIdx));
+  for (let i = 0; mesesNaLinha.size >= 6 && i < monthRow.length; i++) {
+    if (seen.has(i)) continue;
+    const key = normalizeMonthLabel(monthRow[i]);
+    if (!key || !Object.prototype.hasOwnProperty.call(MESES_PT, key)) continue;
+    const year = yearForStartIndex(i);
+    if (anosComCabecalho.has(year)) continue;
+    triplets.push({ startIdx: i, month: MESES_PT[key], year, colunas: 3 });
+    seen.add(i);
+  }
+
+  triplets.sort((a, b) => a.startIdx - b.startIdx);
   return triplets;
 }
 
