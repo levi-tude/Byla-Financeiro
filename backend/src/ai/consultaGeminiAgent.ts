@@ -4,11 +4,21 @@
  * Nenhum SQL vem do modelo: os argumentos são validados e convertidos em parâmetros fixos.
  */
 
+import {
+  GEMINI_MODELS,
+  LlmHttpError,
+  llmChat,
+  type LlmMessage,
+  type LlmProviderConfig,
+  type LlmProviderId,
+  type LlmToolDecl,
+} from './llmProviders.js';
+import { Pseudonimizador, type NomeConhecido } from './pseudonimizacao.js';
 import type { ConsultaToolId } from './consultaCatalog.js';
 import type { ConsultaToolContext, ConsultaToolResult } from '../services/consultaBylaTools.js';
 
 /** Modelos em ordem de preferência (verificados em ai.google.dev/gemini-api/docs/models, out/2026). */
-export const CONSULTA_GEMINI_MODELS = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-flash-latest'] as const;
+export const CONSULTA_GEMINI_MODELS = GEMINI_MODELS;
 export const MAX_AGENT_ITERATIONS = 5;
 
 export type ChatHistoryItem = { role: 'user' | 'assistant'; content: string };
@@ -32,7 +42,7 @@ export const CONSULTA_TOOL_DECLS: ToolDecl[] = [
     params: { inicio: DATA, fim: DATA },
     required: ['inicio', 'fim'],
   },
-  { name: 'resumo_modalidades', description: 'Entradas do banco por modalidade no mês.', params: MES_ANO },
+  { name: 'resumo_modalidades', description: 'Entradas por modalidade/aba no mês, dos pagamentos lançados no Fluxo de caixa (fluxo_pagamentos_operacionais).', params: MES_ANO },
   { name: 'controle_oficial_vs_sistema', description: 'Controle de caixa: Planilha × Sistema (entradas, saídas, lucro).', params: MES_ANO },
   { name: 'resumo_categoria_extrato', description: 'Extrato/Movimentações (planilha Entrada/Saída) agrupado por categoria no mês.', params: MES_ANO },
   { name: 'resumo_meio_pagamento', description: 'Entradas por meio de pagamento (PIX, cartão, dinheiro…) no mês.', params: MES_ANO },
@@ -162,7 +172,7 @@ export function normalizeToolCall(
   return { tool: name as ConsultaToolId, params, ctx };
 }
 
-/** Remove CPF, telefone e e-mail antes de enviar ao Gemini. */
+/** Remove CPF, telefone e e-mail antes de enviar ao LLM. */
 export function stripPii(text: string): string {
   return text
     .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '[email omitido]')
@@ -185,55 +195,30 @@ export function buildSystemPrompt(ctx: ConsultaToolContext, today: string): stri
   ].join('\n');
 }
 
-type GeminiPart = {
-  text?: string;
-  functionCall?: { name: string; args?: Record<string, unknown> };
-  functionResponse?: { name: string; response: Record<string, unknown> };
-  thoughtSignature?: string;
-};
-type GeminiContent = { role: 'user' | 'model'; parts: GeminiPart[] };
-
 export type AgentDeps = {
-  apiKey: string;
+  /** Compat: chave Gemini direta (usada se `providers` não vier). */
+  apiKey?: string;
+  providers?: LlmProviderConfig[];
   fetchImpl?: typeof fetch;
   executeTool: (tool: ConsultaToolId, params: Record<string, string>, ctx: ConsultaToolContext) => Promise<ConsultaToolResult>;
+  /** Compat: lista de modelos Gemini quando só `apiKey` é passado. */
   models?: readonly string[];
   today: string;
+  /** Nomes reais conhecidos para pseudonimizar (alunos, pagadores…). */
+  nomesConhecidos?: NomeConhecido[];
+  /** Espião de teste: recebe cada payload enviado ao LLM. */
+  onPayload?: (messages: LlmMessage[]) => void;
 };
 
 export type AgentResult =
-  | { ok: true; text: string; toolsUsed: ConsultaToolId[]; model: string }
+  | { ok: true; text: string; toolsUsed: ConsultaToolId[]; model: string; provider: LlmProviderId }
   | { ok: false; reason: 'rate_limit' | 'error' | 'empty'; detail: string };
 
-export class GeminiHttpError extends Error {
-  constructor(public status: number, message: string) {
-    super(message);
-  }
-}
+/** @deprecated use LlmHttpError */
+export const GeminiHttpError = LlmHttpError;
 
-async function callGemini(
-  deps: AgentDeps,
-  model: string,
-  system: string,
-  contents: GeminiContent[],
-): Promise<GeminiContent> {
-  const f = deps.fetchImpl ?? fetch;
-  const res = await f(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': deps.apiKey },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: system }] },
-      contents,
-      tools: [{ functionDeclarations: geminiFunctionDeclarations() }],
-      generationConfig: { maxOutputTokens: 1200 },
-    }),
-    signal: AbortSignal.timeout(25000),
-  });
-  if (!res.ok) throw new GeminiHttpError(res.status, `Gemini HTTP ${res.status}`);
-  const json = (await res.json()) as { candidates?: { content?: GeminiContent }[] };
-  const content = json.candidates?.[0]?.content;
-  if (!content?.parts?.length) throw new GeminiHttpError(200, 'Gemini sem conteúdo');
-  return { role: 'model', parts: content.parts };
+export function llmToolDecls(): LlmToolDecl[] {
+  return geminiFunctionDeclarations() as LlmToolDecl[];
 }
 
 export async function runConsultaAgent(
@@ -242,54 +227,58 @@ export async function runConsultaAgent(
   ctx: ConsultaToolContext,
   deps: AgentDeps,
 ): Promise<AgentResult> {
-  const system = buildSystemPrompt(ctx, deps.today);
-  const contents: GeminiContent[] = [
-    ...history.map<GeminiContent>((h) => ({
-      role: h.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: stripPii(h.content) }],
-    })),
-    { role: 'user', parts: [{ text: stripPii(message) }] },
-  ];
-  const models = deps.models ?? CONSULTA_GEMINI_MODELS;
-  let lastErr: GeminiHttpError | Error | null = null;
+  const providers =
+    deps.providers ??
+    (deps.apiKey ? [{ provider: 'gemini' as const, apiKey: deps.apiKey, models: deps.models ?? CONSULTA_GEMINI_MODELS }] : []);
+  if (!providers.length) return { ok: false, reason: 'error', detail: 'Nenhum provedor de IA configurado' };
+  const pseudo = new Pseudonimizador(deps.nomesConhecidos ?? []);
+  const proteger = (t: string) => pseudo.ocultar(stripPii(t));
 
-  for (const model of models) {
-    const convo = [...contents];
-    const toolsUsed: ConsultaToolId[] = [];
-    try {
-      for (let i = 0; i < MAX_AGENT_ITERATIONS; i++) {
-        const reply = await callGemini(deps, model, system, convo);
-        convo.push(reply);
-        const calls = reply.parts.filter((p) => p.functionCall);
-        if (calls.length === 0) {
-          const text = reply.parts.map((p) => p.text ?? '').join('').replace(/\*\*/g, '').trim();
-          if (!text) return { ok: false, reason: 'empty', detail: 'Resposta vazia' };
-          return { ok: true, text, toolsUsed, model };
-        }
-        const responses: GeminiPart[] = [];
-        for (const p of calls) {
-          const call = p.functionCall!;
-          const norm = normalizeToolCall(call.name, call.args, ctx);
-          let output: Record<string, unknown>;
-          if (!norm) {
-            output = { erro: 'Função desconhecida.' };
-          } else {
-            toolsUsed.push(norm.tool);
-            const r = await deps.executeTool(norm.tool, norm.params, norm.ctx);
-            output = r.ok ? { fatos: stripPii(r.factsText) } : { erro: stripPii(r.error) };
+  const base: LlmMessage[] = [
+    { role: 'system', content: buildSystemPrompt(ctx, deps.today) },
+    ...history.map<LlmMessage>((h) => ({ role: h.role, content: proteger(h.content) })),
+    { role: 'user', content: proteger(message) },
+  ];
+  const tools = llmToolDecls();
+  let lastErr: Error | null = null;
+  let rateLimited = false;
+
+  for (const p of providers) {
+    for (const model of p.models) {
+      const convo = [...base];
+      const toolsUsed: ConsultaToolId[] = [];
+      try {
+        for (let i = 0; i < MAX_AGENT_ITERATIONS; i++) {
+          deps.onPayload?.(convo);
+          const reply = await llmChat(p, model, convo, tools, { fetchImpl: deps.fetchImpl });
+          convo.push({ role: 'assistant', content: reply.text, toolCalls: reply.toolCalls, raw: reply.raw });
+          if (reply.toolCalls.length === 0) {
+            const text = pseudo.revelar(reply.text.replace(/\*\*/g, '').trim());
+            if (!text) return { ok: false, reason: 'empty', detail: 'Resposta vazia' };
+            return { ok: true, text, toolsUsed, model, provider: p.provider };
           }
-          responses.push({ functionResponse: { name: call.name, response: output } });
+          for (const call of reply.toolCalls) {
+            // Códigos ("Aluno 1") voltam a nomes reais só aqui, no servidor.
+            const norm = normalizeToolCall(call.name, pseudo.revelarArgs(call.args), ctx);
+            let output: Record<string, unknown>;
+            if (!norm) {
+              output = { erro: 'Função desconhecida.' };
+            } else {
+              toolsUsed.push(norm.tool);
+              const r = await deps.executeTool(norm.tool, norm.params, norm.ctx);
+              output = r.ok ? { fatos: proteger(r.factsText) } : { erro: proteger(r.error) };
+            }
+            convo.push({ role: 'tool', toolCallId: call.id, name: call.name, content: JSON.stringify(output) });
+          }
         }
-        convo.push({ role: 'user', parts: responses });
+        return { ok: false, reason: 'error', detail: 'Limite de iterações atingido' };
+      } catch (e) {
+        lastErr = e as Error;
+        // 429: tenta o próximo modelo/provedor (cota é por modelo); 4xx/5xx de modelo também.
+        if (e instanceof LlmHttpError && e.status === 429) rateLimited = true;
       }
-      return { ok: false, reason: 'error', detail: 'Limite de iterações atingido' };
-    } catch (e) {
-      lastErr = e as Error;
-      if (e instanceof GeminiHttpError && e.status === 429) {
-        return { ok: false, reason: 'rate_limit', detail: e.message };
-      }
-      // 404/400 de modelo: tenta o próximo da lista.
     }
   }
-  return { ok: false, reason: 'error', detail: lastErr?.message ?? 'Falha Gemini' };
+  if (rateLimited) return { ok: false, reason: 'rate_limit', detail: lastErr?.message ?? 'HTTP 429' };
+  return { ok: false, reason: 'error', detail: lastErr?.message ?? 'Falha IA' };
 }

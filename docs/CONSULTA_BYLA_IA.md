@@ -64,3 +64,25 @@ A verificação é feita no servidor, a partir de `profiles.role`; o papel envia
 3. `cd frontend && npm run dev`, entre como admin e abra o Consulta Byla.
 4. Sem a chave, o chat deve responder pelo menu (modo simples).
 5. Testes: `cd backend && npm test`
+
+## Provedor de IA: Groq (primário) e Gemini (opcional)
+
+- **Groq é o provedor principal** quando `GROQ_API_KEY` está definida (API compatível com OpenAI: `POST https://api.groq.com/openai/v1/chat/completions`, com `tools`).
+- Modelos (fonte: https://console.groq.com/docs/tool-use, tabela "Supported Models", consultada em 30/10/2026):
+  - primário: `openai/gpt-oss-120b` (tool use local, bom em português);
+  - reserva: `llama-3.3-70b-versatile` (tool use + chamadas paralelas).
+- **Gemini** só entra como reserva, se `GEMINI_API_KEY` existir.
+- A ordem é configurável em `CONSULTA_AI_PROVIDER` (padrão `groq,gemini`; ex.: `gemini` usa só Gemini). Só entra na lista o provedor que tem chave.
+- **Erro 429 (limite)**: tenta o próximo modelo/provedor. Se todos falharem, responde no modo simples (menu determinístico) com o aviso "O limite gratuito da IA foi atingido agora…". O mesmo vale para outros erros.
+- **Retenção de dados**: por padrão, o Groq não guarda entradas nem saídas de inferência. Ativar **Zero Data Retention** em Data Controls no console Groq desliga também os logs temporários de confiabilidade/abuso (fonte: https://console.groq.com/docs/your-data). É uma configuração da conta Groq, feita pelo Levi; não fica no código.
+- Código: `backend/src/ai/llmProviders.ts` (Groq/Gemini + `llmGenerateText`, também usado pelo painel de criações).
+
+## Pseudonimização (nome → código)
+
+- Antes de qualquer envio ao LLM (pergunta, histórico e resultado das tools), os nomes conhecidos viram códigos estáveis dentro da mesma requisição: "Aluno 1", "Pessoa 3"…
+- Os nomes vêm, somente leitura e com cache de 10 min, de `fluxo_pagamentos_operacionais.aluno_nome` (alunos), `mapeamento_pessoa_categoria.pessoa_normalizada` e `transacoes.pessoa` (pessoas).
+- Os argumentos de tool que o modelo devolve com código (ex.: `{"nome":"Aluno 1"}`) são trocados pelo nome real **no servidor** antes de executar a tool.
+- A resposta final é revelada (código → nome) antes de chegar ao usuário.
+- CPF, telefone e e-mail continuam sendo removidos (`stripPii`).
+- Limites: nomes com menos de 4 letras e apelidos que não estão em nenhuma dessas tabelas (ex.: "Pholha" como texto livre ou dentro de uma categoria) não são trocados.
+- Testes: `backend/src/ai/consultaGroqPseudo.test.ts` (nenhum nome real das fixtures vai no payload; round-trip de "quanto a Aluno Demo Um pagou?").
