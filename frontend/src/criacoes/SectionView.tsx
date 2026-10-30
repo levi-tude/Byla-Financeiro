@@ -6,15 +6,34 @@ import { fmt, fmtMes } from './format';
 import type { Dataset, Secao } from './types';
 import { NumberTicker } from '../components/magicui/NumberTicker';
 import { BorderBeam } from '../components/magicui/BorderBeam';
+import { useTheme } from '../context/ThemeContext';
 
 export const PALETA = ['#f43f5e', '#818cf8', '#22d3ee', '#fbbf24', '#34d399', '#c084fc', '#fb923c', '#94a3b8'];
-const AXIS = { axisLine: { lineStyle: { color: '#334155' } }, axisLabel: { color: '#94a3b8' }, splitLine: { lineStyle: { color: '#1e293b' } } };
-const TOOLTIP = {
-  backgroundColor: 'rgba(2,6,23,0.92)',
-  borderColor: '#334155',
-  textStyle: { color: '#e2e8f0' },
-  extraCssText: 'backdrop-filter: blur(6px); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.4);',
-};
+/** Cores do ECharts por tema (segue o ThemeContext do app; muda de forma reativa). */
+export function chartTheme(dark: boolean) {
+  return {
+    axis: {
+      axisLine: { lineStyle: { color: dark ? '#334155' : '#cbd5e1' } },
+      axisLabel: { color: dark ? '#94a3b8' : '#64748b' },
+      splitLine: { lineStyle: { color: dark ? '#1e293b' : '#e2e8f0' } },
+    },
+    tooltip: {
+      backgroundColor: dark ? 'rgba(2,6,23,0.92)' : 'rgba(255,255,255,0.96)',
+      borderColor: dark ? '#334155' : '#e2e8f0',
+      textStyle: { color: dark ? '#e2e8f0' : '#0f172a' },
+      extraCssText: `backdrop-filter: blur(6px); border-radius: 12px; box-shadow: 0 10px 30px ${dark ? 'rgba(0,0,0,.4)' : 'rgba(15,23,42,.12)'};`,
+    },
+    legend: dark ? '#cbd5e1' : '#334155',
+    pointer: dark ? '#475569' : '#94a3b8',
+    sliceBorder: dark ? '#020617' : '#ffffff',
+    center: dark ? '#f8fafc' : '#0f172a',
+  };
+}
+
+function useChartTheme() {
+  const { theme } = useTheme();
+  return useMemo(() => chartTheme(theme === 'dark'), [theme]);
+}
 
 function col(ds: Dataset, key: string) {
   return ds.colunas.find((c) => c.key === key) ?? { key, label: key, formato: 'texto' as const };
@@ -27,6 +46,7 @@ function useAnim() {
 
 function SeriesChart({ s, ds }: { s: Extract<Secao, { x: string; series: string[] }>; ds: Dataset }) {
   const anim = useAnim();
+  const t = useChartTheme();
   const option = useMemo<EChartsCoreOption>(() => {
     const xs = ds.linhas.map((l) => (col(ds, s.x).formato === 'mes' ? fmtMes(l[s.x]!) : String(l[s.x])));
     const isBar = s.type === 'bar_chart';
@@ -34,16 +54,16 @@ function SeriesChart({ s, ds }: { s: Extract<Secao, { x: string; series: string[
       ...anim,
       color: PALETA,
       grid: { left: 8, right: 16, top: 48, bottom: 12, containLabel: true },
-      legend: { top: 4, textStyle: { color: '#cbd5e1' } },
+      legend: { top: 4, textStyle: { color: t.legend } },
       tooltip: {
-        ...TOOLTIP,
+        ...t.tooltip,
         trigger: 'axis',
-        axisPointer: { type: isBar ? 'shadow' : 'cross', lineStyle: { color: '#475569' } },
+        axisPointer: { type: isBar ? 'shadow' : 'cross', lineStyle: { color: t.pointer } },
         valueFormatter: (v: number) => fmt(v, col(ds, s.series[0]!).formato),
       },
       dataZoom: [{ type: 'inside' }],
-      xAxis: { type: 'category', data: xs, boundaryGap: isBar, ...AXIS },
-      yAxis: { type: 'value', ...AXIS, axisLabel: { color: '#94a3b8', formatter: (v: number) => fmt(v, col(ds, s.series[0]!).formato, true) } },
+      xAxis: { type: 'category', data: xs, boundaryGap: isBar, ...t.axis },
+      yAxis: { type: 'value', ...t.axis, axisLabel: { color: t.axis.axisLabel.color, formatter: (v: number) => fmt(v, col(ds, s.series[0]!).formato, true) } },
       series: s.series.map((k, i) => ({
         id: k,
         name: col(ds, k).label,
@@ -64,34 +84,35 @@ function SeriesChart({ s, ds }: { s: Extract<Secao, { x: string; series: string[
         animationDelay: (idx: number) => idx * 120 + i * 200,
       })),
     };
-  }, [s, ds, anim]);
+  }, [s, ds, anim, t]);
   return <EChart option={option} />;
 }
 
 function Donut({ s, ds }: { s: Extract<Secao, { type: 'donut' }>; ds: Dataset }) {
   const anim = useAnim();
+  const t = useChartTheme();
   const f = col(ds, s.valor).formato;
   const total = ds.linhas.reduce((a, l) => a + Number(l[s.valor] ?? 0), 0);
   const option = useMemo<EChartsCoreOption>(
     () => ({
       ...anim,
       color: PALETA,
-      tooltip: { ...TOOLTIP, trigger: 'item', formatter: (p: { name: string; value: number; percent: number }) => `<b>${p.name}</b><br/>${fmt(p.value, f)} · ${p.percent}%` },
-      legend: { orient: 'vertical', right: 0, top: 'middle', textStyle: { color: '#cbd5e1' } },
+      tooltip: { ...t.tooltip, trigger: 'item', formatter: (p: { name: string; value: number; percent: number }) => `<b>${p.name}</b><br/>${fmt(p.value, f)} · ${p.percent}%` },
+      legend: { orient: 'vertical', right: 0, top: 'middle', textStyle: { color: t.legend } },
       series: [
         {
           type: 'pie',
           radius: ['52%', '78%'],
           center: ['38%', '50%'],
-          itemStyle: { borderColor: '#020617', borderWidth: 3, borderRadius: 10 },
-          label: { show: true, position: 'center', formatter: () => fmt(total, f, true), color: '#f8fafc', fontSize: 22, fontWeight: 700 },
+          itemStyle: { borderColor: t.sliceBorder, borderWidth: 3, borderRadius: 10 },
+          label: { show: true, position: 'center', formatter: () => fmt(total, f, true), color: t.center, fontSize: 22, fontWeight: 700 },
           emphasis: { scale: true, scaleSize: 10 },
           animationType: 'scale',
           data: ds.linhas.map((l) => ({ name: String(l[s.label]), value: l[s.valor] })),
         },
       ],
     }),
-    [s, ds, anim, f, total],
+    [s, ds, anim, f, total, t],
   );
   return <EChart option={option} />;
 }
@@ -112,13 +133,13 @@ function Ranking({ s, ds }: { s: Extract<Secao, { type: 'ranking' }>; ds: Datase
           className="group"
         >
           <div className="mb-1 flex items-baseline justify-between gap-3 text-sm">
-            <span className="flex items-center gap-2 text-slate-200">
-              <span className="grid h-6 w-6 place-items-center rounded-full bg-white/5 text-xs font-semibold text-slate-400">{i + 1}</span>
+            <span className="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+              <span className="grid h-6 w-6 place-items-center rounded-full bg-slate-100 dark:bg-white/5 text-xs font-semibold text-slate-500 dark:text-slate-400">{i + 1}</span>
               {String(r[s.label])}
             </span>
-            <span className="font-semibold tabular-nums text-white">{fmt(r[s.valor], f)}</span>
+            <span className="font-semibold tabular-nums text-slate-900 dark:text-white">{fmt(r[s.valor], f)}</span>
           </div>
-          <div className="h-2.5 overflow-hidden rounded-full bg-white/5">
+          <div className="h-2.5 overflow-hidden rounded-full bg-slate-100 dark:bg-white/5">
             <motion.div
               className="h-full rounded-full"
               style={{ background: `linear-gradient(90deg, ${PALETA[i % PALETA.length]}, ${PALETA[(i + 1) % PALETA.length]})` }}
@@ -151,22 +172,22 @@ function Comparison({ s, ds }: { s: Extract<Secao, { type: 'comparison' }>; ds: 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.12 }}
-            className="rounded-2xl border border-white/10 bg-white/[0.03] p-5"
+            className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.03] p-5"
           >
-            <div className="text-xs uppercase tracking-widest text-slate-400">{c.label}</div>
+            <div className="text-xs uppercase tracking-widest text-slate-500 dark:text-slate-400">{c.label}</div>
             <div className="mt-3 flex items-end justify-between gap-2">
               <div>
                 <div className="text-xs text-slate-500">{fmt(a[s.x], xf)}</div>
-                <div className="text-lg font-medium text-slate-300 tabular-nums">{fmt(va, c.formato)}</div>
+                <div className="text-lg font-medium text-slate-600 dark:text-slate-300 tabular-nums">{fmt(va, c.formato)}</div>
               </div>
-              <div className="text-2xl text-slate-600">→</div>
+              <div className="text-2xl text-slate-400 dark:text-slate-600">→</div>
               <div className="text-right">
                 <div className="text-xs text-slate-500">{fmt(b[s.x], xf)}</div>
-                <div className="text-xl font-semibold text-white tabular-nums">{fmt(vb, c.formato)}</div>
+                <div className="text-xl font-semibold text-slate-900 dark:text-white tabular-nums">{fmt(vb, c.formato)}</div>
               </div>
             </div>
             {delta != null ? (
-              <div className={`mt-3 inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${up ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}`}>
+              <div className={`mt-3 inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${up ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-rose-500/15 text-rose-600 dark:text-rose-300'}`}>
                 {up ? '▲' : '▼'} {Math.abs(delta).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
               </div>
             ) : null}
@@ -180,16 +201,16 @@ function Comparison({ s, ds }: { s: Extract<Secao, { type: 'comparison' }>; ds: 
 function Tabela({ s, ds }: { s: Extract<Secao, { type: 'table' }>; ds: Dataset }) {
   const cols = (s.colunas?.length ? s.colunas : ds.colunas.map((c) => c.key)).map((k) => col(ds, k));
   return (
-    <div className="overflow-x-auto rounded-xl border border-white/10">
+    <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-white/10">
       <table className="w-full text-sm">
-        <thead className="bg-white/[0.04] text-left text-xs uppercase tracking-wider text-slate-400">
+        <thead className="bg-slate-100 dark:bg-white/[0.04] text-left text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
           <tr>{cols.map((c) => <th key={c.key} className={`px-4 py-3 ${c.formato === 'brl' || c.formato === 'numero' ? 'text-right' : ''}`}>{c.label}</th>)}</tr>
         </thead>
         <tbody>
           {ds.linhas.map((l, i) => (
-            <motion.tr key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.05 }} className="border-t border-white/5 hover:bg-white/[0.03]">
+            <motion.tr key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.05 }} className="border-t border-slate-100 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-white/[0.03]">
               {cols.map((c) => (
-                <td key={c.key} className={`px-4 py-2.5 ${c.formato === 'brl' || c.formato === 'numero' ? 'text-right tabular-nums' : ''} ${typeof l[c.key] === 'number' && Number(l[c.key]) < 0 ? 'text-rose-300' : 'text-slate-200'}`}>
+                <td key={c.key} className={`px-4 py-2.5 ${c.formato === 'brl' || c.formato === 'numero' ? 'text-right tabular-nums' : ''} ${typeof l[c.key] === 'number' && Number(l[c.key]) < 0 ? 'text-rose-600 dark:text-rose-300' : 'text-slate-700 dark:text-slate-200'}`}>
                   {fmt(l[c.key], c.formato)}
                 </td>
               ))}
@@ -212,11 +233,11 @@ export function KpiCards({ s }: { s: Extract<Secao, { type: 'kpi_cards' }> }) {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ delay: 0.1 + i * 0.1, type: 'spring', stiffness: 140, damping: 18 }}
           whileHover={reduce ? undefined : { y: -4 }}
-          className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.07] to-white/[0.01] p-5 shadow-xl shadow-black/30"
+          className="relative overflow-hidden rounded-2xl border border-slate-200 dark:border-white/10 bg-gradient-to-br from-white dark:from-white/[0.07] to-slate-50 dark:to-white/[0.01] p-5 shadow-xl shadow-slate-300/40 dark:shadow-black/30"
         >
           <BorderBeam delay={i * 2} />
-          <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">{k.label}</div>
-          <div className={`mt-3 text-2xl font-bold sm:text-3xl ${k.valor < 0 ? 'text-rose-300' : 'text-white'}`}>
+          <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{k.label}</div>
+          <div className={`mt-3 text-2xl font-bold sm:text-3xl ${k.valor < 0 ? 'text-rose-600 dark:text-rose-300' : 'text-slate-900 dark:text-white'}`}>
             <NumberTicker value={k.valor} delay={0.2 + i * 0.1} format={(n) => fmt(n, k.formato)} />
           </div>
         </motion.div>
@@ -227,7 +248,7 @@ export function KpiCards({ s }: { s: Extract<Secao, { type: 'kpi_cards' }> }) {
 
 export function SectionView({ s, datasets }: { s: Secao; datasets: Dataset[] }) {
   if (s.type === 'narrative')
-    return <p className="max-w-3xl text-lg leading-relaxed text-slate-200 sm:text-xl">{s.texto}</p>;
+    return <p className="max-w-3xl text-lg leading-relaxed text-slate-700 dark:text-slate-200 sm:text-xl">{s.texto}</p>;
   if (s.type === 'kpi_cards') return <KpiCards s={s} />;
   const ds = datasets.find((d) => d.id === s.dataset);
   if (!ds) return null;
