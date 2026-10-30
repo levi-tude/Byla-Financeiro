@@ -9,8 +9,11 @@ import { getConciliacaoPagamentosMes } from './conciliacaoPagamentosMes.js';
 import { getFinancasAlunos } from './financasAlunosReadModel.js';
 import { loadControleCaixaExisting } from './controleCaixaRead.js';
 import { normalizeText } from '../logic/conciliacaoTexto.js';
+import { buscarMovimentosPorPessoa } from './consultaMovimentosPessoa.js';
 import type { ConsultaToolId } from '../ai/consultaCatalog.js';
 import { todayIsoLocal } from '../ai/consultaCatalog.js';
+import { getConciliacaoVencimentosMesData } from './conciliacaoVencimentosMes.js';
+import { montarAlunosPanorama } from './relatorioMontagem.js';
 
 export type ConsultaToolContext = {
   mes: number;
@@ -191,32 +194,54 @@ async function toolResumoMeio(ctx: ConsultaToolContext): Promise<string> {
   return [`Resumo por meio de pagamento — ${pad2(ctx.mes)}/${ctx.ano}.`, ...linhas].join('\n');
 }
 
-async function toolModalidades(ctx: ConsultaToolContext): Promise<string> {
+export type PagamentoFluxoRow = { aba: string | null; modalidade: string | null; valor: number | string | null };
+export type PagamentosFluxoLoader = (inicio: string, fim: string) => Promise<PagamentoFluxoRow[]>;
+
+const FONTE_MODALIDADE =
+  'Fonte: Fluxo de caixa operacional (pagamentos lançados por aba/modalidade, tabela fluxo_pagamentos_operacionais, por data de pagamento). O extrato do banco não tem modalidade preenchida.';
+
+/** Leitura (só SELECT) dos pagamentos do Fluxo operacional em um intervalo de datas de pagamento. */
+export const loadPagamentosFluxoRange: PagamentosFluxoLoader = async (inicio, fim) => {
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase não configurado.');
-  const { inicio, fim } = rangeMes(ctx.mes, ctx.ano);
   const { data, error } = await supabase
-    .from('v_transacoes_export')
-    .select('id, data, pessoa, valor, descricao, tipo, modalidade')
-    .gte('data', inicio)
-    .lte('data', fim)
-    .limit(8000);
+    .from('fluxo_pagamentos_operacionais')
+    .select('aba, modalidade, valor')
+    .gte('data_pagamento', inicio)
+    .lte('data_pagamento', fim)
+    .limit(10000);
   if (error) throw new Error(error.message);
-  const rows = (data ?? []) as Array<TransacaoBase & { modalidade?: string | null }>;
-  const oficiais = filtrarTransacoesOficiais(rows);
-  const ids = new Set(oficiais.entradas.map((x) => x.id));
+  return (data ?? []) as PagamentoFluxoRow[];
+};
+
+function rotuloModalidade(r: PagamentoFluxoRow): string {
+  return (r.aba ?? '').trim() || (r.modalidade ?? '').trim() || 'Sem aba';
+}
+
+/** Entradas por modalidade (aba do Fluxo) no mês. */
+export async function toolModalidades(
+  ctx: ConsultaToolContext,
+  load: PagamentosFluxoLoader = loadPagamentosFluxoRange,
+): Promise<string> {
+  const { inicio, fim } = rangeMes(ctx.mes, ctx.ano);
+  const rows = await load(inicio, fim);
+  const head = `Entradas por modalidade — ${pad2(ctx.mes)}/${ctx.ano}. ${FONTE_MODALIDADE}`;
+  if (rows.length === 0) {
+    return `${head}\nNENHUM REGISTRO ENCONTRADO no mês. Não informe valor zero: diga que não há registro.`;
+  }
   const map = new Map<string, { total: number; qtd: number }>();
-  for (const r of rows.filter((x) => ids.has(x.id))) {
-    const mod = (r.modalidade ?? '').trim() || 'Sem modalidade';
-    const e = map.get(mod) ?? { total: 0, qtd: 0 };
-    e.total += Math.abs(Number(r.valor || 0));
+  for (const r of rows) {
+    const k = rotuloModalidade(r);
+    const e = map.get(k) ?? { total: 0, qtd: 0 };
+    e.total += Number(r.valor ?? 0);
     e.qtd += 1;
-    map.set(mod, e);
+    map.set(k, e);
   }
   const linhas = [...map.entries()]
     .sort((a, b) => b[1].total - a[1].total)
-    .map(([n, v]) => `${n}: ${brl(v.total)} (${v.qtd})`);
-  return [`Entradas por modalidade — ${pad2(ctx.mes)}/${ctx.ano}.`, ...linhas].join('\n');
+    .map(([n, v]) => `${n}: ${brl(v.total)} (${v.qtd} pagamento(s))`);
+  const total = [...map.values()].reduce((s, v) => s + v.total, 0);
+  return [head, ...linhas, `TOTAL: ${brl(total)}.`].join('\n');
 }
 
 async function toolControleVs(ctx: ConsultaToolContext): Promise<string> {
@@ -361,6 +386,208 @@ async function toolBuscaValor(
   return [`Encontrei ${hits.length} lançamento(s) perto de ${brl(valor)}:`, ...top].join('\n') + extra;
 }
 
+async function toolAlunosPorModalidade(modalidadeFiltro?: string): Promise<string> {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('Supabase não configurado.');
+  const { data, error } = await supabase
+    .from('fluxo_alunos_operacionais')
+    .select('id, aba, modalidade, aluno_nome, ativo')
+    .limit(5000);
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as Array<{ aba: string | null; modalidade: string | null; aluno_nome: string | null; ativo: boolean | null }>;
+  const alvo = modalidadeFiltro ? normalizeText(modalidadeFiltro) : '';
+  const map = new Map<string, { ativos: number; inativos: number; nomes: string[] }>();
+  for (const r of rows) {
+    const mod = (r.modalidade ?? '').trim() || (r.aba ?? '').trim() || 'Sem modalidade';
+    if (alvo && !normalizeText(mod).includes(alvo) && !normalizeText(r.aba ?? '').includes(alvo)) continue;
+    const e = map.get(mod) ?? { ativos: 0, inativos: 0, nomes: [] };
+    if (r.ativo === false) e.inativos += 1;
+    else {
+      e.ativos += 1;
+      if (r.aluno_nome) e.nomes.push(r.aluno_nome);
+    }
+    map.set(mod, e);
+  }
+  if (map.size === 0) return alvo ? `Nenhuma modalidade encontrada para "${modalidadeFiltro}".` : 'Nenhum aluno cadastrado no Fluxo.';
+  const linhas = [...map.entries()]
+    .sort((a, b) => b[1].ativos - a[1].ativos)
+    .map(([m, v]) => {
+      const base = `${m}: ${v.ativos} ativo(s), ${v.inativos} inativo(s)`;
+      if (!alvo) return base;
+      const nomes = v.nomes.slice(0, 40).join(', ');
+      return `${base}${nomes ? `. Ativos: ${nomes}${v.nomes.length > 40 ? '…' : ''}` : ''}`;
+    });
+  return ['Alunos por modalidade (cadastro do Fluxo de caixa no sistema).', ...linhas].join('\n');
+}
+
+async function toolInadimplencia(ctx: ConsultaToolContext): Promise<string> {
+  const raw = await getConciliacaoVencimentosMesData(ctx.mes, ctx.ano);
+  if ('aviso' in raw) return `Inadimplência ${pad2(ctx.mes)}/${ctx.ano}: ${raw.aviso}`;
+  const inad = raw.itens.filter(
+    (i) => !i.pago_na_planilha && (i.situacao === 'em_aberto' || i.situacao === 'a_vencer' || i.situacao === 'sem_vencimento'),
+  );
+  const rotulo: Record<string, string> = { em_aberto: 'em aberto (vencido)', a_vencer: 'a vencer', sem_vencimento: 'sem vencimento' };
+  const cont = { em_aberto: 0, a_vencer: 0, sem_vencimento: 0 } as Record<string, number>;
+  for (const i of inad) cont[i.situacao] = (cont[i.situacao] ?? 0) + 1;
+  const top = inad.slice(0, 25).map((i) => `${i.aluno} (${i.modalidade}) — ${rotulo[i.situacao] ?? i.situacao}`);
+  return [
+    `Sem pagamento na competência ${pad2(ctx.mes)}/${ctx.ano} (planilha do Fluxo, referência ${raw.hoje}): ${inad.length} aluno(s).`,
+    `Em aberto (vencido): ${cont.em_aberto}; a vencer: ${cont.a_vencer}; sem vencimento: ${cont.sem_vencimento}.`,
+    ...top,
+    inad.length > 25 ? `… e mais ${inad.length - 25}.` : '',
+  ].filter(Boolean).join('\n');
+}
+
+async function resumoMesNumeros(mes: number, ano: number): Promise<{ entradas: number; saidas: number }> {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('Supabase não configurado.');
+  const { data, error } = await supabase
+    .from('v_resumo_mensal_oficial')
+    .select('total_entradas, total_saidas')
+    .eq('mes', mes)
+    .eq('ano', ano)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (data) return { entradas: Number(data.total_entradas ?? 0), saidas: Number(data.total_saidas ?? 0) };
+  const { inicio, fim } = rangeMes(mes, ano);
+  const t = totaisTipo(await loadTransacoesRange(inicio, fim));
+  return { entradas: t.entradas, saidas: t.saidas };
+}
+
+async function toolCompararMeses(a: { mes: number; ano: number }, b: { mes: number; ano: number }): Promise<string> {
+  const [ra, rb] = await Promise.all([resumoMesNumeros(a.mes, a.ano), resumoMesNumeros(b.mes, b.ano)]);
+  const pct = (x: number, y: number) => (x === 0 ? '—' : `${(((y - x) / x) * 100).toFixed(1)}%`);
+  const la = `${pad2(a.mes)}/${a.ano}`;
+  const lb = `${pad2(b.mes)}/${b.ano}`;
+  return [
+    `Comparação ${la} × ${lb} (extrato oficial).`,
+    `Entradas: ${brl(ra.entradas)} × ${brl(rb.entradas)} (variação ${brl(rb.entradas - ra.entradas)}, ${pct(ra.entradas, rb.entradas)}).`,
+    `Saídas: ${brl(ra.saidas)} × ${brl(rb.saidas)} (variação ${brl(rb.saidas - ra.saidas)}, ${pct(ra.saidas, rb.saidas)}).`,
+    `Saldo: ${brl(ra.entradas - ra.saidas)} × ${brl(rb.entradas - rb.saidas)}.`,
+  ].join('\n');
+}
+
+async function toolSaidasPlanilhaControle(ctx: ConsultaToolContext): Promise<string> {
+  const r = await loadControleCaixaExisting(ctx.mes, ctx.ano, 'oficial');
+  if (!('data' in r)) return `Controle de caixa (Planilha) ${pad2(ctx.mes)}/${ctx.ano}: indisponível (${r.error}).`;
+  const d = r.data;
+  if (!d.existe) return `Controle de caixa (Planilha) ${pad2(ctx.mes)}/${ctx.ano}: mês ainda não migrado.`;
+  const blocos = d.blocos.filter((b) => b.tipo === 'saida');
+  const linhas: string[] = [];
+  for (const b of blocos) {
+    const total = b.linhas.reduce((s, l) => s + Number(l.valor ?? 0), 0);
+    linhas.push(`${b.titulo}: ${brl(total)}`);
+    const tops = [...b.linhas]
+      .filter((l) => Number(l.valor ?? 0) !== 0)
+      .sort((x, y) => Number(y.valor ?? 0) - Number(x.valor ?? 0))
+      .slice(0, 8)
+      .map((l) => `  ${l.label}: ${brl(Number(l.valor ?? 0))}`);
+    linhas.push(...tops);
+  }
+  return [
+    `Saídas do Controle de caixa (Planilha) ${pad2(ctx.mes)}/${ctx.ano}.`,
+    `Total de saídas: ${brl(Number(d.totais.saidaTotal ?? 0))} (parceiros ${brl(Number(d.totais.saidaParceirosTotal ?? 0))}, fixas ${brl(Number(d.totais.saidaFixasTotal ?? 0))}).`,
+    ...linhas,
+  ].join('\n');
+}
+
+async function toolResumoPlanilhaFluxo(ctx: ConsultaToolContext): Promise<string> {
+  const p = (await montarAlunosPanorama(ctx.ano, ctx.mes)) as {
+    aviso?: string;
+    totais?: { total_alunos_ativos?: number; total_mensalidade_competencia?: number };
+    por_aba?: Array<{ aba: string; total_alunos_ativos: number; total_mensalidade_competencia: number }>;
+  };
+  if (p.aviso) return `Planilha FLUXO DE CAIXA: ${p.aviso}`;
+  const linhas = (p.por_aba ?? []).map(
+    (a) => `${a.aba}: ${a.total_alunos_ativos} aluno(s), mensalidades ${brl(a.total_mensalidade_competencia)}`,
+  );
+  return [
+    `Planilha FLUXO DE CAIXA — competência ${pad2(ctx.mes)}/${ctx.ano}.`,
+    `Total: ${p.totais?.total_alunos_ativos ?? 0} aluno(s) nas abas; mensalidades na competência ${brl(Number(p.totais?.total_mensalidade_competencia ?? 0))}.`,
+    ...linhas,
+  ].join('\n');
+}
+
+/** Lista de meses terminando em (mes, ano), do mais antigo para o mais recente. */
+export function mesesAte(mes: number, ano: number, n: number): Array<{ mes: number; ano: number }> {
+  const out: Array<{ mes: number; ano: number }> = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(ano, mes - 1 - i, 1);
+    out.push({ mes: d.getMonth() + 1, ano: d.getFullYear() });
+  }
+  return out;
+}
+
+/** Meses entre dois YYYY-MM (inclusive), no máximo 12. */
+function mesesEntre(a: { mes: number; ano: number }, b: { mes: number; ano: number }) {
+  const n = (b.ano - a.ano) * 12 + (b.mes - a.mes) + 1;
+  if (n < 1 || n > 12) return null;
+  return mesesAte(b.mes, b.ano, n);
+}
+
+function periodoParams(params: Record<string, string>, ctx: ConsultaToolContext) {
+  const ini = parseMesAnoParam(params.mes_inicio);
+  const fim = parseMesAnoParam(params.mes_fim);
+  if (ini && fim) return mesesEntre(ini, fim);
+  if (ini) return mesesEntre(ini, ini);
+  return [{ mes: ctx.mes, ano: ctx.ano }];
+}
+
+async function toolBalancoMeses(ctx: ConsultaToolContext, n: number): Promise<string> {
+  const meses = mesesAte(ctx.mes, ctx.ano, n);
+  const nums = await Promise.all(meses.map((m) => resumoMesNumeros(m.mes, m.ano)));
+  let te = 0;
+  let ts = 0;
+  const linhas = meses.map((m, i) => {
+    const r = nums[i]!;
+    te += r.entradas;
+    ts += r.saidas;
+    return `${pad2(m.mes)}/${m.ano}: entradas ${brl(r.entradas)} · saídas ${brl(r.saidas)} · saldo ${brl(r.entradas - r.saidas)}`;
+  });
+  return [
+    `Balanço mês a mês (${n} meses). Fonte: extrato bancário oficial (v_resumo_mensal_oficial; se faltar, transações oficiais).`,
+    ...linhas,
+    `TOTAL: entradas ${brl(te)} · saídas ${brl(ts)} · saldo ${brl(te - ts)}.`,
+  ].join('\n');
+}
+
+/** Entradas de uma modalidade (aba ou modalidade contém o termo) mês a mês. */
+export async function toolEntradasModalidadePeriodo(
+  modalidade: string,
+  meses: Array<{ mes: number; ano: number }>,
+  load: PagamentosFluxoLoader = loadPagamentosFluxoRange,
+): Promise<string> {
+  const key = normalizeText(modalidade);
+  const linhas: string[] = [];
+  let total = 0;
+  let qtdTotal = 0;
+  for (const m of meses) {
+    const { inicio, fim } = rangeMes(m.mes, m.ano);
+    const rows = (await load(inicio, fim)).filter(
+      (r) => normalizeText(r.aba ?? '').includes(key) || normalizeText(r.modalidade ?? '').includes(key),
+    );
+    const v = rows.reduce((s, r) => s + Number(r.valor ?? 0), 0);
+    total += v;
+    qtdTotal += rows.length;
+    linhas.push(rows.length > 0 ? `${pad2(m.mes)}/${m.ano}: ${brl(v)} (${rows.length} pagamento(s))` : `${pad2(m.mes)}/${m.ano}: nenhum registro`);
+  }
+  const head = `Entradas da modalidade “${modalidade}”. ${FONTE_MODALIDADE}`;
+  if (!key || qtdTotal === 0) {
+    return `${head}\nNENHUM REGISTRO ENCONTRADO no período. Não informe valor zero: diga que não há registro.`;
+  }
+  return [head, ...linhas, `TOTAL do período: ${brl(total)}.`].join('\n');
+}
+
+function parseMesAnoParam(raw: string | undefined): { mes: number; ano: number } | null {
+  if (!raw) return null;
+  const m = raw.match(/^(\d{4})-(\d{1,2})$/) ?? null;
+  if (!m) return null;
+  const ano = Number(m[1]);
+  const mes = Number(m[2]);
+  if (mes < 1 || mes > 12 || ano < 2000 || ano > 2100) return null;
+  return { mes, ano };
+}
+
 export async function executeConsultaTool(
   tool: ConsultaToolId,
   params: Record<string, string>,
@@ -443,6 +670,46 @@ export async function executeConsultaTool(
         break;
       case 'busca_por_valor':
         factsText = await toolBuscaValor(ctx, Number(params.valor), params.data);
+        break;
+      case 'alunos_por_modalidade':
+        factsText = await toolAlunosPorModalidade(params.modalidade);
+        break;
+      case 'inadimplencia_mes':
+        factsText = await toolInadimplencia(ctx);
+        break;
+      case 'comparar_meses': {
+        const a = parseMesAnoParam(params.mes_a);
+        const b = parseMesAnoParam(params.mes_b);
+        if (!a || !b) {
+          return { ok: false, tool, needsClarification: true, error: 'Quais dois meses comparar? (ex.: 2026-08 e 2026-09)' };
+        }
+        factsText = await toolCompararMeses(a, b);
+        break;
+      }
+      case 'balanco_meses': {
+        const n = Math.min(12, Math.max(1, Math.trunc(Number(params.meses ?? 1)) || 1));
+        factsText = await toolBalancoMeses(ctx, n);
+        break;
+      }
+      case 'entradas_modalidade_periodo':
+      case 'movimentos_por_pessoa': {
+        const meses = periodoParams(params, ctx);
+        if (!meses) {
+          return { ok: false, tool, needsClarification: true, error: 'Período inválido: use mes_inicio e mes_fim (YYYY-MM), até 12 meses.' };
+        }
+        const alvo = tool === 'entradas_modalidade_periodo' ? params.modalidade : params.nome;
+        if (!alvo) return { ok: false, tool, needsClarification: true, error: 'Qual modalidade ou pessoa?' };
+        factsText =
+          tool === 'entradas_modalidade_periodo'
+            ? await toolEntradasModalidadePeriodo(alvo, meses)
+            : await buscarMovimentosPorPessoa(alvo, meses);
+        break;
+      }
+      case 'saidas_planilha_controle':
+        factsText = await toolSaidasPlanilhaControle(ctx);
+        break;
+      case 'resumo_planilha_fluxo':
+        factsText = await toolResumoPlanilhaFluxo(ctx);
         break;
       default: {
         const _exhaustive: never = tool;

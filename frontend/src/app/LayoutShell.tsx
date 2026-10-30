@@ -51,7 +51,7 @@ export function LayoutShell() {
   const { monthYear } = useMonthYear();
   const wasMobileNavRef = useRef(isMobileNav);
 
-  const isAdmin = auth.role === 'admin';
+  const podeConsulta = auth.role === 'admin' || auth.role === 'gestor';
   const monthYearLabel = `${String(monthYear.mes).padStart(2, '0')}/${monthYear.ano}`;
 
   useEffect(() => {
@@ -140,7 +140,7 @@ export function LayoutShell() {
         onClose={() => setShortcutsOpen(false)}
         role={auth.role}
       />
-      {isAdmin ? (
+      {podeConsulta ? (
         <>
           <AccessibilityChatButton onClick={() => setConsultaOpen(true)} />
           <AccessibilityChatPanel
@@ -148,7 +148,7 @@ export function LayoutShell() {
             onClose={() => setConsultaOpen(false)}
             context={{
               route: location.pathname,
-              role: 'admin',
+              role: auth.role,
               monthYear: monthYearLabel,
             }}
           />

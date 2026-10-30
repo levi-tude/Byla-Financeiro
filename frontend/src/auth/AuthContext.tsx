@@ -15,7 +15,7 @@ const SESSION_TIMEOUT_MS = 25_000;
 const PROFILE_TIMEOUT_MS = 20_000;
 
 function isRole(value: unknown): value is AppRole {
-  return value === 'admin' || value === 'secretaria';
+  return value === 'admin' || value === 'secretaria' || value === 'gestor';
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {

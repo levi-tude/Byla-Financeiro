@@ -31,7 +31,8 @@ import entidadesBylaRoutes from './entidadesByla.js';
 import { createSaidasPainelRouter } from './saidasPainel.js';
 import { createCadastroCompletoRouter } from './cadastroCompleto.js';
 import planilhaEntradaSaidaRoutes from './planilhaEntradaSaida.js';
-import { attachAuthUser, requireRoles } from '../middleware/auth.js';
+import { attachAuthUser, requireRoles, restrictGestor } from '../middleware/auth.js';
+import { CONSULTA_ROLES } from '../auth/roles.js';
 import { getSupabase } from '../services/supabaseClient.js';
 import { isEligibleSheet } from '../businessRules.js';
 import { lerPagamentosPorAbaEAno } from '../services/planilhaPagamentos.js';
@@ -48,6 +49,7 @@ import {
 const router = Router();
 
 router.use(attachAuthUser);
+router.use(restrictGestor(['/ai/consulta']));
 
 const planilhaRange = new PlanilhaRangeAdapter();
 const alunosUseCase = new GetAlunosCompletoUseCase(
@@ -84,7 +86,7 @@ router.use(
   requireRoles(['secretaria', 'admin']),
 );
 
-router.use(['/ai/consulta'], requireRoles(['admin']));
+router.use(['/ai/consulta'], requireRoles(CONSULTA_ROLES));
 
 router.use(
   [

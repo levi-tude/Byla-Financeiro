@@ -61,3 +61,16 @@ export function requireRoles(allowedRoles: readonly AppRole[]) {
     return next();
   };
 }
+
+/**
+ * Papel 'gestor' é só leitura e, por ora, só pode usar o Consulta Byla.
+ * Bloqueia qualquer outra rota (inclusive as sem requireRoles) para não herdar escrita por acidente.
+ */
+export function restrictGestor(allowedPrefixes: readonly string[]) {
+  return function gestorGuard(req: Request, res: Response, next: NextFunction): void {
+    if (req.authUser?.role !== 'gestor') return next();
+    const path = req.path || '/';
+    if (allowedPrefixes.some((p) => path === p || path.startsWith(`${p}/`))) return next();
+    res.status(403).json({ error: 'Perfil gestor: acesso só ao Consulta Byla.' });
+  };
+}

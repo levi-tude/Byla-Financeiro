@@ -28,6 +28,15 @@ export const CONSULTA_MENU_LABELS = [
 ];
 
 const HISTORY_LIMIT = 12;
+/** Máx. de mensagens anteriores enviadas ao backend (o servidor valida o mesmo limite). */
+const HISTORY_SEND_LIMIT = 10;
+
+function buildHistory(msgs: ChatMessage[]): Array<{ role: 'user' | 'assistant'; content: string }> {
+  return msgs
+    .filter((m) => m.text.trim().length > 0 && !m.text.startsWith('Oi! Sou o Consulta Byla'))
+    .slice(-HISTORY_SEND_LIMIT)
+    .map((m) => ({ role: m.role, content: m.text.trim().slice(0, 2000) }));
+}
 
 function uid() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -76,9 +85,10 @@ export function AccessibilityChatPanel({ open, onClose, context }: ConsultaBylaP
         message: trimmed,
         context: {
           route: context.route,
-          role: 'admin',
+          role: context.role ?? null,
           monthYear: context.monthYear,
         },
+        history: buildHistory(messages),
       });
       setMessages((prev) =>
         [

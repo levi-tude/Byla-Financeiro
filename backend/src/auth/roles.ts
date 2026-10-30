@@ -1,4 +1,11 @@
-export const APP_ROLES = ['admin', 'secretaria'] as const;
+/**
+ * 'gestor' = só leitura (por ora: apenas o chat Consulta Byla). Nenhuma rota de escrita aceita gestor.
+ * Para existir no banco precisa da migração scripts/supabase-profiles-role-gestor.sql (aprovação do Levi).
+ */
+export const APP_ROLES = ['admin', 'secretaria', 'gestor'] as const;
+
+/** Papéis que podem usar o Consulta Byla (aplicado no servidor em routes/api.ts). */
+export const CONSULTA_ROLES: readonly AppRole[] = ['admin', 'gestor'];
 
 export type AppRole = (typeof APP_ROLES)[number];
 

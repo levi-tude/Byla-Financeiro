@@ -3,15 +3,22 @@ import { consultaChatBodySchema, parseBody } from '../validation/apiQuery.js';
 import { gerarConsultaReply, getConsultaProviderStatus } from '../services/consultaBylaService.js';
 import { CONSULTA_MENU_LABELS } from '../ai/consultaCatalog.js';
 import { log } from '../services/logger.js';
+import { rateLimit } from '../middleware/rateLimit.js';
+import { config } from '../config.js';
 
 export function createAiConsultaRouter(): Router {
   const router = Router();
+  const consultaLimiter = rateLimit({
+    name: 'consulta-ia',
+    max: config.rateLimitIaMax,
+    windowMs: config.rateLimitIaWindowMs,
+  });
 
   router.get('/ai/consulta/status', (_req: Request, res: Response) => {
     res.json({ ...getConsultaProviderStatus(), menu: CONSULTA_MENU_LABELS });
   });
 
-  router.post('/ai/consulta/chat', async (req: Request, res: Response) => {
+  router.post('/ai/consulta/chat', consultaLimiter, async (req: Request, res: Response) => {
     const parsed = parseBody(consultaChatBodySchema, req.body);
     if (!parsed.ok) {
       res.status(400).json({ error: parsed.message });
@@ -30,6 +37,7 @@ export function createAiConsultaRouter(): Router {
       provider: response.providerUsed,
       monthYear: parsed.data.context?.monthYear ?? null,
       route: parsed.data.context?.route ?? null,
+      historyLen: parsed.data.history?.length ?? 0,
     });
 
     res.json({

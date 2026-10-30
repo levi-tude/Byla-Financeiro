@@ -202,14 +202,26 @@ export const assistantChatBodySchema = z.object({
     .optional(),
 });
 
-/** Consulta Byla — chatbot só-leitura (Admin). */
+/** Histórico do chat Consulta Byla: últimas 10 mensagens, até 2000 caracteres cada. */
+export const CONSULTA_HISTORY_MAX = 10;
+export const consultaHistorySchema = z
+  .array(
+    z.object({
+      role: z.enum(['user', 'assistant']),
+      content: z.string().trim().min(1).max(2000),
+    }),
+  )
+  .max(CONSULTA_HISTORY_MAX);
+
+/** Consulta Byla — chatbot só-leitura (Admin e gestor). */
 export const consultaChatBodySchema = z.object({
   message: z.string().trim().min(1).max(1000),
   conversationId: z.string().trim().min(1).max(120).optional(),
+  history: consultaHistorySchema.optional(),
   context: z
     .object({
       route: z.string().trim().max(120).optional(),
-      role: z.enum(['secretaria', 'admin']).nullable().optional(),
+      role: z.enum(['secretaria', 'admin', 'gestor']).nullable().optional(),
       monthYear: z.string().trim().max(40).optional(),
     })
     .optional(),
