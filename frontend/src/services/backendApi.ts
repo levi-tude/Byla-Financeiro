@@ -1755,9 +1755,11 @@ export async function gerarTextoRelatorioIA(payload: RelatorioPayload): Promise<
 export interface AssistantChatRequest {
   message: string;
   conversationId?: string;
+  /** Últimas mensagens da conversa (máx. 10). */
+  history?: Array<{ role: 'user' | 'assistant'; content: string }>;
   context?: {
     route?: string;
-    role?: 'secretaria' | 'admin' | null;
+    role?: 'secretaria' | 'admin' | 'gestor' | null;
     monthYear?: string;
   };
 }
@@ -1778,9 +1780,11 @@ export async function chatAcessibilidadeIA(payload: AssistantChatRequest): Promi
 export interface ConsultaBylaChatRequest {
   message: string;
   conversationId?: string;
+  /** Últimas mensagens da conversa (máx. 10). */
+  history?: Array<{ role: 'user' | 'assistant'; content: string }>;
   context?: {
     route?: string;
-    role?: 'secretaria' | 'admin' | null;
+    role?: 'secretaria' | 'admin' | 'gestor' | null;
     monthYear?: string;
   };
 }

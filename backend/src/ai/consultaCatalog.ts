@@ -17,7 +17,12 @@ export type ConsultaToolId =
   | 'movimentos_banco_dia'
   | 'sem_vinculo_validacao'
   | 'busca_aluno'
-  | 'busca_por_valor';
+  | 'busca_por_valor'
+  | 'alunos_por_modalidade'
+  | 'inadimplencia_mes'
+  | 'comparar_meses'
+  | 'saidas_planilha_controle'
+  | 'resumo_planilha_fluxo';
 
 export type ConsultaIntent = {
   tool: ConsultaToolId;

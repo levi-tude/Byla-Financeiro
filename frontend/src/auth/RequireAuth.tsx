@@ -8,6 +8,7 @@ type RequireAuthProps = {
 };
 
 function roleHome(role: AppRole): string {
+  if (role === 'gestor') return '/perfil';
   return role === 'admin' ? '/' : '/fluxo-caixa';
 }
 

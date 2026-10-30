@@ -28,6 +28,7 @@ function HomeByRole() {
   if (auth.loading) return null;
   if (!auth.userId) return <Navigate to="/login" replace />;
   if (auth.role === 'secretaria') return <Navigate to="/fluxo-caixa" replace />;
+  if (auth.role === 'gestor') return <Navigate to="/perfil" replace />;
   return <OverviewPage />;
 }
 
@@ -157,7 +158,7 @@ export default function App() {
           <Route
             path="perfil"
             element={
-              <RequireAuth roles={['secretaria', 'admin']}>
+              <RequireAuth roles={['secretaria', 'admin', 'gestor']}>
                 <ProfilePage />
               </RequireAuth>
             }

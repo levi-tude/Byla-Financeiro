@@ -11,6 +11,8 @@ import { loadControleCaixaExisting } from './controleCaixaRead.js';
 import { normalizeText } from '../logic/conciliacaoTexto.js';
 import type { ConsultaToolId } from '../ai/consultaCatalog.js';
 import { todayIsoLocal } from '../ai/consultaCatalog.js';
+import { getConciliacaoVencimentosMesData } from './conciliacaoVencimentosMes.js';
+import { montarAlunosPanorama } from './relatorioMontagem.js';
 
 export type ConsultaToolContext = {
   mes: number;
@@ -361,6 +363,138 @@ async function toolBuscaValor(
   return [`Encontrei ${hits.length} lançamento(s) perto de ${brl(valor)}:`, ...top].join('\n') + extra;
 }
 
+async function toolAlunosPorModalidade(modalidadeFiltro?: string): Promise<string> {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('Supabase não configurado.');
+  const { data, error } = await supabase
+    .from('fluxo_alunos_operacionais')
+    .select('id, aba, modalidade, aluno_nome, ativo')
+    .limit(5000);
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as Array<{ aba: string | null; modalidade: string | null; aluno_nome: string | null; ativo: boolean | null }>;
+  const alvo = modalidadeFiltro ? normalizeText(modalidadeFiltro) : '';
+  const map = new Map<string, { ativos: number; inativos: number; nomes: string[] }>();
+  for (const r of rows) {
+    const mod = (r.modalidade ?? '').trim() || (r.aba ?? '').trim() || 'Sem modalidade';
+    if (alvo && !normalizeText(mod).includes(alvo) && !normalizeText(r.aba ?? '').includes(alvo)) continue;
+    const e = map.get(mod) ?? { ativos: 0, inativos: 0, nomes: [] };
+    if (r.ativo === false) e.inativos += 1;
+    else {
+      e.ativos += 1;
+      if (r.aluno_nome) e.nomes.push(r.aluno_nome);
+    }
+    map.set(mod, e);
+  }
+  if (map.size === 0) return alvo ? `Nenhuma modalidade encontrada para "${modalidadeFiltro}".` : 'Nenhum aluno cadastrado no Fluxo.';
+  const linhas = [...map.entries()]
+    .sort((a, b) => b[1].ativos - a[1].ativos)
+    .map(([m, v]) => {
+      const base = `${m}: ${v.ativos} ativo(s), ${v.inativos} inativo(s)`;
+      if (!alvo) return base;
+      const nomes = v.nomes.slice(0, 40).join(', ');
+      return `${base}${nomes ? `. Ativos: ${nomes}${v.nomes.length > 40 ? '…' : ''}` : ''}`;
+    });
+  return ['Alunos por modalidade (cadastro do Fluxo de caixa no sistema).', ...linhas].join('\n');
+}
+
+async function toolInadimplencia(ctx: ConsultaToolContext): Promise<string> {
+  const raw = await getConciliacaoVencimentosMesData(ctx.mes, ctx.ano);
+  if ('aviso' in raw) return `Inadimplência ${pad2(ctx.mes)}/${ctx.ano}: ${raw.aviso}`;
+  const inad = raw.itens.filter(
+    (i) => !i.pago_na_planilha && (i.situacao === 'em_aberto' || i.situacao === 'a_vencer' || i.situacao === 'sem_vencimento'),
+  );
+  const rotulo: Record<string, string> = { em_aberto: 'em aberto (vencido)', a_vencer: 'a vencer', sem_vencimento: 'sem vencimento' };
+  const cont = { em_aberto: 0, a_vencer: 0, sem_vencimento: 0 } as Record<string, number>;
+  for (const i of inad) cont[i.situacao] = (cont[i.situacao] ?? 0) + 1;
+  const top = inad.slice(0, 25).map((i) => `${i.aluno} (${i.modalidade}) — ${rotulo[i.situacao] ?? i.situacao}`);
+  return [
+    `Sem pagamento na competência ${pad2(ctx.mes)}/${ctx.ano} (planilha do Fluxo, referência ${raw.hoje}): ${inad.length} aluno(s).`,
+    `Em aberto (vencido): ${cont.em_aberto}; a vencer: ${cont.a_vencer}; sem vencimento: ${cont.sem_vencimento}.`,
+    ...top,
+    inad.length > 25 ? `… e mais ${inad.length - 25}.` : '',
+  ].filter(Boolean).join('\n');
+}
+
+async function resumoMesNumeros(mes: number, ano: number): Promise<{ entradas: number; saidas: number }> {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('Supabase não configurado.');
+  const { data, error } = await supabase
+    .from('v_resumo_mensal_oficial')
+    .select('total_entradas, total_saidas')
+    .eq('mes', mes)
+    .eq('ano', ano)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (data) return { entradas: Number(data.total_entradas ?? 0), saidas: Number(data.total_saidas ?? 0) };
+  const { inicio, fim } = rangeMes(mes, ano);
+  const t = totaisTipo(await loadTransacoesRange(inicio, fim));
+  return { entradas: t.entradas, saidas: t.saidas };
+}
+
+async function toolCompararMeses(a: { mes: number; ano: number }, b: { mes: number; ano: number }): Promise<string> {
+  const [ra, rb] = await Promise.all([resumoMesNumeros(a.mes, a.ano), resumoMesNumeros(b.mes, b.ano)]);
+  const pct = (x: number, y: number) => (x === 0 ? '—' : `${(((y - x) / x) * 100).toFixed(1)}%`);
+  const la = `${pad2(a.mes)}/${a.ano}`;
+  const lb = `${pad2(b.mes)}/${b.ano}`;
+  return [
+    `Comparação ${la} × ${lb} (extrato oficial).`,
+    `Entradas: ${brl(ra.entradas)} × ${brl(rb.entradas)} (variação ${brl(rb.entradas - ra.entradas)}, ${pct(ra.entradas, rb.entradas)}).`,
+    `Saídas: ${brl(ra.saidas)} × ${brl(rb.saidas)} (variação ${brl(rb.saidas - ra.saidas)}, ${pct(ra.saidas, rb.saidas)}).`,
+    `Saldo: ${brl(ra.entradas - ra.saidas)} × ${brl(rb.entradas - rb.saidas)}.`,
+  ].join('\n');
+}
+
+async function toolSaidasPlanilhaControle(ctx: ConsultaToolContext): Promise<string> {
+  const r = await loadControleCaixaExisting(ctx.mes, ctx.ano, 'oficial');
+  if (!('data' in r)) return `Controle de caixa (Planilha) ${pad2(ctx.mes)}/${ctx.ano}: indisponível (${r.error}).`;
+  const d = r.data;
+  if (!d.existe) return `Controle de caixa (Planilha) ${pad2(ctx.mes)}/${ctx.ano}: mês ainda não migrado.`;
+  const blocos = d.blocos.filter((b) => b.tipo === 'saida');
+  const linhas: string[] = [];
+  for (const b of blocos) {
+    const total = b.linhas.reduce((s, l) => s + Number(l.valor ?? 0), 0);
+    linhas.push(`${b.titulo}: ${brl(total)}`);
+    const tops = [...b.linhas]
+      .filter((l) => Number(l.valor ?? 0) !== 0)
+      .sort((x, y) => Number(y.valor ?? 0) - Number(x.valor ?? 0))
+      .slice(0, 8)
+      .map((l) => `  ${l.label}: ${brl(Number(l.valor ?? 0))}`);
+    linhas.push(...tops);
+  }
+  return [
+    `Saídas do Controle de caixa (Planilha) ${pad2(ctx.mes)}/${ctx.ano}.`,
+    `Total de saídas: ${brl(Number(d.totais.saidaTotal ?? 0))} (parceiros ${brl(Number(d.totais.saidaParceirosTotal ?? 0))}, fixas ${brl(Number(d.totais.saidaFixasTotal ?? 0))}).`,
+    ...linhas,
+  ].join('\n');
+}
+
+async function toolResumoPlanilhaFluxo(ctx: ConsultaToolContext): Promise<string> {
+  const p = (await montarAlunosPanorama(ctx.ano, ctx.mes)) as {
+    aviso?: string;
+    totais?: { total_alunos_ativos?: number; total_mensalidade_competencia?: number };
+    por_aba?: Array<{ aba: string; total_alunos_ativos: number; total_mensalidade_competencia: number }>;
+  };
+  if (p.aviso) return `Planilha FLUXO DE CAIXA: ${p.aviso}`;
+  const linhas = (p.por_aba ?? []).map(
+    (a) => `${a.aba}: ${a.total_alunos_ativos} aluno(s), mensalidades ${brl(a.total_mensalidade_competencia)}`,
+  );
+  return [
+    `Planilha FLUXO DE CAIXA — competência ${pad2(ctx.mes)}/${ctx.ano}.`,
+    `Total: ${p.totais?.total_alunos_ativos ?? 0} aluno(s) nas abas; mensalidades na competência ${brl(Number(p.totais?.total_mensalidade_competencia ?? 0))}.`,
+    ...linhas,
+  ].join('\n');
+}
+
+function parseMesAnoParam(raw: string | undefined): { mes: number; ano: number } | null {
+  if (!raw) return null;
+  const m = raw.match(/^(\d{4})-(\d{1,2})$/) ?? null;
+  if (!m) return null;
+  const ano = Number(m[1]);
+  const mes = Number(m[2]);
+  if (mes < 1 || mes > 12 || ano < 2000 || ano > 2100) return null;
+  return { mes, ano };
+}
+
 export async function executeConsultaTool(
   tool: ConsultaToolId,
   params: Record<string, string>,
@@ -443,6 +577,27 @@ export async function executeConsultaTool(
         break;
       case 'busca_por_valor':
         factsText = await toolBuscaValor(ctx, Number(params.valor), params.data);
+        break;
+      case 'alunos_por_modalidade':
+        factsText = await toolAlunosPorModalidade(params.modalidade);
+        break;
+      case 'inadimplencia_mes':
+        factsText = await toolInadimplencia(ctx);
+        break;
+      case 'comparar_meses': {
+        const a = parseMesAnoParam(params.mes_a);
+        const b = parseMesAnoParam(params.mes_b);
+        if (!a || !b) {
+          return { ok: false, tool, needsClarification: true, error: 'Quais dois meses comparar? (ex.: 2026-08 e 2026-09)' };
+        }
+        factsText = await toolCompararMeses(a, b);
+        break;
+      }
+      case 'saidas_planilha_controle':
+        factsText = await toolSaidasPlanilhaControle(ctx);
+        break;
+      case 'resumo_planilha_fluxo':
+        factsText = await toolResumoPlanilhaFluxo(ctx);
         break;
       default: {
         const _exhaustive: never = tool;

@@ -11,12 +11,15 @@ import {
 } from '../ai/consultaCatalog.js';
 import { config } from '../config.js';
 import { executeConsultaTool } from './consultaBylaTools.js';
+import { runConsultaAgent, type AgentDeps, type ChatHistoryItem } from '../ai/consultaGeminiAgent.js';
+import { todayIsoLocal } from '../ai/consultaCatalog.js';
 
 export type ConsultaServiceInput = {
   message: string;
+  history?: ChatHistoryItem[];
   context?: {
     route?: string;
-    role?: 'secretaria' | 'admin' | null;
+    role?: 'secretaria' | 'admin' | 'gestor' | null;
     monthYear?: string;
   };
 };
@@ -44,45 +47,53 @@ function sanitize(raw: string): string {
     .trim();
 }
 
-async function tryPolishWithLlm(factsText: string): Promise<{ text: string; provider: 'gemini' | 'groq' | 'openai' } | null> {
-  const prompt = [
-    'Você é o Consulta Byla. Reescreva os FATOS abaixo em português claro para gestão de escola de dança.',
-    'NÃO invente, NÃO altere números, NÃO acrescente valores que não estejam nos fatos.',
-    'Sem markdown. Pode só reorganizar frases se ajudar a leitura.',
-    'Se os fatos já estiverem claros, devolva-os quase iguais.',
-    '',
-    'FATOS:',
-    factsText,
-  ].join('\n');
+export type ConsultaReplyDeps = {
+  apiKey?: string;
+  fetchImpl?: typeof fetch;
+  executeTool?: AgentDeps['executeTool'];
+};
 
-  if (config.geminiApiKey) {
-    try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(config.geminiApiKey)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 500 },
-          }),
-        },
-      );
-      if (response.ok) {
-        const json = (await response.json()) as {
-          candidates?: { content?: { parts?: { text?: string }[] } }[];
-        };
-        const text = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-        if (text) return { text: sanitize(text), provider: 'gemini' };
-      }
-    } catch {
-      /* fallback facts */
+const AVISO_FALLBACK: Record<'rate_limit' | 'error' | 'empty', string> = {
+  rate_limit: 'O limite gratuito da IA foi atingido agora; respondi no modo simples (menu).',
+  error: 'A IA não respondeu agora; respondi no modo simples (menu).',
+  empty: 'A IA não respondeu agora; respondi no modo simples (menu).',
+};
+
+export async function gerarConsultaReply(
+  input: ConsultaServiceInput,
+  deps: ConsultaReplyDeps = {},
+): Promise<ConsultaServiceOutput> {
+  const apiKey = deps.apiKey ?? config.geminiApiKey;
+  const executeTool = deps.executeTool ?? executeConsultaTool;
+  let aviso = '';
+  if (apiKey) {
+    const ctx = defaultMesAno(input.context?.monthYear);
+    const r = await runConsultaAgent(input.message, input.history ?? [], ctx, {
+      apiKey,
+      fetchImpl: deps.fetchImpl,
+      executeTool,
+      today: todayIsoLocal(),
+    });
+    if (r.ok) {
+      return {
+        message: sanitize(r.text),
+        tool: r.toolsUsed[0] ?? null,
+        confidence: 1,
+        quickReplies: CONSULTA_MENU_LABELS.slice(0, 8),
+        providerUsed: 'gemini',
+      };
     }
+    aviso = AVISO_FALLBACK[r.reason];
   }
-  return null;
+  const det = await gerarConsultaDeterministica(input, executeTool);
+  if (aviso) return { ...det, message: `${aviso}\n\n${det.message}`, providerUsed: 'fallback' };
+  return det;
 }
 
-export async function gerarConsultaReply(input: ConsultaServiceInput): Promise<ConsultaServiceOutput> {
+async function gerarConsultaDeterministica(
+  input: ConsultaServiceInput,
+  executeTool: AgentDeps['executeTool'],
+): Promise<ConsultaServiceOutput> {
   const quickReplies = CONSULTA_MENU_LABELS.slice(0, 8);
   const intent = resolveConsultaIntent(input.message);
 
@@ -97,7 +108,7 @@ export async function gerarConsultaReply(input: ConsultaServiceInput): Promise<C
   }
 
   const ctx = defaultMesAno(input.context?.monthYear);
-  const result = await executeConsultaTool(intent.tool, intent.params, ctx);
+  const result = await executeTool(intent.tool, intent.params, ctx);
 
   if (!result.ok) {
     return {
@@ -106,17 +117,6 @@ export async function gerarConsultaReply(input: ConsultaServiceInput): Promise<C
       confidence: intent.confidence,
       quickReplies: result.needsClarification ? quickReplies : CONSULTA_MENU_LABELS,
       providerUsed: 'deterministic',
-    };
-  }
-
-  const polished = await tryPolishWithLlm(result.factsText);
-  if (polished) {
-    return {
-      message: polished.text,
-      tool: result.tool,
-      confidence: intent.confidence,
-      quickReplies,
-      providerUsed: polished.provider,
     };
   }
 
