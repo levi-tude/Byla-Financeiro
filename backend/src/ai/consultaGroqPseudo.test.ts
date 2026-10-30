@@ -112,5 +112,5 @@ test('llmGenerateText cai para o modelo seguinte do Groq', async () => {
   }) as unknown as typeof fetch;
   const r = await llmGenerateText([{ role: 'user', content: 'oi' }], { providers: groq, fetchImpl });
   assert.ok(r.ok);
-  assert.deepEqual(models, ['openai/gpt-oss-120b', 'llama-3.3-70b-versatile']);
+  assert.deepEqual(models, ['openai/gpt-oss-120b', 'openai/gpt-oss-20b']);
 });
