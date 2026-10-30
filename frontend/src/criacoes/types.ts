@@ -21,7 +21,7 @@ export type CriacaoSpec = {
   versao: 1;
   titulo: string;
   subtitulo?: string;
-  origem: 'gemini' | 'deterministico' | 'demo';
+  origem: 'groq' | 'gemini' | 'deterministico' | 'demo';
   geradoEm: string;
   datasets: Dataset[];
   secoes: Secao[];

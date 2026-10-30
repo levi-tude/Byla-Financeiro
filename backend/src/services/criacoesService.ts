@@ -1,7 +1,8 @@
 /**
- * Criações da IA — orquestra Gemini → validação → fallback determinístico.
+ * Criações da IA — orquestra IA (Groq/Gemini) → validação → fallback determinístico.
  */
-import { config } from '../config.js';
+import { GEMINI_MODELS, resolveLlmProviders, type LlmProviderConfig } from '../ai/llmProviders.js';
+import { carregarNomesConhecidos, type NomeConhecido } from '../ai/pseudonimizacao.js';
 import { todayIsoLocal } from '../ai/consultaCatalog.js';
 import { runCriacoesAgent, type CriacoesAgentDeps } from '../ai/criacoesGeminiAgent.js';
 import { validarEHidratar, type CriacaoSpec } from '../ai/criacoesSpec.js';
@@ -20,7 +21,7 @@ export async function specDeterministico(prompt: string, ref: MesAno, deps: Cria
   const datasets = [bal, mod, meio].filter((d) => d.linhas.length > 0);
   const draft = {
     titulo: `Balanço dos últimos ${n} meses`,
-    subtitulo: 'Modo automático (sem IA): extrato bancário oficial',
+    subtitulo: 'Modo automático (sem IA): extrato bancário oficial; modalidades do Fluxo de caixa',
     secoes: [
       {
         type: 'kpi_cards',
@@ -45,7 +46,10 @@ export async function specDeterministico(prompt: string, ref: MesAno, deps: Cria
 }
 
 export type CriacoesServiceDeps = {
+  /** Compat/teste: chave Gemini direta. */
   apiKey?: string;
+  providers?: LlmProviderConfig[];
+  nomesConhecidos?: NomeConhecido[];
   fetchImpl?: typeof fetch;
   toolDeps?: CriacaoToolDeps;
   models?: CriacoesAgentDeps['models'];
@@ -58,11 +62,19 @@ export async function gerarCriacao(
   const now = new Date();
   const ref = parseYm(input.monthYear) ?? { mes: now.getMonth() + 1, ano: now.getFullYear() };
   const toolDeps = deps.toolDeps ?? realDeps;
-  const apiKey = deps.apiKey ?? config.geminiApiKey;
-  if (!apiKey) return specDeterministico(input.prompt, ref, toolDeps, 'IA não configurada: apresentação montada no modo automático.');
-  const r = await runCriacoesAgent(input.prompt, ref, { apiKey, fetchImpl: deps.fetchImpl, toolDeps, models: deps.models, today: todayIsoLocal() });
+  const providers =
+    deps.providers ??
+    (deps.apiKey !== undefined
+      ? deps.apiKey
+        ? [{ provider: 'gemini' as const, apiKey: deps.apiKey, models: deps.models ?? GEMINI_MODELS }]
+        : []
+      : resolveLlmProviders());
+  if (!providers.length) return specDeterministico(input.prompt, ref, toolDeps, 'IA não configurada: apresentação montada no modo automático.');
+  let nomesConhecidos = deps.nomesConhecidos;
+  if (!nomesConhecidos) nomesConhecidos = await carregarNomesConhecidos().catch(() => []);
+  const r = await runCriacoesAgent(input.prompt, ref, { providers, nomesConhecidos, fetchImpl: deps.fetchImpl, toolDeps, today: todayIsoLocal() });
   if (r.ok) {
-    const v = validarEHidratar(r.draft, r.datasets, 'gemini');
+    const v = validarEHidratar(r.draft, r.datasets, r.provider);
     if (v.ok) return v.spec;
   }
   const aviso = !r.ok && r.reason === 'rate_limit' ? 'Limite gratuito da IA atingido' : 'A IA não montou uma apresentação válida';

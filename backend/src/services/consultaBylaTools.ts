@@ -9,7 +9,7 @@ import { getConciliacaoPagamentosMes } from './conciliacaoPagamentosMes.js';
 import { getFinancasAlunos } from './financasAlunosReadModel.js';
 import { loadControleCaixaExisting } from './controleCaixaRead.js';
 import { normalizeText } from '../logic/conciliacaoTexto.js';
-import { buscarSaidasPorBeneficiario } from './consultaSaidasBeneficiario.js';
+import { buscarMovimentosPorPessoa } from './consultaMovimentosPessoa.js';
 import type { ConsultaToolId } from '../ai/consultaCatalog.js';
 import { todayIsoLocal } from '../ai/consultaCatalog.js';
 import { getConciliacaoVencimentosMesData } from './conciliacaoVencimentosMes.js';
@@ -194,37 +194,73 @@ async function toolResumoMeio(ctx: ConsultaToolContext): Promise<string> {
   return [`Resumo por meio de pagamento — ${pad2(ctx.mes)}/${ctx.ano}.`, ...linhas].join('\n');
 }
 
-async function toolModalidades(ctx: ConsultaToolContext): Promise<string> {
-  const map = await entradasPorModalidade(ctx.mes, ctx.ano);
-  const linhas = [...map.entries()]
-    .sort((a, b) => b[1].total - a[1].total)
-    .map(([n, v]) => `${n}: ${brl(v.total)} (${v.qtd})`);
-  return [`Entradas por modalidade — ${pad2(ctx.mes)}/${ctx.ano}.`, ...linhas].join('\n');
-}
+export type PagamentoFluxoRow = { aba: string | null; modalidade: string | null; valor: number | string | null };
+export type PagamentosFluxoLoader = (inicio: string, fim: string) => Promise<PagamentoFluxoRow[]>;
 
-export async function entradasPorModalidade(mes: number, ano: number): Promise<Map<string, { total: number; qtd: number }>> {
-  const supabase = getSupabase();
-  if (!supabase) throw new Error('Supabase não configurado.');
-  const { inicio, fim } = rangeMes(mes, ano);
-  const { data, error } = await supabase
-    .from('v_transacoes_export')
-    .select('id, data, pessoa, valor, descricao, tipo, modalidade')
-    .gte('data', inicio)
-    .lte('data', fim)
-    .limit(8000);
-  if (error) throw new Error(error.message);
-  const rows = (data ?? []) as Array<TransacaoBase & { modalidade?: string | null }>;
-  const oficiais = filtrarTransacoesOficiais(rows);
-  const ids = new Set(oficiais.entradas.map((x) => x.id));
+/** Entradas por modalidade (aba do Fluxo operacional) no mês — usado pelas Criações da IA. */
+export async function entradasPorModalidade(
+  mes: number,
+  ano: number,
+  load: PagamentosFluxoLoader = (i, f) => loadPagamentosFluxoRange(i, f),
+): Promise<Map<string, { total: number; qtd: number }>> {
+  const ini = `${ano}-${String(mes).padStart(2, '0')}-01`;
+  const fim = `${ano}-${String(mes).padStart(2, '0')}-${String(new Date(ano, mes, 0).getDate()).padStart(2, '0')}`;
   const map = new Map<string, { total: number; qtd: number }>();
-  for (const r of rows.filter((x) => ids.has(x.id))) {
-    const mod = (r.modalidade ?? '').trim() || 'Sem modalidade';
-    const e = map.get(mod) ?? { total: 0, qtd: 0 };
-    e.total += Math.abs(Number(r.valor || 0));
-    e.qtd += 1;
-    map.set(mod, e);
+  for (const r of await load(ini, fim)) {
+    const k = (r.aba || r.modalidade || 'Sem aba').trim().toUpperCase();
+    const cur = map.get(k) ?? { total: 0, qtd: 0 };
+    cur.total += Number(r.valor) || 0;
+    cur.qtd += 1;
+    map.set(k, cur);
   }
   return map;
+}
+
+const FONTE_MODALIDADE =
+  'Fonte: Fluxo de caixa operacional (pagamentos lançados por aba/modalidade, tabela fluxo_pagamentos_operacionais, por data de pagamento). O extrato do banco não tem modalidade preenchida.';
+
+/** Leitura (só SELECT) dos pagamentos do Fluxo operacional em um intervalo de datas de pagamento. */
+export const loadPagamentosFluxoRange: PagamentosFluxoLoader = async (inicio, fim) => {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('Supabase não configurado.');
+  const { data, error } = await supabase
+    .from('fluxo_pagamentos_operacionais')
+    .select('aba, modalidade, valor')
+    .gte('data_pagamento', inicio)
+    .lte('data_pagamento', fim)
+    .limit(10000);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as PagamentoFluxoRow[];
+};
+
+function rotuloModalidade(r: PagamentoFluxoRow): string {
+  return (r.aba ?? '').trim() || (r.modalidade ?? '').trim() || 'Sem aba';
+}
+
+/** Entradas por modalidade (aba do Fluxo) no mês. */
+export async function toolModalidades(
+  ctx: ConsultaToolContext,
+  load: PagamentosFluxoLoader = loadPagamentosFluxoRange,
+): Promise<string> {
+  const { inicio, fim } = rangeMes(ctx.mes, ctx.ano);
+  const rows = await load(inicio, fim);
+  const head = `Entradas por modalidade — ${pad2(ctx.mes)}/${ctx.ano}. ${FONTE_MODALIDADE}`;
+  if (rows.length === 0) {
+    return `${head}\nNENHUM REGISTRO ENCONTRADO no mês. Não informe valor zero: diga que não há registro.`;
+  }
+  const map = new Map<string, { total: number; qtd: number }>();
+  for (const r of rows) {
+    const k = rotuloModalidade(r);
+    const e = map.get(k) ?? { total: 0, qtd: 0 };
+    e.total += Number(r.valor ?? 0);
+    e.qtd += 1;
+    map.set(k, e);
+  }
+  const linhas = [...map.entries()]
+    .sort((a, b) => b[1].total - a[1].total)
+    .map(([n, v]) => `${n}: ${brl(v.total)} (${v.qtd} pagamento(s))`);
+  const total = [...map.values()].reduce((s, v) => s + v.total, 0);
+  return [head, ...linhas, `TOTAL: ${brl(total)}.`].join('\n');
 }
 
 async function toolControleVs(ctx: ConsultaToolContext): Promise<string> {
@@ -534,30 +570,28 @@ async function toolBalancoMeses(ctx: ConsultaToolContext, n: number): Promise<st
   ].join('\n');
 }
 
-async function toolEntradasModalidadePeriodo(
+/** Entradas de uma modalidade (aba ou modalidade contém o termo) mês a mês. */
+export async function toolEntradasModalidadePeriodo(
   modalidade: string,
   meses: Array<{ mes: number; ano: number }>,
+  load: PagamentosFluxoLoader = loadPagamentosFluxoRange,
 ): Promise<string> {
   const key = normalizeText(modalidade);
   const linhas: string[] = [];
   let total = 0;
   let qtdTotal = 0;
   for (const m of meses) {
-    const map = await entradasPorModalidade(m.mes, m.ano);
-    let v = 0;
-    let q = 0;
-    for (const [nome, e] of map) {
-      if (normalizeText(nome).includes(key)) {
-        v += e.total;
-        q += e.qtd;
-      }
-    }
+    const { inicio, fim } = rangeMes(m.mes, m.ano);
+    const rows = (await load(inicio, fim)).filter(
+      (r) => normalizeText(r.aba ?? '').includes(key) || normalizeText(r.modalidade ?? '').includes(key),
+    );
+    const v = rows.reduce((s, r) => s + Number(r.valor ?? 0), 0);
     total += v;
-    qtdTotal += q;
-    linhas.push(q > 0 ? `${pad2(m.mes)}/${m.ano}: ${brl(v)} (${q} lançamento(s))` : `${pad2(m.mes)}/${m.ano}: nenhum registro`);
+    qtdTotal += rows.length;
+    linhas.push(rows.length > 0 ? `${pad2(m.mes)}/${m.ano}: ${brl(v)} (${rows.length} pagamento(s))` : `${pad2(m.mes)}/${m.ano}: nenhum registro`);
   }
-  const head = `Entradas da modalidade “${modalidade}”. Fonte: extrato bancário oficial (v_transacoes_export, entradas com modalidade vinculada).`;
-  if (qtdTotal === 0) {
+  const head = `Entradas da modalidade “${modalidade}”. ${FONTE_MODALIDADE}`;
+  if (!key || qtdTotal === 0) {
     return `${head}\nNENHUM REGISTRO ENCONTRADO no período. Não informe valor zero: diga que não há registro.`;
   }
   return [head, ...linhas, `TOTAL do período: ${brl(total)}.`].join('\n');
@@ -677,7 +711,7 @@ export async function executeConsultaTool(
         break;
       }
       case 'entradas_modalidade_periodo':
-      case 'saidas_por_beneficiario': {
+      case 'movimentos_por_pessoa': {
         const meses = periodoParams(params, ctx);
         if (!meses) {
           return { ok: false, tool, needsClarification: true, error: 'Período inválido: use mes_inicio e mes_fim (YYYY-MM), até 12 meses.' };
@@ -687,7 +721,7 @@ export async function executeConsultaTool(
         factsText =
           tool === 'entradas_modalidade_periodo'
             ? await toolEntradasModalidadePeriodo(alvo, meses)
-            : await buscarSaidasPorBeneficiario(alvo, meses);
+            : await buscarMovimentosPorPessoa(alvo, meses);
         break;
       }
       case 'saidas_planilha_controle':

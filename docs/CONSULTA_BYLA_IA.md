@@ -23,14 +23,14 @@ Novas:
 - `saidas_planilha_controle`
 - `resumo_planilha_fluxo`
 - `balanco_meses`: balanço mês a mês dos últimos N meses, com total. Fonte: `v_resumo_mensal_oficial` (ou as transações oficiais, se a view não tiver o mês).
-- `entradas_modalidade_periodo`: quanto entrou de uma modalidade num mês ou período. Fonte: entradas oficiais de `v_transacoes_export` com modalidade.
-- `saidas_por_beneficiario`: pagamentos a uma pessoa, professor ou parceiro. Procura em 3 fontes, cada uma mostrada separadamente e **sem somar** (pode ser o mesmo pagamento): extrato bancário (saídas oficiais, por pessoa/descrição), Controle de caixa (modo Planilha, no sistema) e planilha FLUXO DE CAIXA (Google Sheets, blocos de saídas e repasses). Se não achar nada, responde "nenhum registro encontrado nas fontes …" e **nunca R$ 0**.
+- `entradas_modalidade_periodo`: quanto entrou de uma modalidade num mês ou período. Fonte: pagamentos do Fluxo operacional (`fluxo_pagamentos_operacionais`, aba/modalidade, por mês de pagamento). O extrato do banco está com `modalidade` vazia.
+- `movimentos_por_pessoa`: movimentos de uma pessoa, professor, parceiro ou apelido, nos dois sentidos: **recebido de** (entrada) e **pago a** (saída). A busca é por nome e também por categoria, usando `mapeamento_pessoa_categoria` (só leitura), que leva do apelido ao pagador real no banco. Procura em 3 fontes, mostradas separadamente e **sem somar**: extrato bancário (entradas e saídas oficiais), Controle de caixa e planilha FLUXO DE CAIXA. Se não achar nada, responde "nenhum registro encontrado nas fontes …" e **nunca R$ 0**.
 
 ### Perguntas de aceitação (testadas com mock em `consultaAceitacao.test.ts`)
 1. "qual o balanço do mês?" → `resumo_mes`
 2. "qual o balanço dos últimos 4 meses?" → `balanco_meses` (meses=4)
 3. "quanto entrou de Pilates?" → `entradas_modalidade_periodo`
-4. "quanto foi o pagamento do Pholha (professor)?" → `saidas_por_beneficiario`. Hoje não há transação com esse nome no extrato e a tabela `despesas` está vazia, então o resultado depende da planilha e do Controle de caixa; se não houver registro, o chat diz isso.
+4. "quanto foi o pagamento do Pholha?" → `movimentos_por_pessoa`. No extrato, "Pholha" é uma **entrada** de outro pagador, classificada pelo `mapeamento_pessoa_categoria` na categoria "Pholha (Funcional)". A tool chega a esse pagador pela categoria e responde "recebido de" (por volta de R$ 2.500/mês de jul a out, segundo o time de dados). O teste usa dados fictícios.
 
 A instrução de sistema obriga a IA a citar a fonte de cada número e a dizer "não encontrei" em vez de responder zero.
 
@@ -64,3 +64,25 @@ A verificação é feita no servidor, a partir de `profiles.role`; o papel envia
 3. `cd frontend && npm run dev`, entre como admin e abra o Consulta Byla.
 4. Sem a chave, o chat deve responder pelo menu (modo simples).
 5. Testes: `cd backend && npm test`
+
+## Provedor de IA: Groq (primário) e Gemini (opcional)
+
+- **Groq é o provedor principal** quando `GROQ_API_KEY` está definida (API compatível com OpenAI: `POST https://api.groq.com/openai/v1/chat/completions`, com `tools`).
+- Modelos (fonte: https://console.groq.com/docs/tool-use, tabela "Supported Models", consultada em 30/10/2026):
+  - primário: `openai/gpt-oss-120b` (tool use local, bom em português);
+  - reserva: `llama-3.3-70b-versatile` (tool use + chamadas paralelas).
+- **Gemini** só entra como reserva, se `GEMINI_API_KEY` existir.
+- A ordem é configurável em `CONSULTA_AI_PROVIDER` (padrão `groq,gemini`; ex.: `gemini` usa só Gemini). Só entra na lista o provedor que tem chave.
+- **Erro 429 (limite)**: tenta o próximo modelo/provedor. Se todos falharem, responde no modo simples (menu determinístico) com o aviso "O limite gratuito da IA foi atingido agora…". O mesmo vale para outros erros.
+- **Retenção de dados**: por padrão, o Groq não guarda entradas nem saídas de inferência. Ativar **Zero Data Retention** em Data Controls no console Groq desliga também os logs temporários de confiabilidade/abuso (fonte: https://console.groq.com/docs/your-data). É uma configuração da conta Groq, feita pelo Levi; não fica no código.
+- Código: `backend/src/ai/llmProviders.ts` (Groq/Gemini + `llmGenerateText`, também usado pelo painel de criações).
+
+## Pseudonimização (nome → código)
+
+- Antes de qualquer envio ao LLM (pergunta, histórico e resultado das tools), os nomes conhecidos viram códigos estáveis dentro da mesma requisição: "Aluno 1", "Pessoa 3"…
+- Os nomes vêm, somente leitura e com cache de 10 min, de `fluxo_pagamentos_operacionais.aluno_nome` (alunos), `mapeamento_pessoa_categoria.pessoa_normalizada` e `transacoes.pessoa` (pessoas).
+- Os argumentos de tool que o modelo devolve com código (ex.: `{"nome":"Aluno 1"}`) são trocados pelo nome real **no servidor** antes de executar a tool.
+- A resposta final é revelada (código → nome) antes de chegar ao usuário.
+- CPF, telefone e e-mail continuam sendo removidos (`stripPii`).
+- Limites: nomes com menos de 4 letras e apelidos que não estão em nenhuma dessas tabelas (ex.: "Pholha" como texto livre ou dentro de uma categoria) não são trocados.
+- Testes: `backend/src/ai/consultaGroqPseudo.test.ts` (nenhum nome real das fixtures vai no payload; round-trip de "quanto a Aluno Demo Um pagou?").

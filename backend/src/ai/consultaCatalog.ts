@@ -23,7 +23,7 @@ export type ConsultaToolId =
   | 'comparar_meses'
   | 'balanco_meses'
   | 'entradas_modalidade_periodo'
-  | 'saidas_por_beneficiario'
+  | 'movimentos_por_pessoa'
   | 'saidas_planilha_controle'
   | 'resumo_planilha_fluxo';
 

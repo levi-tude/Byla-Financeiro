@@ -125,3 +125,36 @@ test('gating /ai/criacoes: admin e gestor sim, secretaria não', () => {
   assert.equal(run(requireRoles(CONSULTA_ROLES), 'admin', '/ai/criacoes/gerar'), 200);
   assert.equal(run(requireRoles(CONSULTA_ROLES), 'gestor', '/ai/criacoes/gerar'), 200);
 });
+
+test('criações via Groq: payload sem nome real, args revelados e provider groq', async () => {
+  const { runCriacoesAgent } = await import('./criacoesGeminiAgent.js');
+  const payloads: string[] = [];
+  let n = 0;
+  const fetchImpl = (async (url: string, init: RequestInit) => {
+    assert.equal(url, 'https://api.groq.com/openai/v1/chat/completions');
+    payloads.push(String(init.body));
+    n++;
+    if (n === 1) {
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: null, tool_calls: [{ id: 't1', type: 'function', function: { name: 'balanco_meses', arguments: '{"meses":2}' } }] } }] }),
+        { status: 200 },
+      );
+    }
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content: '{"titulo":"Balanço de Aluno 1","secoes":[{"type":"narrative","texto":"ok"}]}' } }] }),
+      { status: 200 },
+    );
+  }) as unknown as typeof fetch;
+  const r = await runCriacoesAgent('balanço para mostrar ao Aluno Demo Um', { mes: 9, ano: 2026 }, {
+    providers: [{ provider: 'groq', apiKey: 'chave-fake', models: ['openai/gpt-oss-120b'] }],
+    fetchImpl,
+    toolDeps: fakeDeps,
+    today: '2026-10-30',
+    nomesConhecidos: [{ nome: 'Aluno Demo Um', tipo: 'aluno' }],
+  });
+  assert.ok(r.ok, JSON.stringify(r));
+  if (!r.ok) return;
+  assert.equal(r.provider, 'groq');
+  assert.equal((r.draft as { titulo: string }).titulo, 'Balanço de Aluno Demo Um');
+  for (const p of payloads) assert.ok(!p.includes('Aluno Demo Um'));
+});

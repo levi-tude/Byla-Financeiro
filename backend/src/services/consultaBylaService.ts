@@ -13,6 +13,8 @@ import { config } from '../config.js';
 import { executeConsultaTool } from './consultaBylaTools.js';
 import { runConsultaAgent, type AgentDeps, type ChatHistoryItem } from '../ai/consultaGeminiAgent.js';
 import { todayIsoLocal } from '../ai/consultaCatalog.js';
+import { GEMINI_MODELS, resolveLlmProviders, type LlmProviderConfig } from '../ai/llmProviders.js';
+import { carregarNomesConhecidos, type NomeConhecido } from '../ai/pseudonimizacao.js';
 
 export type ConsultaServiceInput = {
   message: string;
@@ -48,7 +50,10 @@ function sanitize(raw: string): string {
 }
 
 export type ConsultaReplyDeps = {
+  /** Compat/teste: chave Gemini direta. */
   apiKey?: string;
+  providers?: LlmProviderConfig[];
+  nomesConhecidos?: NomeConhecido[];
   fetchImpl?: typeof fetch;
   executeTool?: AgentDeps['executeTool'];
 };
@@ -63,13 +68,28 @@ export async function gerarConsultaReply(
   input: ConsultaServiceInput,
   deps: ConsultaReplyDeps = {},
 ): Promise<ConsultaServiceOutput> {
-  const apiKey = deps.apiKey ?? config.geminiApiKey;
+  const providers =
+    deps.providers ??
+    (deps.apiKey !== undefined
+      ? deps.apiKey
+        ? [{ provider: 'gemini' as const, apiKey: deps.apiKey, models: GEMINI_MODELS }]
+        : []
+      : resolveLlmProviders());
   const executeTool = deps.executeTool ?? executeConsultaTool;
   let aviso = '';
-  if (apiKey) {
+  if (providers.length) {
     const ctx = defaultMesAno(input.context?.monthYear);
+    let nomesConhecidos = deps.nomesConhecidos;
+    if (!nomesConhecidos) {
+      try {
+        nomesConhecidos = await carregarNomesConhecidos();
+      } catch {
+        nomesConhecidos = [];
+      }
+    }
     const r = await runConsultaAgent(input.message, input.history ?? [], ctx, {
-      apiKey,
+      providers,
+      nomesConhecidos,
       fetchImpl: deps.fetchImpl,
       executeTool,
       today: todayIsoLocal(),
@@ -80,7 +100,7 @@ export async function gerarConsultaReply(
         tool: r.toolsUsed[0] ?? null,
         confidence: 1,
         quickReplies: CONSULTA_MENU_LABELS.slice(0, 8),
-        providerUsed: 'gemini',
+        providerUsed: r.provider,
       };
     }
     aviso = AVISO_FALLBACK[r.reason];
@@ -133,8 +153,7 @@ export function getConsultaProviderStatus(): {
   configured: boolean;
   provider: 'gemini' | 'groq' | 'openai' | null;
 } {
-  if (config.geminiApiKey) return { configured: true, provider: 'gemini' };
-  if (config.groqApiKey) return { configured: true, provider: 'groq' };
-  if (config.openaiApiKey) return { configured: true, provider: 'openai' };
+  const p = resolveLlmProviders()[0];
+  if (p) return { configured: true, provider: p.provider };
   return { configured: false, provider: null };
 }
