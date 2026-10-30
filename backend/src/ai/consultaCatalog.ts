@@ -21,6 +21,9 @@ export type ConsultaToolId =
   | 'alunos_por_modalidade'
   | 'inadimplencia_mes'
   | 'comparar_meses'
+  | 'balanco_meses'
+  | 'entradas_modalidade_periodo'
+  | 'saidas_por_beneficiario'
   | 'saidas_planilha_controle'
   | 'resumo_planilha_fluxo';
 

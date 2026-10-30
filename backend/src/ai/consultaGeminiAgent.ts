@@ -72,6 +72,35 @@ export const CONSULTA_TOOL_DECLS: ToolDecl[] = [
     required: ['mes_a', 'mes_b'],
   },
   {
+    name: 'balanco_meses',
+    description: 'Balanço (entradas, saídas, saldo) mês a mês dos últimos N meses até o mês de referência, com total. Use para "últimos 4 meses".',
+    params: { ...MES_ANO, meses: { type: 'number', description: 'Quantidade de meses (1-12).' } },
+    required: ['meses'],
+  },
+  {
+    name: 'entradas_modalidade_periodo',
+    description: 'Quanto entrou de uma modalidade (ex.: Pilates, Yoga) em um mês ou período, mês a mês e total.',
+    params: {
+      ...MES_ANO,
+      modalidade: { type: 'string', description: 'Nome da modalidade.' },
+      mes_inicio: { type: 'string', description: 'Início YYYY-MM (opcional; sem ele usa o mês de referência).' },
+      mes_fim: { type: 'string', description: 'Fim YYYY-MM (opcional).' },
+    },
+    required: ['modalidade'],
+  },
+  {
+    name: 'saidas_por_beneficiario',
+    description:
+      'Pagamentos (saídas) a uma pessoa, professor, parceiro ou fornecedor: procura no extrato do banco, no Controle de caixa e na planilha de saídas/repasses. Use para "quanto foi o pagamento do X".',
+    params: {
+      ...MES_ANO,
+      nome: { type: 'string', description: 'Nome ou parte do nome do beneficiário.' },
+      mes_inicio: { type: 'string', description: 'Início YYYY-MM (opcional).' },
+      mes_fim: { type: 'string', description: 'Fim YYYY-MM (opcional).' },
+    },
+    required: ['nome'],
+  },
+  {
     name: 'saidas_planilha_controle',
     description: 'Saídas/despesas por categoria do Controle de caixa (modo Planilha): parceiros, fixas e maiores linhas.',
     params: MES_ANO,
@@ -148,6 +177,9 @@ export function buildSystemPrompt(ctx: ConsultaToolContext, today: string): stri
     'Use as funções disponíveis para buscar dados do banco (extrato, Fluxo, Controle) e das planilhas. Pode chamar várias funções.',
     'REGRA DE OURO: todo número, valor, data ou nome da resposta deve vir dos resultados das funções. Nunca invente, estime ou complete dados.',
     'Se as funções não trouxerem o dado, diga que não encontrou e sugira a tela do sistema. Se faltar informação (ex.: nome, mês), pergunte de forma curta.',
+    'DADO INEXISTENTE NÃO É ZERO: se a função disser "nenhum registro encontrado", ou não trouxer a pessoa/modalidade/mês pedido, responda que não há registro nas fontes consultadas (cite as fontes). NUNCA responda "R$ 0", "zero" ou "não houve pagamento" nesses casos.',
+    'Sempre diga de onde vem cada número (ex.: extrato do banco, Controle de caixa, planilha do Fluxo). Se duas fontes trouxerem valores, mostre as duas sem somar.',
+    'Para períodos ("últimos 4 meses"), mostre mês a mês e o total, como a função devolve.',
     'Você não pode alterar nada no sistema. Se pedirem para alterar, explique que o chat é só consulta.',
     'Responda em português do Brasil, curto e claro para secretaria/gestão, sem markdown (sem ** nem #). Valores em R$.',
   ].join('\n');

@@ -15,9 +15,9 @@ function jsonRes(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 }
 
-test('declara 19 tools com nomes únicos', () => {
-  assert.equal(CONSULTA_TOOL_DECLS.length, 19);
-  assert.equal(new Set(CONSULTA_TOOL_DECLS.map((t) => t.name)).size, 19);
+test('declara 22 tools com nomes únicos', () => {
+  assert.equal(CONSULTA_TOOL_DECLS.length, 22);
+  assert.equal(new Set(CONSULTA_TOOL_DECLS.map((t) => t.name)).size, 22);
 });
 
 test('normalizeToolCall rejeita tool desconhecida e params fora da declaração', () => {

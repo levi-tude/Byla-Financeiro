@@ -9,6 +9,7 @@ import { getConciliacaoPagamentosMes } from './conciliacaoPagamentosMes.js';
 import { getFinancasAlunos } from './financasAlunosReadModel.js';
 import { loadControleCaixaExisting } from './controleCaixaRead.js';
 import { normalizeText } from '../logic/conciliacaoTexto.js';
+import { buscarSaidasPorBeneficiario } from './consultaSaidasBeneficiario.js';
 import type { ConsultaToolId } from '../ai/consultaCatalog.js';
 import { todayIsoLocal } from '../ai/consultaCatalog.js';
 import { getConciliacaoVencimentosMesData } from './conciliacaoVencimentosMes.js';
@@ -194,9 +195,17 @@ async function toolResumoMeio(ctx: ConsultaToolContext): Promise<string> {
 }
 
 async function toolModalidades(ctx: ConsultaToolContext): Promise<string> {
+  const map = await entradasPorModalidade(ctx.mes, ctx.ano);
+  const linhas = [...map.entries()]
+    .sort((a, b) => b[1].total - a[1].total)
+    .map(([n, v]) => `${n}: ${brl(v.total)} (${v.qtd})`);
+  return [`Entradas por modalidade — ${pad2(ctx.mes)}/${ctx.ano}.`, ...linhas].join('\n');
+}
+
+async function entradasPorModalidade(mes: number, ano: number): Promise<Map<string, { total: number; qtd: number }>> {
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase não configurado.');
-  const { inicio, fim } = rangeMes(ctx.mes, ctx.ano);
+  const { inicio, fim } = rangeMes(mes, ano);
   const { data, error } = await supabase
     .from('v_transacoes_export')
     .select('id, data, pessoa, valor, descricao, tipo, modalidade')
@@ -215,10 +224,7 @@ async function toolModalidades(ctx: ConsultaToolContext): Promise<string> {
     e.qtd += 1;
     map.set(mod, e);
   }
-  const linhas = [...map.entries()]
-    .sort((a, b) => b[1].total - a[1].total)
-    .map(([n, v]) => `${n}: ${brl(v.total)} (${v.qtd})`);
-  return [`Entradas por modalidade — ${pad2(ctx.mes)}/${ctx.ano}.`, ...linhas].join('\n');
+  return map;
 }
 
 async function toolControleVs(ctx: ConsultaToolContext): Promise<string> {
@@ -485,6 +491,78 @@ async function toolResumoPlanilhaFluxo(ctx: ConsultaToolContext): Promise<string
   ].join('\n');
 }
 
+/** Lista de meses terminando em (mes, ano), do mais antigo para o mais recente. */
+export function mesesAte(mes: number, ano: number, n: number): Array<{ mes: number; ano: number }> {
+  const out: Array<{ mes: number; ano: number }> = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(ano, mes - 1 - i, 1);
+    out.push({ mes: d.getMonth() + 1, ano: d.getFullYear() });
+  }
+  return out;
+}
+
+/** Meses entre dois YYYY-MM (inclusive), no máximo 12. */
+function mesesEntre(a: { mes: number; ano: number }, b: { mes: number; ano: number }) {
+  const n = (b.ano - a.ano) * 12 + (b.mes - a.mes) + 1;
+  if (n < 1 || n > 12) return null;
+  return mesesAte(b.mes, b.ano, n);
+}
+
+function periodoParams(params: Record<string, string>, ctx: ConsultaToolContext) {
+  const ini = parseMesAnoParam(params.mes_inicio);
+  const fim = parseMesAnoParam(params.mes_fim);
+  if (ini && fim) return mesesEntre(ini, fim);
+  if (ini) return mesesEntre(ini, ini);
+  return [{ mes: ctx.mes, ano: ctx.ano }];
+}
+
+async function toolBalancoMeses(ctx: ConsultaToolContext, n: number): Promise<string> {
+  const meses = mesesAte(ctx.mes, ctx.ano, n);
+  const nums = await Promise.all(meses.map((m) => resumoMesNumeros(m.mes, m.ano)));
+  let te = 0;
+  let ts = 0;
+  const linhas = meses.map((m, i) => {
+    const r = nums[i]!;
+    te += r.entradas;
+    ts += r.saidas;
+    return `${pad2(m.mes)}/${m.ano}: entradas ${brl(r.entradas)} · saídas ${brl(r.saidas)} · saldo ${brl(r.entradas - r.saidas)}`;
+  });
+  return [
+    `Balanço mês a mês (${n} meses). Fonte: extrato bancário oficial (v_resumo_mensal_oficial; se faltar, transações oficiais).`,
+    ...linhas,
+    `TOTAL: entradas ${brl(te)} · saídas ${brl(ts)} · saldo ${brl(te - ts)}.`,
+  ].join('\n');
+}
+
+async function toolEntradasModalidadePeriodo(
+  modalidade: string,
+  meses: Array<{ mes: number; ano: number }>,
+): Promise<string> {
+  const key = normalizeText(modalidade);
+  const linhas: string[] = [];
+  let total = 0;
+  let qtdTotal = 0;
+  for (const m of meses) {
+    const map = await entradasPorModalidade(m.mes, m.ano);
+    let v = 0;
+    let q = 0;
+    for (const [nome, e] of map) {
+      if (normalizeText(nome).includes(key)) {
+        v += e.total;
+        q += e.qtd;
+      }
+    }
+    total += v;
+    qtdTotal += q;
+    linhas.push(q > 0 ? `${pad2(m.mes)}/${m.ano}: ${brl(v)} (${q} lançamento(s))` : `${pad2(m.mes)}/${m.ano}: nenhum registro`);
+  }
+  const head = `Entradas da modalidade “${modalidade}”. Fonte: extrato bancário oficial (v_transacoes_export, entradas com modalidade vinculada).`;
+  if (qtdTotal === 0) {
+    return `${head}\nNENHUM REGISTRO ENCONTRADO no período. Não informe valor zero: diga que não há registro.`;
+  }
+  return [head, ...linhas, `TOTAL do período: ${brl(total)}.`].join('\n');
+}
+
 function parseMesAnoParam(raw: string | undefined): { mes: number; ano: number } | null {
   if (!raw) return null;
   const m = raw.match(/^(\d{4})-(\d{1,2})$/) ?? null;
@@ -591,6 +669,25 @@ export async function executeConsultaTool(
           return { ok: false, tool, needsClarification: true, error: 'Quais dois meses comparar? (ex.: 2026-08 e 2026-09)' };
         }
         factsText = await toolCompararMeses(a, b);
+        break;
+      }
+      case 'balanco_meses': {
+        const n = Math.min(12, Math.max(1, Math.trunc(Number(params.meses ?? 1)) || 1));
+        factsText = await toolBalancoMeses(ctx, n);
+        break;
+      }
+      case 'entradas_modalidade_periodo':
+      case 'saidas_por_beneficiario': {
+        const meses = periodoParams(params, ctx);
+        if (!meses) {
+          return { ok: false, tool, needsClarification: true, error: 'Período inválido: use mes_inicio e mes_fim (YYYY-MM), até 12 meses.' };
+        }
+        const alvo = tool === 'entradas_modalidade_periodo' ? params.modalidade : params.nome;
+        if (!alvo) return { ok: false, tool, needsClarification: true, error: 'Qual modalidade ou pessoa?' };
+        factsText =
+          tool === 'entradas_modalidade_periodo'
+            ? await toolEntradasModalidadePeriodo(alvo, meses)
+            : await buscarSaidasPorBeneficiario(alvo, meses);
         break;
       }
       case 'saidas_planilha_controle':
