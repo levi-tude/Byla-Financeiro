@@ -3,17 +3,22 @@ import { consultaChatBodySchema, parseBody } from '../validation/apiQuery.js';
 import { gerarConsultaReply, getConsultaProviderStatus } from '../services/consultaBylaService.js';
 import { CONSULTA_MENU_LABELS } from '../ai/consultaCatalog.js';
 import { log } from '../services/logger.js';
-import { rateLimit } from '../middleware/rateLimit.js';
+import { clientKey, criarCota, rateLimit } from '../middleware/rateLimit.js';
 import { config } from '../config.js';
 
 export function createAiConsultaRouter(): Router {
   const router = Router();
+  // Teto anti-abuso (qualquer pergunta): acima dele, 429.
   const consultaLimiter = rateLimit({
+    name: 'consulta-hard',
+    max: config.rateLimitConsultaHardMax,
+    windowMs: 5 * 60 * 1000,
+  });
+  // Cota de IA por usuário: só conta quando a pergunta vai para a IA. Acabou → modo simples (roteador/menu).
+  const cotaIa = criarCota({
     name: 'consulta-ia',
-    max: config.rateLimitIaMax,
-    windowMs: config.rateLimitIaWindowMs,
-    // Acima do limite não devolve 429: responde no modo simples (sem IA), nunca "não consegui consultar".
-    soft: true,
+    max: config.rateLimitConsultaIaMax,
+    windowMs: config.rateLimitConsultaIaWindowMs,
   });
 
   router.get('/ai/consulta/status', (_req: Request, res: Response) => {
@@ -27,15 +32,10 @@ export function createAiConsultaRouter(): Router {
       return;
     }
 
-    const rateLimited = (req as Request & { rateLimited?: boolean }).rateLimited === true;
+    const key = clientKey(req);
     let response: Awaited<ReturnType<typeof gerarConsultaReply>>;
     try {
-      response = await gerarConsultaReply(
-        parsed.data,
-        rateLimited
-          ? { forcarModoSimples: true, avisoInicial: 'Muitas perguntas seguidas; respondi no modo simples (menu).' }
-          : {},
-      );
+      response = await gerarConsultaReply(parsed.data, { consumirCotaIa: () => cotaIa.consumir(key) });
     } catch (e) {
       log('warn', { msg: 'ai_consulta_chat_erro', requestId: req.requestId, detail: e instanceof Error ? e.message : String(e) });
       response = await gerarConsultaReply(parsed.data, {

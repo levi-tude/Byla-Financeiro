@@ -12,6 +12,7 @@ import {
 } from '../ai/consultaCatalog.js';
 import { config } from '../config.js';
 import { executeConsultaTool } from './consultaBylaTools.js';
+import { formatarRespostaUsuario } from '../ai/respostaUsuario.js';
 import { runConsultaAgent, type AgentDeps, type ChatHistoryItem } from '../ai/consultaGeminiAgent.js';
 import { todayIsoLocal } from '../ai/consultaCatalog.js';
 import { GEMINI_MODELS, resolveLlmProviders, type LlmProviderConfig } from '../ai/llmProviders.js';
@@ -63,7 +64,14 @@ export type ConsultaReplyDeps = {
   /** Aviso prefixado quando cair no modo simples. */
   avisoInicial?: string;
   onTools?: AgentDeps['onTools'];
+  /**
+   * Cota de IA: chamado só quando a pergunta realmente vai para a IA (o roteador não gasta cota).
+   * Retorna false → modo simples com aviso.
+   */
+  consumirCotaIa?: () => boolean;
 };
+
+export const AVISO_COTA_IA = 'Muitas perguntas seguidas; respondi no modo simples (menu).';
 
 /** Executa a rota do roteador determinístico. `null` = a ferramenta pediu esclarecimento → segue para a IA. */
 async function responderRota(
@@ -94,9 +102,21 @@ const AVISO_FALLBACK: Record<'rate_limit' | 'error' | 'empty', string> = {
   empty: 'A IA não respondeu agora; respondi no modo simples (menu).',
 };
 
+/**
+ * Toda resposta ao usuário (roteador, IA, fallback, erro) passa pelo saneamento final:
+ * sem instruções internas do LLM, sem CPF/CNPJ/telefone/e-mail e sem nome duplicado.
+ */
 export async function gerarConsultaReply(
   input: ConsultaServiceInput,
   deps: ConsultaReplyDeps = {},
+): Promise<ConsultaServiceOutput> {
+  const out = await gerarConsultaReplyBruto(input, deps);
+  return { ...out, message: formatarRespostaUsuario(out.message) };
+}
+
+async function gerarConsultaReplyBruto(
+  input: ConsultaServiceInput,
+  deps: ConsultaReplyDeps,
 ): Promise<ConsultaServiceOutput> {
   const providers =
     deps.providers ??
@@ -121,7 +141,12 @@ export async function gerarConsultaReply(
   }
 
   let aviso = deps.avisoInicial ?? '';
-  if (providers.length && !deps.forcarModoSimples) {
+  let modoSimples = !!deps.forcarModoSimples;
+  if (providers.length && !modoSimples && deps.consumirCotaIa && !deps.consumirCotaIa()) {
+    modoSimples = true;
+    aviso = aviso || AVISO_COTA_IA;
+  }
+  if (providers.length && !modoSimples) {
     let nomesConhecidos = deps.nomesConhecidos;
     if (!nomesConhecidos) {
       try {

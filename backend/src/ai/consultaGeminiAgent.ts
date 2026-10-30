@@ -14,6 +14,7 @@ import {
   type LlmToolDecl,
 } from './llmProviders.js';
 import { Pseudonimizador, type NomeConhecido } from './pseudonimizacao.js';
+import { textoParaLlm } from './instrucaoIa.js';
 import type { ConsultaToolId } from './consultaCatalog.js';
 import type { ConsultaToolContext, ConsultaToolResult } from '../services/consultaBylaTools.js';
 
@@ -127,6 +128,16 @@ export const CONSULTA_TOOL_DECLS: ToolDecl[] = [
     params: MES_ANO,
   },
   {
+    name: 'maiores_saidas',
+    description: 'Maiores saídas/gastos do mês no extrato bancário, por destinatário e maiores lançamentos ("pra quem foram as maiores saídas").',
+    params: MES_ANO,
+  },
+  {
+    name: 'saidas_professores',
+    description: 'Gastos/pagamentos a professores no mês (extrato + mapeamento pessoa→categoria). Explica a limitação se não houver categoria.',
+    params: MES_ANO,
+  },
+  {
     name: 'resumo_planilha_fluxo',
     description: 'Planilha FLUXO DE CAIXA: alunos e mensalidades da competência por aba.',
     params: MES_ANO,
@@ -230,6 +241,8 @@ export function buildSystemPrompt(ctx: ConsultaToolContext, today: string): stri
     'COBERTURA DO EXTRATO: se os fatos trouxerem "Dados do extrato até DD/MM/AAAA", repita essa data na resposta; se trouxerem "período incompleto", avise que o mês/período está incompleto. Se trouxerem "Sem dados do extrato", responda "sem dados para esse período" (com a data do último lançamento) e nunca R$ 0,00.',
         'Sempre diga de onde vem cada número (ex.: extrato do banco, Controle de caixa, planilha do Fluxo). Se duas fontes trouxerem valores, mostre as duas sem somar.',
     'Para períodos ("últimos 4 meses"), mostre mês a mês e o total, como a função devolve.',
+    'NOMES PROTEGIDOS: nomes de pessoas chegam como códigos "Pessoa N" ou "Aluno N". Copie o código exatamente como veio (ex.: "Pessoa 2"), sem traduzir, abreviar ou renumerar; o sistema troca pelo nome real.',
+    'Linhas com instruções (ex.: "não informe valor zero") são só para você: não as repita ao usuário.',
     'Você não pode alterar nada no sistema. Se pedirem para alterar, explique que o chat é só consulta.',
     'Responda em português do Brasil, curto e claro para secretaria/gestão, sem markdown (sem ** nem #). Valores em R$.',
   ].join('\n');
@@ -317,7 +330,7 @@ export async function runConsultaAgent(
               toolsUsed.push(norm.tool);
               const r = await deps.executeTool(norm.tool, norm.params, norm.ctx);
               if (r.ok) fatosTools.push(r.factsText);
-              output = r.ok ? { fatos: cortar(proteger(r.factsText), MAX_TOOL_RESULT_CHARS) } : { erro: proteger(r.error) };
+              output = r.ok ? { fatos: cortar(proteger(textoParaLlm(r.factsText)), MAX_TOOL_RESULT_CHARS) } : { erro: proteger(r.error) };
             }
             convo.push({ role: 'tool', toolCallId: call.id, name: call.name, content: JSON.stringify(output) });
           }

@@ -153,6 +153,28 @@ export function rotearConsultaDeterministica(message: string, ctx: MesAno, now =
     return { kind: 'tool', tool: 'comparar_meses', params: { mes_a: ym(a.mes, a.ano), mes_b: ym(b.mes, b.ano) }, ctx, motivo: 'comparar' };
   }
 
+  // Saídas: gastos com professores (antes de "pagamento de pessoa": não há nome).
+  const mesUnico = meses.length === 1 ? comAno(meses[0]!, ctx) : meses.length === 0 ? ctx : null;
+  if (mesUnico && /\bprofessor\w*\b/.test(n) && /\b(gast\w*|pag\w*|saida\w*|despesa\w*|custo\w*|repasse\w*)\b/.test(n) && !extrairPessoa(original)) {
+    return { kind: 'tool', tool: 'saidas_professores', params: {}, ctx: mesUnico, motivo: 'professores' };
+  }
+  // Maiores saídas / pra quem foram os gastos.
+  if (
+    mesUnico &&
+    /\bmaior\w*\s+(saida|gasto|despesa|pagamento)\w*|\b(saida|gasto|despesa)\w*\s+maior\w*|\bpra quem (foram|foi)\b|\bpara quem (foram|foi)\b|\bonde (gastamos|foi o dinheiro)\b/.test(n)
+  ) {
+    return { kind: 'tool', tool: 'maiores_saidas', params: {}, ctx: mesUnico, motivo: 'maiores_saidas' };
+  }
+  // Alunos ativos (opcionalmente de uma modalidade).
+  const at = /\balunos?\s+(?:ativos?|matriculados?)\b|\bquantos alunos\b/.test(n);
+  if (at && !/\b(pag\w*|deve\w*|devendo|inadimpl\w*|atrasad\w*)\b/.test(n)) {
+    const cand = [...n.matchAll(/\b(?:no|na|do|da|de|em)\s+([a-z]{3,20})\b/g)].map((x) => x[1]!).filter(
+      (w) => !['mes', 'sistema', 'total', 'byla', 'hoje', 'momento', 'agora', 'ativos', 'alunos'].includes(w) && !MESES[w],
+    );
+    const m = cand.at(-1) ?? '';
+    return { kind: 'tool', tool: 'alunos_por_modalidade', params: m ? { modalidade: m } : {}, ctx, motivo: 'alunos_ativos' };
+  }
+
   // Entradas por modalidade (tabela).
   if (/\b(entradas?|entrou|receita)\s+(por|de cada)\s+modalidade/.test(n) && meses.length <= 1) {
     const c = meses.length ? comAno(meses[0]!, ctx) : ctx;
@@ -238,9 +260,9 @@ const GRUPOS: Array<{ re: RegExp; tools: ConsultaToolId[] }> = [
   { re: /\b(ultim\w*\s+\d+|meses|trimestre|semestre)\b/, tools: ['balanco_meses', 'resumo_mes'] },
   { re: /\b(compar\w*|vs|versus|x|gastamos mais|diferenca)\b/, tools: ['comparar_meses', 'resumo_mes'] },
   { re: /\b(modalidade\w*|pilates|yoga|teatro|gr|ballet|jazz|danca|aula\w*)\b/, tools: ['entradas_modalidade_periodo', 'resumo_modalidades', 'alunos_por_modalidade'] },
-  { re: /\b(pagou|pagamento\w*|pagar|recebe\w*|professor\w*|repasse\w*|deve|devendo)\b/, tools: ['movimentos_por_pessoa', 'busca_aluno', 'saidas_planilha_controle'] },
+  { re: /\b(pagou|pagamento\w*|pagar|recebe\w*|professor\w*|repasse\w*|deve|devendo)\b/, tools: ['movimentos_por_pessoa', 'busca_aluno', 'saidas_professores', 'saidas_planilha_controle'] },
   { re: /\b(r\$|\d+\s*reais|valor|pix de|\d{2,})\b|r\$/, tools: ['busca_por_valor', 'movimentos_banco_dia'] },
-  { re: /\b(gast\w*|saida\w*|despesa\w*|custo\w*|maiores)\b/, tools: ['saidas_planilha_controle', 'resumo_categoria_extrato', 'resumo_mes'] },
+  { re: /\b(gast\w*|saida\w*|despesa\w*|custo\w*|maiores)\b/, tools: ['maiores_saidas', 'saidas_planilha_controle', 'resumo_categoria_extrato', 'resumo_mes'] },
   { re: /\b(alunos?|ativos?|matricul\w*|plano|preco|mensalidade\w*)\b/, tools: ['alunos_por_modalidade', 'resumo_planilha_fluxo', 'busca_aluno'] },
   { re: /\b(nao pagou|inadimpl\w*|atrasad\w*|pendente\w*|devendo)\b/, tools: ['inadimplencia_mes', 'pendentes_conciliacao'] },
   { re: /\b(semana)\b/, tools: ['resumo_semana'] },
