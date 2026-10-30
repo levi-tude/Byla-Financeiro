@@ -159,21 +159,23 @@ test('2: nome limpo é pseudonimizado e o documento não chega ao LLM nem à res
   }
 });
 
-// ---------- 4) tolerância do par EA/Blead × repasse (alinhada à view: R$ 300) ----------
-test('4: tolerância padrão do par externo é R$ 300 (igual à v_resumo_mensal_oficial)', () => {
-  assert.equal(businessRules.transacoes.externalPairTolerance, 300);
+// ---------- 4) tolerância do par EA/Blead × repasse (R$ 800, decisão do Levi 30/10; a view usa 300) ----------
+test('4: tolerância padrão do par externo é R$ 800 (decisão do Levi; view usa 300)', () => {
+  assert.equal(businessRules.transacoes.externalPairTolerance, 800);
   const sam = `${businessRules.transacoes.samuelNamePrefix} demo`;
   const tx = (id: string, tipo: string, pessoa: string, valor: number, data = '2026-10-05'): TransacaoBase => ({ id, data, pessoa, valor, descricao: '', tipo });
   const r = filtrarTransacoesOficiais([
     tx('e1', 'entrada', 'BLEAD AD TECH DEMO', 2500),
     tx('s1', 'saida', sam, 2300), // diff 200 → par
     tx('e2', 'entrada', 'EA DEMO', 1000, '2026-10-06'),
-    tx('s2', 'saida', sam, 1500, '2026-10-06'), // diff 500 → não é par com 300 (era com 800)
+    tx('s2', 'saida', sam, 1500, '2026-10-06'), // diff 500 → par com 800 (não seria na view, 300)
     tx('e3', 'entrada', 'EA DEMO', 2000, '2026-10-07'),
-    tx('s3', 'saida', sam, 2300, '2026-10-07'), // diff exatamente 300 → par (<=)
+    tx('s3', 'saida', sam, 2800, '2026-10-07'), // diff exatamente 800 → par (<=)
+    tx('e4', 'entrada', 'EA DEMO', 1000, '2026-10-08'),
+    tx('s4', 'saida', sam, 1900, '2026-10-08'), // diff 900 → não é par
   ]);
   const saidas = r.saidas.map((s) => s.id);
-  assert.deepEqual(saidas, ['s2']);
+  assert.deepEqual(saidas, ['s4']);
   assert.equal(r.entradas.length, 0); // entradas externas sempre fora
 });
 
