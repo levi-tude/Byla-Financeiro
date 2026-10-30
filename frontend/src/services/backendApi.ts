@@ -1801,6 +1801,11 @@ export async function chatConsultaByla(payload: ConsultaBylaChatRequest): Promis
   return requestPost<ConsultaBylaChatResponse>('/api/ai/consulta/chat', payload);
 }
 
+/** Criações da IA: o backend devolve um spec JSON validado (números vêm das ferramentas, não da IA). */
+export async function gerarCriacaoIa(payload: { prompt: string; monthYear?: string }): Promise<{ spec: import('../criacoes/types').CriacaoSpec }> {
+  return requestPost<{ spec: import('../criacoes/types').CriacaoSpec }>('/api/ai/criacoes/gerar', payload);
+}
+
 export async function getAcessibilidadeIAStatus(): Promise<{ configured: boolean; provider: 'gemini' | 'groq' | 'openai' | null }> {
   if (!BASE_URL) return { configured: false, provider: null };
   const res = await apiFetch('/api/ai/assistant/status', { method: 'GET' });

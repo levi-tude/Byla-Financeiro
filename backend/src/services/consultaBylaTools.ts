@@ -34,7 +34,7 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 
-function rangeMes(mes: number, ano: number): { inicio: string; fim: string } {
+export function rangeMes(mes: number, ano: number): { inicio: string; fim: string } {
   const inicio = `${ano}-${pad2(mes)}-01`;
   const fim = `${ano}-${pad2(mes)}-${pad2(new Date(ano, mes, 0).getDate())}`;
   return { inicio, fim };
@@ -53,7 +53,7 @@ function semanaAround(dataRef: string): { inicio: string; fim: string } {
   return { inicio: iso(seg), fim: iso(dom) };
 }
 
-async function loadTransacoesRange(inicio: string, fim: string): Promise<TransacaoBase[]> {
+export async function loadTransacoesRange(inicio: string, fim: string): Promise<TransacaoBase[]> {
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase não configurado.');
   const { data, error } = await supabase
@@ -202,7 +202,7 @@ async function toolModalidades(ctx: ConsultaToolContext): Promise<string> {
   return [`Entradas por modalidade — ${pad2(ctx.mes)}/${ctx.ano}.`, ...linhas].join('\n');
 }
 
-async function entradasPorModalidade(mes: number, ano: number): Promise<Map<string, { total: number; qtd: number }>> {
+export async function entradasPorModalidade(mes: number, ano: number): Promise<Map<string, { total: number; qtd: number }>> {
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase não configurado.');
   const { inicio, fim } = rangeMes(mes, ano);
@@ -421,7 +421,7 @@ async function toolInadimplencia(ctx: ConsultaToolContext): Promise<string> {
   ].filter(Boolean).join('\n');
 }
 
-async function resumoMesNumeros(mes: number, ano: number): Promise<{ entradas: number; saidas: number }> {
+export async function resumoMesNumeros(mes: number, ano: number): Promise<{ entradas: number; saidas: number }> {
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase não configurado.');
   const { data, error } = await supabase
