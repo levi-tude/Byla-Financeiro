@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildSystemPrompt, normalizeToolCall, runConsultaAgent } from './consultaGeminiAgent.js';
-import { buscarSaidasPorBeneficiario, type SaidasBeneficiarioDeps } from '../services/consultaSaidasBeneficiario.js';
+import { buscarMovimentosPorPessoa, type SaidasBeneficiarioDeps } from '../services/consultaMovimentosPessoa.js';
 import { mesesAte } from '../services/consultaBylaTools.js';
 import type { ConsultaToolId } from './consultaCatalog.js';
 
@@ -54,17 +54,22 @@ test('3) "quanto entrou de Pilates?" → entradas_modalidade_periodo com períod
   assert.equal(c[0]!.params.mes_inicio, '2026-01');
 });
 
-test('4) "pagamento do Pholha (professor)" → saidas_por_beneficiario', async () => {
-  const c = await perguntar('quanto foi o pagamento do Pholha (professor)?', 'saidas_por_beneficiario', { nome: 'Pholha' });
-  assert.equal(c[0]!.tool, 'saidas_por_beneficiario');
+test('4) "pagamento do Pholha (professor)" → movimentos_por_pessoa', async () => {
+  const c = await perguntar('quanto foi o pagamento do Pholha (professor)?', 'movimentos_por_pessoa', { nome: 'Pholha' });
+  assert.equal(c[0]!.tool, 'movimentos_por_pessoa');
   assert.equal(c[0]!.params.nome, 'Pholha');
-  assert.equal(normalizeToolCall('saidas_por_beneficiario', {}, ctx)!.params.precisa_dado, '1');
+  assert.equal(normalizeToolCall('movimentos_por_pessoa', {}, ctx)!.params.precisa_dado, '1');
 });
 
-const vazio: SaidasBeneficiarioDeps = { banco: async () => [], controle: async () => [], planilha: async () => [] };
+const vazio: SaidasBeneficiarioDeps = {
+  banco: async () => [],
+  controle: async () => [],
+  planilha: async () => [],
+  mapeamento: async () => [],
+};
 
 test('saídas por pessoa: sem registro → "nenhum registro encontrado" com fontes, nunca R$ 0', async () => {
-  const out = await buscarSaidasPorBeneficiario('Pholha', [{ mes: 9, ano: 2026 }], {
+  const out = await buscarMovimentosPorPessoa('Pholha', [{ mes: 9, ano: 2026 }], {
     ...vazio,
     banco: async () => [{ data: '2026-09-05', descricao: 'Professor Demo Dois', valor: -300 }],
     controle: async () => [{ descricao: 'Professor Demo Pholha', valor: 0, secao: 'Parceiros' }], // linha zerada não conta
@@ -77,14 +82,47 @@ test('saídas por pessoa: sem registro → "nenhum registro encontrado" com font
 });
 
 test('saídas por pessoa: acha na planilha e informa a fonte de cada número', async () => {
-  const out = await buscarSaidasPorBeneficiario('Professor Demo', [{ mes: 9, ano: 2026 }], {
+  const out = await buscarMovimentosPorPessoa('Professor Demo', [{ mes: 9, ano: 2026 }], {
     ...vazio,
     planilha: async () => [{ descricao: 'Professor Demo Um', valor: 850, secao: 'Repasses parceiros' }],
     controle: async () => { throw new Error('fora do ar'); },
   });
-  assert.match(out, /Fonte: Planilha FLUXO DE CAIXA.*Total R\$\s*850,00/);
+  assert.match(out, /Fonte: Planilha FLUXO DE CAIXA.*PAGO A.*total R\$\s*850,00/);
   assert.match(out, /Sem registro nas fontes: Extrato bancário/);
   assert.match(out, /indisponíveis agora: Controle de caixa/);
+});
+
+test('Pholha (mock): apelido → pagador via mapeamento, entrada "recebido de" jul–out', async () => {
+  const meses = [7, 8, 9, 10].map((mes) => ({ mes, ano: 2026 }));
+  const out = await buscarMovimentosPorPessoa('Pholha', meses, {
+    ...vazio,
+    mapeamento: async () => [
+      { pessoa_normalizada: 'PAGADOR DEMO', categoria: 'Pholha (Funcional)', subcategoria: null },
+      { pessoa_normalizada: 'OUTRA PESSOA DEMO', categoria: 'Pilates', subcategoria: null },
+    ],
+    banco: async ({ mes }) => [
+      { data: `2026-${String(mes).padStart(2, '0')}-10`, descricao: 'PAGADOR DEMO PIX', valor: 2500, direcao: 'entrada', pessoaNorm: 'PAGADOR DEMO' },
+      { data: `2026-${String(mes).padStart(2, '0')}-11`, descricao: 'OUTRA PESSOA DEMO', valor: 400, direcao: 'entrada', pessoaNorm: 'OUTRA PESSOA DEMO' },
+    ],
+  });
+  assert.match(out, /PAGADOR DEMO \(categoria Pholha \(Funcional\)\)/);
+  assert.match(out, /RECEBIDO DE “Pholha”/);
+  assert.match(out, /R\$\s?10\.000,00 em 4 registro/);
+  assert.doesNotMatch(out, /PAGO A/);
+  assert.doesNotMatch(out, /OUTRA PESSOA/);
+  assert.doesNotMatch(out, /NENHUM REGISTRO/);
+});
+
+test('movimentos por pessoa: separa recebido de / pago a', async () => {
+  const out = await buscarMovimentosPorPessoa('Demo Tres', [{ mes: 9, ano: 2026 }], {
+    ...vazio,
+    banco: async () => [
+      { descricao: 'Pessoa Demo Tres', valor: 100, direcao: 'entrada' },
+      { descricao: 'Pessoa Demo Tres', valor: -60, direcao: 'saida' },
+    ],
+  });
+  assert.match(out, /RECEBIDO DE “Demo Tres”[^\n]*R\$\s?100,00/);
+  assert.match(out, /PAGO A “Demo Tres”[^\n]*R\$\s?60,00/);
 });
 
 test('system prompt proíbe responder zero quando o dado não existe', () => {

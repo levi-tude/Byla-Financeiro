@@ -24,13 +24,13 @@ Novas:
 - `resumo_planilha_fluxo`
 - `balanco_meses`: balanço mês a mês dos últimos N meses, com total. Fonte: `v_resumo_mensal_oficial` (ou as transações oficiais, se a view não tiver o mês).
 - `entradas_modalidade_periodo`: quanto entrou de uma modalidade num mês ou período. Fonte: pagamentos do Fluxo operacional (`fluxo_pagamentos_operacionais`, aba/modalidade, por mês de pagamento). O extrato do banco está com `modalidade` vazia.
-- `saidas_por_beneficiario`: pagamentos a uma pessoa, professor ou parceiro. Procura em 3 fontes, cada uma mostrada separadamente e **sem somar** (pode ser o mesmo pagamento): extrato bancário (saídas oficiais, por pessoa/descrição), Controle de caixa (modo Planilha, no sistema) e planilha FLUXO DE CAIXA (Google Sheets, blocos de saídas e repasses). Se não achar nada, responde "nenhum registro encontrado nas fontes …" e **nunca R$ 0**.
+- `movimentos_por_pessoa`: movimentos de uma pessoa, professor, parceiro ou apelido, nos dois sentidos: **recebido de** (entrada) e **pago a** (saída). A busca é por nome e também por categoria, usando `mapeamento_pessoa_categoria` (só leitura), que leva do apelido ao pagador real no banco. Procura em 3 fontes, mostradas separadamente e **sem somar**: extrato bancário (entradas e saídas oficiais), Controle de caixa e planilha FLUXO DE CAIXA. Se não achar nada, responde "nenhum registro encontrado nas fontes …" e **nunca R$ 0**.
 
 ### Perguntas de aceitação (testadas com mock em `consultaAceitacao.test.ts`)
 1. "qual o balanço do mês?" → `resumo_mes`
 2. "qual o balanço dos últimos 4 meses?" → `balanco_meses` (meses=4)
 3. "quanto entrou de Pilates?" → `entradas_modalidade_periodo`
-4. "quanto foi o pagamento do Pholha (professor)?" → `saidas_por_beneficiario`. Hoje não há transação com esse nome no extrato e a tabela `despesas` está vazia, então o resultado depende da planilha e do Controle de caixa; se não houver registro, o chat diz isso.
+4. "quanto foi o pagamento do Pholha?" → `movimentos_por_pessoa`. No extrato, "Pholha" é uma **entrada** de outro pagador, classificada pelo `mapeamento_pessoa_categoria` na categoria "Pholha (Funcional)". A tool chega a esse pagador pela categoria e responde "recebido de" (por volta de R$ 2.500/mês de jul a out, segundo o time de dados). O teste usa dados fictícios.
 
 A instrução de sistema obriga a IA a citar a fonte de cada número e a dizer "não encontrei" em vez de responder zero.
 
