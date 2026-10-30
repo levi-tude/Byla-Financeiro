@@ -4,6 +4,8 @@ import { loadControleCaixaExisting } from './controleCaixaRead.js';
 import { filtrarTransacoesOficiais, type TransacaoBase } from './transacoesFiltro.js';
 import { getSupabase } from './supabaseClient.js';
 import { limparDocumentoPessoa } from '../ai/pseudonimizacao.js';
+import { instrucaoIa } from '../ai/instrucaoIa.js';
+import { limparPiiUsuario, removerNomeDuplicado } from '../ai/respostaUsuario.js';
 import { PlanilhaFluxoAdapter } from '../adapters/PlanilhaFluxoAdapter.js';
 import { CacheFluxoPlanilhaAdapter } from '../adapters/CacheFluxoPlanilhaAdapter.js';
 import { SupabaseFluxoAdapter } from '../adapters/SupabaseFluxoAdapter.js';
@@ -110,16 +112,25 @@ export async function buscarMovimentosPorPessoa(
   if (!blocos.some((b) => b.startsWith('Fonte:'))) {
     out.push(...blocos);
     out.push(
-      `NENHUM REGISTRO ENCONTRADO para “${nome}” nas fontes: ${[...semRegistro, ...indisponiveis].join('; ')}. ` +
-        'Não informe valor zero: diga que o dado não foi encontrado.',
+      `NENHUM REGISTRO ENCONTRADO para “${nome}” nas fontes: ${[...semRegistro, ...indisponiveis].join('; ')}.`,
+      instrucaoIa('Não informe valor zero: diga que o dado não foi encontrado.'),
     );
   } else {
     out.push(...blocos);
     if (semRegistro.length) out.push(`Sem registro nas fontes: ${semRegistro.join('; ')}.`);
   }
   if (indisponiveis.length) out.push(`Fontes indisponíveis agora: ${indisponiveis.join('; ')}.`);
-  out.push('Diga claramente a direção (recebido de / pago a). Totais de fontes diferentes podem ser o mesmo movimento; não os some.');
+  out.push(instrucaoIa('Diga claramente a direção (recebido de / pago a). Totais de fontes diferentes podem ser o mesmo movimento; não os some.'));
   return out.join('\n');
+}
+
+/** Pessoa (sem documento) + descrição (sem documento), sem repetir o nome. */
+export function descricaoBanco(pessoa: string | null | undefined, descricao: string | null | undefined): string {
+  const p = limparDocumentoPessoa(pessoa);
+  const d = limparPiiUsuario(String(descricao ?? '')).trim();
+  if (!d) return p;
+  if (p && normalizeText(d).includes(normalizeText(p))) return removerNomeDuplicado(d);
+  return removerNomeDuplicado(`${p} ${d}`.trim());
 }
 
 let fluxoUseCase: GetFluxoCompletoUseCase | null = null;
@@ -141,7 +152,7 @@ const defaultDeps: SaidasBeneficiarioDeps = {
     const of = filtrarTransacoesOficiais(rows);
     const conv = (direcao: Direcao) => (t: TransacaoBase) => ({
       data: t.data,
-      descricao: `${limparDocumentoPessoa(t.pessoa)} ${t.descricao ?? ''}`.trim(),
+      descricao: descricaoBanco(t.pessoa, t.descricao),
       valor: Number(t.valor),
       direcao,
       pessoaNorm: limparDocumentoPessoa(t.pessoa),

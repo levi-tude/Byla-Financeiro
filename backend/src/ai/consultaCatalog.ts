@@ -25,7 +25,9 @@ export type ConsultaToolId =
   | 'entradas_modalidade_periodo'
   | 'movimentos_por_pessoa'
   | 'saidas_planilha_controle'
-  | 'resumo_planilha_fluxo';
+  | 'resumo_planilha_fluxo'
+  | 'maiores_saidas'
+  | 'saidas_professores';
 
 export type ConsultaIntent = {
   tool: ConsultaToolId;

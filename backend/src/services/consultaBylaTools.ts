@@ -15,6 +15,9 @@ import { todayIsoLocal } from '../ai/consultaCatalog.js';
 import { getConciliacaoVencimentosMesData } from './conciliacaoVencimentosMes.js';
 import { montarAlunosPanorama } from './relatorioMontagem.js';
 import { limparDocumentoPessoa } from '../ai/pseudonimizacao.js';
+import { instrucaoIa } from '../ai/instrucaoIa.js';
+import { textoMaioresSaidas, textoSaidasProfessores } from './consultaSaidas.js';
+import type { MapeamentoPessoa } from './consultaMovimentosPessoa.js';
 
 export type ConsultaToolContext = {
   mes: number;
@@ -246,7 +249,7 @@ export type PagamentoFluxoRow = { aba: string | null; modalidade: string | null;
 export type PagamentosFluxoLoader = (inicio: string, fim: string) => Promise<PagamentoFluxoRow[]>;
 
 const FONTE_MODALIDADE =
-  'Fonte: Fluxo de caixa operacional (pagamentos lançados por aba/modalidade, tabela fluxo_pagamentos_operacionais, por data de pagamento). O extrato do banco não tem modalidade preenchida.';
+  'Fonte: Fluxo de caixa operacional (pagamentos lançados por aba/modalidade, por data de pagamento). O extrato do banco não tem modalidade preenchida.';
 
 /** Leitura (só SELECT) dos pagamentos do Fluxo operacional em um intervalo de datas de pagamento. */
 export const loadPagamentosFluxoRange: PagamentosFluxoLoader = async (inicio, fim) => {
@@ -275,7 +278,7 @@ export async function toolModalidades(
   const rows = await load(inicio, fim);
   const head = `Entradas por modalidade — ${pad2(ctx.mes)}/${ctx.ano}. ${FONTE_MODALIDADE}`;
   if (rows.length === 0) {
-    return `${head}\nNENHUM REGISTRO ENCONTRADO no mês. Não informe valor zero: diga que não há registro.`;
+    return `${head}\nNENHUM REGISTRO ENCONTRADO no mês.\n${instrucaoIa('Não informe valor zero: diga que não há registro.')}`;
   }
   const map = new Map<string, { total: number; qtd: number }>();
   for (const r of rows) {
@@ -642,7 +645,7 @@ export function formatBalancoMeses(
     return `${pad2(m.mes)}/${m.ano}: entradas ${brl(r.entradas)} · saídas ${brl(r.saidas)} · saldo ${brl(r.entradas - r.saidas)}`;
   });
   return [
-    `Balanço mês a mês (${n} meses). Fonte: extrato bancário oficial (v_resumo_mensal_oficial; se faltar, transações oficiais).`,
+    `Balanço mês a mês (${n} meses). Fonte: extrato bancário oficial.`,
     ...linhas,
     `TOTAL: entradas ${brl(te)} · saídas ${brl(ts)} · saldo ${brl(te - ts)}.`,
   ].join('\n');
@@ -670,7 +673,7 @@ export async function toolEntradasModalidadePeriodo(
   }
   const head = `Entradas da modalidade “${modalidade}”. ${FONTE_MODALIDADE}`;
   if (!key || qtdTotal === 0) {
-    return `${head}\nNENHUM REGISTRO ENCONTRADO no período. Não informe valor zero: diga que não há registro.`;
+    return `${head}\nNENHUM REGISTRO ENCONTRADO no período.\n${instrucaoIa('Não informe valor zero: diga que não há registro.')}`;
   }
   return [head, ...linhas, `TOTAL do período: ${brl(total)}.`].join('\n');
 }
@@ -699,6 +702,8 @@ export function periodoExtratoDaTool(
     case 'resumo_mes':
     case 'resumo_categoria_extrato':
     case 'resumo_meio_pagamento':
+    case 'maiores_saidas':
+    case 'saidas_professores':
       return mesCtx;
     case 'busca_por_valor':
       return params.data ? { inicio: params.data, fim: params.data, exclusivo: true } : mesCtx;
@@ -733,6 +738,32 @@ export function periodoExtratoDaTool(
     default:
       return null;
   }
+}
+
+async function loadSaidasMes(ctx: ConsultaToolContext) {
+  const { inicio, fim } = rangeMes(ctx.mes, ctx.ano);
+  const rows = await loadTransacoesRange(inicio, fim);
+  return rows.filter((t) => normalizarTipoTransacao(t.tipo) === 'saida');
+}
+
+async function loadMapeamentoPessoas(): Promise<MapeamentoPessoa[]> {
+  const supabase = getSupabase();
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from('mapeamento_pessoa_categoria')
+    .select('pessoa_normalizada, categoria, subcategoria')
+    .limit(5000);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as MapeamentoPessoa[];
+}
+
+async function toolMaioresSaidas(ctx: ConsultaToolContext): Promise<string> {
+  return textoMaioresSaidas(await loadSaidasMes(ctx), ctx.mes, ctx.ano);
+}
+
+async function toolSaidasProfessores(ctx: ConsultaToolContext): Promise<string> {
+  const [saidas, maps] = await Promise.all([loadSaidasMes(ctx), loadMapeamentoPessoas().catch(() => [])]);
+  return textoSaidasProfessores(saidas, maps, ctx.mes, ctx.ano);
 }
 
 export type ExecuteToolDeps = { cobertura?: CoberturaLoader };
@@ -869,6 +900,12 @@ export async function executeConsultaTool(
         break;
       case 'resumo_planilha_fluxo':
         factsText = await toolResumoPlanilhaFluxo(ctx);
+        break;
+      case 'maiores_saidas':
+        factsText = await toolMaioresSaidas(ctx);
+        break;
+      case 'saidas_professores':
+        factsText = await toolSaidasProfessores(ctx);
         break;
       default: {
         const _exhaustive: never = tool;

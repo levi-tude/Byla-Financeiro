@@ -90,9 +90,6 @@ describe('roteador: baixa confiança vai para a IA', () => {
     'Quanto entrou de GR e de teatro em agosto?',
     'Teve pagamento de aluno em dezembro?',
     'Achei um PIX de 2.500 em outubro, de quem é?',
-    'Quanto gastei com professores em setembro?',
-    'Pra quem foram as maiores saídas de outubro?',
-    'Quantos alunos ativos tem no pilates?',
     'Quem do pilates ainda não pagou outubro?',
     'Os dados tão atualizados?',
     'quanto o fulano deve?',
@@ -179,7 +176,7 @@ describe('serviço', () => {
   test('IA recebe só 3–6 ferramentas', async () => {
     let qtd = -1;
     await gerarConsultaReply(
-      { message: 'Quantos alunos ativos tem no pilates?', context: { monthYear: '2026-10' } },
+      { message: 'Quem do pilates ainda não pagou outubro?', context: { monthYear: '2026-10' } },
       { providers: groq, nomesConhecidos: [], fetchImpl: r429, onTools: (t) => { qtd = t.length; }, executeTool: async (tool) => ({ ok: true, tool, factsText: 'x' }) as never },
     );
     assert.ok(qtd >= 3 && qtd <= 6, String(qtd));

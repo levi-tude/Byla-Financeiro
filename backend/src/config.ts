@@ -102,6 +102,12 @@ export const config = {
   rateLimitIaMax: Math.max(1, Number(env.BYLA_RATE_LIMIT_IA_MAX) || 20),
   /** Rate limit: janela em ms (IA). Default 15 min. */
   rateLimitIaWindowMs: Math.max(1000, Number(env.BYLA_RATE_LIMIT_IA_WINDOW_MS) || 15 * 60 * 1000),
+  /** Consulta Byla: perguntas que usam IA por usuário na janela (roteador não conta). Default 20. */
+  rateLimitConsultaIaMax: Math.max(1, Number(env.BYLA_RATE_LIMIT_CONSULTA_IA_MAX) || 20),
+  /** Consulta Byla: janela da cota de IA. Default 5 min. */
+  rateLimitConsultaIaWindowMs: Math.max(1000, Number(env.BYLA_RATE_LIMIT_CONSULTA_IA_WINDOW_MS) || 5 * 60 * 1000),
+  /** Consulta Byla: teto anti-abuso de requisições (qualquer tipo) por usuário/5 min → 429. Default 120. */
+  rateLimitConsultaHardMax: Math.max(1, Number(env.BYLA_RATE_LIMIT_CONSULTA_HARD_MAX) || 120),
   /** Rate limit: máximo por IP na janela (rotas sync n8n). */
   rateLimitSyncMax: Math.max(1, Number(env.BYLA_RATE_LIMIT_SYNC_MAX) || 60),
   /** Rate limit: janela em ms (sync). Default 15 min. */
