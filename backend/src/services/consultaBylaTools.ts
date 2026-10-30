@@ -14,6 +14,7 @@ import type { ConsultaToolId } from '../ai/consultaCatalog.js';
 import { todayIsoLocal } from '../ai/consultaCatalog.js';
 import { getConciliacaoVencimentosMesData } from './conciliacaoVencimentosMes.js';
 import { montarAlunosPanorama } from './relatorioMontagem.js';
+import { limparDocumentoPessoa } from '../ai/pseudonimizacao.js';
 
 export type ConsultaToolContext = {
   mes: number;
@@ -71,8 +72,55 @@ async function loadTransacoesRange(inicio: string, fim: string): Promise<Transac
       data: String(r.data).slice(0, 10),
     })),
   );
-  return [...oficiais.entradas, ...oficiais.saidas];
+  // Dígitos de documento colados ao nome não saem daqui (nem para o LLM nem para a resposta).
+  return [...oficiais.entradas, ...oficiais.saidas].map((t) => ({ ...t, pessoa: limparDocumentoPessoa(t.pessoa) }));
 }
+
+/** Cobertura do extrato: último lançamento no período pedido e último lançamento importado (geral). */
+export const MARCA_SEM_DADOS_EXTRATO = 'Sem dados do extrato';
+
+export type CoberturaExtrato = { ultimaNoPeriodo: string | null; ultimaGeral: string | null };
+export type CoberturaLoader = (inicio: string, fim: string) => Promise<CoberturaExtrato>;
+
+/** Leitura (só SELECT) de max(data) em `transacoes` no período e no geral. */
+export const loadCoberturaExtrato: CoberturaLoader = async (inicio, fim) => {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('Supabase não configurado.');
+  const [noPeriodo, geral] = await Promise.all([
+    supabase.from('transacoes').select('data').gte('data', inicio).lte('data', fim).order('data', { ascending: false }).limit(1),
+    supabase.from('transacoes').select('data').order('data', { ascending: false }).limit(1),
+  ]);
+  if (noPeriodo.error) throw new Error(noPeriodo.error.message);
+  if (geral.error) throw new Error(geral.error.message);
+  const d = (r: { data: unknown[] | null }) => {
+    const v = (r.data?.[0] as { data?: string } | undefined)?.data;
+    return v ? String(v).slice(0, 10) : null;
+  };
+  return { ultimaNoPeriodo: d(noPeriodo), ultimaGeral: d(geral) };
+};
+
+export function dataBr(iso: string): string {
+  const [y, m, d] = iso.slice(0, 10).split('-');
+  return `${d}/${m}/${y}`;
+}
+
+/**
+ * Linha obrigatória em toda resposta baseada no extrato: até que data há dados e se o período está incompleto.
+ * Sem nenhum lançamento no período → "SEM DADOS" (nunca R$ 0,00).
+ */
+export function textoCoberturaExtrato(inicio: string, fim: string, cob: CoberturaExtrato): string {
+  const periodo = inicio === fim ? dataBr(inicio) : `${dataBr(inicio)} a ${dataBr(fim)}`;
+  if (!cob.ultimaNoPeriodo) {
+    const ult = cob.ultimaGeral ? ` O último lançamento importado no extrato é de ${dataBr(cob.ultimaGeral)}.` : '';
+    return `${MARCA_SEM_DADOS_EXTRATO} para esse período (${periodo}).${ult}`;
+  }
+  let s = `Dados do extrato até ${dataBr(cob.ultimaNoPeriodo)}.`;
+  if (cob.ultimaGeral && cob.ultimaGeral < fim) {
+    s += ` ATENÇÃO: período incompleto — o extrato só foi importado até ${dataBr(cob.ultimaGeral)}; lançamentos depois dessa data ainda não estão no sistema.`;
+  }
+  return s;
+}
+
 
 function totaisTipo(txs: TransacaoBase[]): { entradas: number; saidas: number; qtdE: number; qtdS: number } {
   let entradas = 0;
@@ -394,7 +442,19 @@ async function toolAlunosPorModalidade(modalidadeFiltro?: string): Promise<strin
     .select('id, aba, modalidade, aluno_nome, ativo')
     .limit(5000);
   if (error) throw new Error(error.message);
-  const rows = (data ?? []) as Array<{ aba: string | null; modalidade: string | null; aluno_nome: string | null; ativo: boolean | null }>;
+  return formatAlunosPorModalidade((data ?? []) as AlunoFluxoRow[], modalidadeFiltro);
+}
+
+export type AlunoFluxoRow = { aba: string | null; modalidade: string | null; aluno_nome: string | null; ativo: boolean | null };
+
+/** Linha de cabeçalho importada da planilha (modalidade literal "(modalidade)") — não é aluno. */
+export function isModalidadePlaceholder(modalidade: string | null | undefined): boolean {
+  return (modalidade ?? '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().replace(/\s+/g, '') === '(modalidade)';
+}
+
+export function formatAlunosPorModalidade(todas: AlunoFluxoRow[], modalidadeFiltro?: string): string {
+  const rows = todas.filter((r) => !isModalidadePlaceholder(r.modalidade));
+  const ignoradas = todas.length - rows.length;
   const alvo = modalidadeFiltro ? normalizeText(modalidadeFiltro) : '';
   const map = new Map<string, { ativos: number; inativos: number; nomes: string[] }>();
   for (const r of rows) {
@@ -417,7 +477,14 @@ async function toolAlunosPorModalidade(modalidadeFiltro?: string): Promise<strin
       const nomes = v.nomes.slice(0, 40).join(', ');
       return `${base}${nomes ? `. Ativos: ${nomes}${v.nomes.length > 40 ? '…' : ''}` : ''}`;
     });
-  return ['Alunos por modalidade (cadastro do Fluxo de caixa no sistema).', ...linhas].join('\n');
+  const totAtivos = [...map.values()].reduce((s, v) => s + v.ativos, 0);
+  const totInativos = [...map.values()].reduce((s, v) => s + v.inativos, 0);
+  return [
+    'Alunos por modalidade (cadastro do Fluxo de caixa no sistema).',
+    ...linhas,
+    `TOTAL: ${totAtivos} ativo(s), ${totInativos} inativo(s).`,
+    ignoradas ? `Obs.: ${ignoradas} linha(s) com modalidade "(modalidade)" (cabeçalho importado da planilha) foram excluídas da contagem.` : '',
+  ].filter(Boolean).join('\n');
 }
 
 async function toolInadimplencia(ctx: ConsultaToolContext): Promise<string> {
@@ -438,7 +505,8 @@ async function toolInadimplencia(ctx: ConsultaToolContext): Promise<string> {
   ].filter(Boolean).join('\n');
 }
 
-async function resumoMesNumeros(mes: number, ano: number): Promise<{ entradas: number; saidas: number }> {
+/** null = mês sem nenhum lançamento no extrato (não é zero). */
+async function resumoMesNumeros(mes: number, ano: number): Promise<{ entradas: number; saidas: number } | null> {
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase não configurado.');
   const { data, error } = await supabase
@@ -450,15 +518,35 @@ async function resumoMesNumeros(mes: number, ano: number): Promise<{ entradas: n
   if (error) throw new Error(error.message);
   if (data) return { entradas: Number(data.total_entradas ?? 0), saidas: Number(data.total_saidas ?? 0) };
   const { inicio, fim } = rangeMes(mes, ano);
-  const t = totaisTipo(await loadTransacoesRange(inicio, fim));
+  const txs = await loadTransacoesRange(inicio, fim);
+  if (txs.length === 0) return null;
+  const t = totaisTipo(txs);
   return { entradas: t.entradas, saidas: t.saidas };
 }
 
 async function toolCompararMeses(a: { mes: number; ano: number }, b: { mes: number; ano: number }): Promise<string> {
   const [ra, rb] = await Promise.all([resumoMesNumeros(a.mes, a.ano), resumoMesNumeros(b.mes, b.ano)]);
+  return formatCompararMeses(a, b, ra, rb);
+}
+
+export function formatCompararMeses(
+  a: { mes: number; ano: number },
+  b: { mes: number; ano: number },
+  ra: { entradas: number; saidas: number } | null,
+  rb: { entradas: number; saidas: number } | null,
+): string {
   const pct = (x: number, y: number) => (x === 0 ? '—' : `${(((y - x) / x) * 100).toFixed(1)}%`);
   const la = `${pad2(a.mes)}/${a.ano}`;
   const lb = `${pad2(b.mes)}/${b.ano}`;
+  if (!ra || !rb) {
+    const sem = [!ra ? la : null, !rb ? lb : null].filter(Boolean).join(' e ');
+    return [
+      `Comparação ${la} × ${lb} (extrato oficial).`,
+      `Sem dados no extrato para ${sem} — não é possível comparar.`,
+      ra ? `${la}: entradas ${brl(ra.entradas)} · saídas ${brl(ra.saidas)}.` : '',
+      rb ? `${lb}: entradas ${brl(rb.entradas)} · saídas ${brl(rb.saidas)}.` : '',
+    ].filter(Boolean).join('\n');
+  }
   return [
     `Comparação ${la} × ${lb} (extrato oficial).`,
     `Entradas: ${brl(ra.entradas)} × ${brl(rb.entradas)} (variação ${brl(rb.entradas - ra.entradas)}, ${pct(ra.entradas, rb.entradas)}).`,
@@ -536,10 +624,19 @@ function periodoParams(params: Record<string, string>, ctx: ConsultaToolContext)
 async function toolBalancoMeses(ctx: ConsultaToolContext, n: number): Promise<string> {
   const meses = mesesAte(ctx.mes, ctx.ano, n);
   const nums = await Promise.all(meses.map((m) => resumoMesNumeros(m.mes, m.ano)));
+  return formatBalancoMeses(meses, nums);
+}
+
+export function formatBalancoMeses(
+  meses: Array<{ mes: number; ano: number }>,
+  nums: Array<{ entradas: number; saidas: number } | null>,
+): string {
+  const n = meses.length;
   let te = 0;
   let ts = 0;
   const linhas = meses.map((m, i) => {
-    const r = nums[i]!;
+    const r = nums[i];
+    if (!r) return `${pad2(m.mes)}/${m.ano}: sem dados no extrato`;
     te += r.entradas;
     ts += r.saidas;
     return `${pad2(m.mes)}/${m.ano}: entradas ${brl(r.entradas)} · saídas ${brl(r.saidas)} · saldo ${brl(r.entradas - r.saidas)}`;
@@ -588,10 +685,63 @@ function parseMesAnoParam(raw: string | undefined): { mes: number; ano: number }
   return { mes, ano };
 }
 
+/**
+ * Período do extrato que a tool consulta (para a linha "dados do extrato até …").
+ * null = tool não usa o extrato. `exclusivo` = a resposta vem só do extrato (sem lançamento → "sem dados").
+ */
+export function periodoExtratoDaTool(
+  tool: ConsultaToolId,
+  params: Record<string, string>,
+  ctx: ConsultaToolContext,
+): { inicio: string; fim: string; exclusivo: boolean } | null {
+  const mesCtx = { ...rangeMes(ctx.mes, ctx.ano), exclusivo: true };
+  switch (tool) {
+    case 'resumo_mes':
+    case 'resumo_categoria_extrato':
+    case 'resumo_meio_pagamento':
+      return mesCtx;
+    case 'busca_por_valor':
+      return params.data ? { inicio: params.data, fim: params.data, exclusivo: true } : mesCtx;
+    case 'resumo_semana':
+      return { ...semanaAround(params.data_ref ?? todayIsoLocal()), exclusivo: true };
+    case 'resumo_dia':
+    case 'movimentos_banco_dia': {
+      const d = params.data ?? todayIsoLocal();
+      return { inicio: d, fim: d, exclusivo: true };
+    }
+    case 'resumo_periodo':
+      return params.inicio && params.fim ? { inicio: params.inicio, fim: params.fim, exclusivo: true } : null;
+    case 'balanco_meses': {
+      const n = Math.min(12, Math.max(1, Math.trunc(Number(params.meses ?? 1)) || 1));
+      const ms = mesesAte(ctx.mes, ctx.ano, n);
+      return { inicio: rangeMes(ms[0]!.mes, ms[0]!.ano).inicio, fim: rangeMes(ms.at(-1)!.mes, ms.at(-1)!.ano).fim, exclusivo: true };
+    }
+    case 'comparar_meses': {
+      const a = parseMesAnoParam(params.mes_a);
+      const b = parseMesAnoParam(params.mes_b);
+      if (!a || !b) return null;
+      const [x, y] = a.ano * 12 + a.mes <= b.ano * 12 + b.mes ? [a, b] : [b, a];
+      // Não é exclusivo: um dos meses pode ter dados e o outro não (a tool diz qual).
+      return { inicio: rangeMes(x.mes, x.ano).inicio, fim: rangeMes(y.mes, y.ano).fim, exclusivo: false };
+    }
+    case 'movimentos_por_pessoa': {
+      const ms = periodoParams(params, ctx);
+      if (!ms) return null;
+      // Outras fontes (Controle, planilha) também respondem: só anexa a cobertura.
+      return { inicio: rangeMes(ms[0]!.mes, ms[0]!.ano).inicio, fim: rangeMes(ms.at(-1)!.mes, ms.at(-1)!.ano).fim, exclusivo: false };
+    }
+    default:
+      return null;
+  }
+}
+
+export type ExecuteToolDeps = { cobertura?: CoberturaLoader };
+
 export async function executeConsultaTool(
   tool: ConsultaToolId,
   params: Record<string, string>,
   ctx: ConsultaToolContext,
+  deps: ExecuteToolDeps = {},
 ): Promise<ConsultaToolResult> {
   try {
     if (params.precisa_dado === '1' && tool === 'busca_aluno' && !params.nome) {
@@ -617,6 +767,15 @@ export async function executeConsultaTool(
         needsClarification: true,
         error: 'Informe o período no formato 2026-07-01 a 2026-07-15.',
       };
+    }
+
+    const periodoExtrato = periodoExtratoDaTool(tool, params, ctx);
+    let cobertura = '';
+    if (periodoExtrato) {
+      const cob = await (deps.cobertura ?? loadCoberturaExtrato)(periodoExtrato.inicio, periodoExtrato.fim);
+      cobertura = textoCoberturaExtrato(periodoExtrato.inicio, periodoExtrato.fim, cob);
+      // Período sem nenhum lançamento: não roda a tool (que somaria R$ 0,00).
+      if (!cob.ultimaNoPeriodo && periodoExtrato.exclusivo) return { ok: true, tool, factsText: cobertura };
     }
 
     let factsText: string;
@@ -716,6 +875,7 @@ export async function executeConsultaTool(
         return { ok: false, tool: _exhaustive, error: 'Consulta não implementada.' };
       }
     }
+    if (cobertura) factsText = `${factsText}\n${cobertura}`;
     return { ok: true, tool, factsText };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Falha ao consultar dados.';

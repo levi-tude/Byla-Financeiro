@@ -40,8 +40,12 @@ export const businessRules = {
   transacoes: {
     externalEntryNames: parseListEnv(process.env.BYLA_EXTERNAL_ENTRIES, DEFAULT_EXTERNAL_ENTRIES),
     samuelNamePrefix: (process.env.BYLA_SAMUEL_NAME_PREFIX ?? 'samuel davi tude silva').trim().toLowerCase(),
-    /** Tolerância (R$) para parear entrada EA/Blead com saída Samuel no mesmo dia. */
-    externalPairTolerance: parseNumberEnv(process.env.BYLA_EXTERNAL_PAIR_TOLERANCE, 800),
+    /**
+     * Tolerância (R$) para parear entrada EA/Blead com saída Samuel no mesmo dia.
+     * Alinhada com a view `v_resumo_mensal_oficial` (banco), que usa `abs(s.valor - e.valor) <= 300`.
+     * Antes era 800 aqui, o que fazia telas/consultas que usam este filtro divergirem da view.
+     */
+    externalPairTolerance: parseNumberEnv(process.env.BYLA_EXTERNAL_PAIR_TOLERANCE, 300),
     /**
      * Saídas com nome Samuel nesta faixa de valor são sempre excluídas do extrato oficial
      * (repasse externo ~5k — não entram em totais nem relatórios que usam este filtro).

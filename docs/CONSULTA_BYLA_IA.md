@@ -88,3 +88,14 @@ A verificação é feita no servidor, a partir de `profiles.role`; o papel envia
 - CPF, telefone e e-mail continuam sendo removidos (`stripPii`).
 - Limites: nomes com menos de 4 letras e apelidos que não estão em nenhuma dessas tabelas (ex.: "Pholha" como texto livre ou dentro de uma categoria) não são trocados.
 - Testes: `backend/src/ai/consultaGroqPseudo.test.ts` (nenhum nome real das fixtures vai no payload; round-trip de "quanto a Aluno Demo Um pagou?").
+
+## Qualidade dos dados (fix/consulta-dados-qualidade)
+
+- **Cobertura do extrato:** toda tool baseada em `transacoes` anexa "Dados do extrato até DD/MM/AAAA" (último lançamento no período) e, se o último lançamento importado (geral) for anterior ao fim do período, "ATENÇÃO: período incompleto". A IA é instruída a repetir isso; se esquecer, `garantirCoberturaExtrato` anexa a linha.
+- **Sem dados ≠ zero:** período sem nenhum lançamento no extrato → "Sem dados do extrato para esse período" (a tool nem soma). Vale para IA e fallback. Balanço/comparação marcam o mês vazio como "sem dados".
+- **Documentos no campo `pessoa`:** `limparDocumentoPessoa` remove CPF/CNPJ completos, parciais, mascarados (`***.456.789-**`) ou colados ao nome; `stripPii` também cobre CNPJ, mascarados e dígitos colados a nome.
+- **Tolerância do par EA/Blead × repasse Samuel:** padrão do código alinhado à view `v_resumo_mensal_oficial` (R$ 300; antes R$ 800). Divergências que continuam (só documentadas, view não alterada):
+  - o código também exclui saídas Samuel entre R$ 4.800 e R$ 6.500 mesmo sem par (a view não);
+  - o código identifica externos por `pessoa` começando com "EA "/"BLEAD AD TECH" **ou `descricao` contendo** esses termos; a view usa `descricao LIKE 'ea %'` (começa com) e `'%blead ad tech%'`;
+  - `v_transacoes_export` classifica qualquer saída `samuel%` como repasse, sem checar valor.
+- **Alunos ativos:** `alunos_por_modalidade` ignora a modalidade literal "(modalidade)" (cabeçalho importado) e mostra o total. Linhas como "BOLSA PROVISORIA" continuam contando.

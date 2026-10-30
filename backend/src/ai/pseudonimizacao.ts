@@ -6,6 +6,22 @@
  */
 import { getSupabase } from '../services/supabaseClient.js';
 
+/**
+ * Remove dígitos de documento (CPF/CNPJ completos, parciais ou mascarados com *) colados
+ * ao nome no campo `pessoa` do extrato. Ex.: "FULANO DE TAL 123.456.789-00" → "FULANO DE TAL";
+ * "***.456.789-** FULANA" → "FULANA"; "BELTRANO12345678" → "BELTRANO".
+ * Só deve ser aplicado a nomes (não a textos com valores/datas).
+ */
+export function limparDocumentoPessoa(pessoa: string | null | undefined): string {
+  if (!pessoa) return '';
+  return pessoa
+    .replace(/[*\d][\d.*\/\-]*\d[\d.*\/\-]*|\*{2,}[\d.*\/\-]*/g, ' ')
+    .replace(/\s+[-–/.]+(?=\s|$)/g, ' ')
+    .replace(/^[\s\-–/.]+|[\s\-–/.]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export type NomeConhecido = { nome: string; tipo: 'aluno' | 'pessoa' };
 
 /** Normaliza 1 char → 1 char (minúsculo, sem acento), mantendo posições. */
@@ -99,8 +115,8 @@ export async function carregarNomesConhecidos(): Promise<NomeConhecido[]> {
     supabase.from('transacoes').select('pessoa').not('pessoa', 'is', null).limit(10000),
   ]);
   for (const r of (alunos.data ?? []) as { aluno_nome: string | null }[]) if (r.aluno_nome) nomes.push({ nome: r.aluno_nome, tipo: 'aluno' });
-  for (const r of (maps.data ?? []) as { pessoa_normalizada: string | null }[]) if (r.pessoa_normalizada) nomes.push({ nome: r.pessoa_normalizada, tipo: 'pessoa' });
-  for (const r of (trans.data ?? []) as { pessoa: string | null }[]) if (r.pessoa) nomes.push({ nome: r.pessoa, tipo: 'pessoa' });
+  for (const r of (maps.data ?? []) as { pessoa_normalizada: string | null }[]) if (r.pessoa_normalizada) nomes.push({ nome: limparDocumentoPessoa(r.pessoa_normalizada), tipo: 'pessoa' });
+  for (const r of (trans.data ?? []) as { pessoa: string | null }[]) if (r.pessoa) nomes.push({ nome: limparDocumentoPessoa(r.pessoa), tipo: 'pessoa' });
   cache = { at: Date.now(), nomes };
   return nomes;
 }
