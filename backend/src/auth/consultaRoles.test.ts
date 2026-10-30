@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { NextFunction, Request, Response } from 'express';
 import { requireRoles, restrictGestor } from '../middleware/auth.js';
-import { CONSULTA_ROLES, isAppRole } from './roles.js';
+import { CONSULTA_PREFIXES, CONSULTA_ROLES, isAppRole } from './roles.js';
 import { consultaChatBodySchema } from '../validation/apiQuery.js';
 
 function run(mw: (req: Request, res: Response, next: NextFunction) => void, role: string, path: string) {
@@ -36,4 +36,18 @@ test('histórico validado: máx. 10 mensagens e papéis fixos', () => {
   assert.ok(!consultaChatBodySchema.safeParse({ message: 'a', history: h(11) }).success);
   assert.ok(!consultaChatBodySchema.safeParse({ message: 'a', history: [{ role: 'system', content: 'x' }] }).success);
   assert.ok(!consultaChatBodySchema.safeParse({ message: 'a', history: [{ role: 'user', content: 'x'.repeat(2001) }] }).success);
+});
+
+test('Consulta Byla e Criações da IA: só admin e gestor (secretaria 403), com os prefixos reais de api.ts', () => {
+  assert.deepEqual([...CONSULTA_PREFIXES], ['/ai/consulta', '/ai/criacoes']);
+  const porPapel = requireRoles(CONSULTA_ROLES);
+  const gestorSoIa = restrictGestor(CONSULTA_PREFIXES);
+  for (const path of ['/ai/consulta/chat', '/ai/consulta/status', '/ai/criacoes/gerar']) {
+    assert.equal(run(porPapel, 'secretaria', path), 403, `secretaria em ${path}`);
+    assert.equal(run(porPapel, 'admin', path), 200, `admin em ${path}`);
+    assert.equal(run(porPapel, 'gestor', path), 200, `gestor em ${path}`);
+    assert.equal(run(gestorSoIa, 'gestor', path), 200, `gestor passa no restrictGestor em ${path}`);
+  }
+  assert.equal(run(gestorSoIa, 'gestor', '/transacoes'), 403);
+  assert.equal(run(gestorSoIa, 'secretaria', '/transacoes'), 200);
 });
