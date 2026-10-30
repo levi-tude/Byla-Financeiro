@@ -23,7 +23,7 @@ Novas:
 - `saidas_planilha_controle`
 - `resumo_planilha_fluxo`
 - `balanco_meses`: balanço mês a mês dos últimos N meses, com total. Fonte: `v_resumo_mensal_oficial` (ou as transações oficiais, se a view não tiver o mês).
-- `entradas_modalidade_periodo`: quanto entrou de uma modalidade num mês ou período. Fonte: entradas oficiais de `v_transacoes_export` com modalidade.
+- `entradas_modalidade_periodo`: quanto entrou de uma modalidade num mês ou período. Fonte: pagamentos do Fluxo operacional (`fluxo_pagamentos_operacionais`, aba/modalidade, por mês de pagamento). O extrato do banco está com `modalidade` vazia.
 - `saidas_por_beneficiario`: pagamentos a uma pessoa, professor ou parceiro. Procura em 3 fontes, cada uma mostrada separadamente e **sem somar** (pode ser o mesmo pagamento): extrato bancário (saídas oficiais, por pessoa/descrição), Controle de caixa (modo Planilha, no sistema) e planilha FLUXO DE CAIXA (Google Sheets, blocos de saídas e repasses). Se não achar nada, responde "nenhum registro encontrado nas fontes …" e **nunca R$ 0**.
 
 ### Perguntas de aceitação (testadas com mock em `consultaAceitacao.test.ts`)

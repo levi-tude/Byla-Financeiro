@@ -534,29 +534,41 @@ async function toolBalancoMeses(ctx: ConsultaToolContext, n: number): Promise<st
   ].join('\n');
 }
 
+/** Pagamentos do Fluxo operacional (planilha migrada) de uma modalidade/aba, por mês de pagamento. */
+async function pagamentosFluxoModalidadeMes(modalidade: string, mes: number, ano: number) {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('Supabase não configurado.');
+  const termo = modalidade.normalize('NFD').replace(/[^A-Za-z0-9 ]/g, '').trim();
+  if (!termo) return { total: 0, qtd: 0 };
+  const { inicio, fim } = rangeMes(mes, ano);
+  const { data, error } = await supabase
+    .from('fluxo_pagamentos_operacionais')
+    .select('valor')
+    .or(`aba.ilike.%${termo}%,modalidade.ilike.%${termo}%`)
+    .gte('data_pagamento', inicio)
+    .lte('data_pagamento', fim)
+    .limit(5000);
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as Array<{ valor: number | string | null }>;
+  return { total: rows.reduce((s, r) => s + Number(r.valor ?? 0), 0), qtd: rows.length };
+}
+
 async function toolEntradasModalidadePeriodo(
   modalidade: string,
   meses: Array<{ mes: number; ano: number }>,
 ): Promise<string> {
-  const key = normalizeText(modalidade);
   const linhas: string[] = [];
   let total = 0;
   let qtdTotal = 0;
   for (const m of meses) {
-    const map = await entradasPorModalidade(m.mes, m.ano);
-    let v = 0;
-    let q = 0;
-    for (const [nome, e] of map) {
-      if (normalizeText(nome).includes(key)) {
-        v += e.total;
-        q += e.qtd;
-      }
-    }
+    const { total: v, qtd: q } = await pagamentosFluxoModalidadeMes(modalidade, m.mes, m.ano);
     total += v;
     qtdTotal += q;
-    linhas.push(q > 0 ? `${pad2(m.mes)}/${m.ano}: ${brl(v)} (${q} lançamento(s))` : `${pad2(m.mes)}/${m.ano}: nenhum registro`);
+    linhas.push(q > 0 ? `${pad2(m.mes)}/${m.ano}: ${brl(v)} (${q} pagamento(s))` : `${pad2(m.mes)}/${m.ano}: nenhum registro`);
   }
-  const head = `Entradas da modalidade “${modalidade}”. Fonte: extrato bancário oficial (v_transacoes_export, entradas com modalidade vinculada).`;
+  const head =
+    `Entradas da modalidade “${modalidade}” por mês de pagamento. Fonte: Fluxo de caixa operacional ` +
+    '(pagamentos lançados na aba da modalidade, tabela fluxo_pagamentos_operacionais). O extrato do banco não tem modalidade preenchida.';
   if (qtdTotal === 0) {
     return `${head}\nNENHUM REGISTRO ENCONTRADO no período. Não informe valor zero: diga que não há registro.`;
   }
