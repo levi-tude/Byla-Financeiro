@@ -70,7 +70,9 @@ A verificação é feita no servidor, a partir de `profiles.role`; o papel envia
 - **Groq é o provedor principal** quando `GROQ_API_KEY` está definida (API compatível com OpenAI: `POST https://api.groq.com/openai/v1/chat/completions`, com `tools`).
 - Modelos (fonte: https://console.groq.com/docs/tool-use, tabela "Supported Models", consultada em 30/10/2026):
   - primário: `openai/gpt-oss-120b` (tool use local, bom em português);
-  - reserva: `llama-3.3-70b-versatile` (tool use + chamadas paralelas).
+  - reservas: `openai/gpt-oss-20b` e `qwen/qwen3.8-27b` (cota grátis por modelo; `llama-3.3-70b-versatile` foi desligado em 16/08/2026).
+  - 429 com `retry-after` ≤ 6 s: espera e repete 1 vez; falhas são logadas como `ai_consulta_llm_falha` (modelo, status, tipo de limite — sem segredos).
+  - Para caber em ~8K tokens/min: histórico = últimas 4 mensagens (600 chars cada); resultado de função ≤ 3500 chars; resposta ≤ 700 tokens.
 - **Gemini** só entra como reserva, se `GEMINI_API_KEY` existir.
 - A ordem é configurável em `CONSULTA_AI_PROVIDER` (padrão `groq,gemini`; ex.: `gemini` usa só Gemini). Só entra na lista o provedor que tem chave.
 - **Erro 429 (limite)**: tenta o próximo modelo/provedor. Se todos falharem, responde no modo simples (menu determinístico) com o aviso "O limite gratuito da IA foi atingido agora…". O mesmo vale para outros erros.

@@ -1,3 +1,4 @@
+import { log } from './logger.js';
 /**
  * Orquestrador Consulta Byla: menu/keywords → tools; fatos só das tools.
  */
@@ -103,6 +104,8 @@ export async function gerarConsultaReply(
         providerUsed: r.provider,
       };
     }
+    // Sem segredos: só provedor, modelo, status HTTP, retry-after e tipo de limite (TPM/RPM/TPD).
+    log('warn', { msg: 'ai_consulta_llm_falha', reason: r.reason, falhas: r.falhas ?? [] });
     aviso = AVISO_FALLBACK[r.reason];
   }
   const det = await gerarConsultaDeterministica(input, executeTool);

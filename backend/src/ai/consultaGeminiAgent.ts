@@ -20,6 +20,17 @@ import type { ConsultaToolContext, ConsultaToolResult } from '../services/consul
 /** Modelos em ordem de preferência (verificados em ai.google.dev/gemini-api/docs/models, out/2026). */
 export const CONSULTA_GEMINI_MODELS = GEMINI_MODELS;
 export const MAX_AGENT_ITERATIONS = 5;
+/** Resultado de função enviado ao LLM (chars). Cota grátis Groq ~8K tokens/min por modelo. */
+export const MAX_TOOL_RESULT_CHARS = 3500;
+/** Histórico enviado ao LLM: últimas N mensagens, cada uma cortada. */
+export const MAX_HISTORY_MSGS = 4;
+export const MAX_HISTORY_CHARS = 600;
+
+function cortar(t: string, max: number): string {
+  return t.length > max ? `${t.slice(0, max)}\n[… resultado cortado; peça um recorte menor se precisar]` : t;
+}
+
+export type LlmFalha = { provider: LlmProviderId; model: string; status: number; retryAfterS?: number; limite?: string; detalhe?: string };
 
 export type ChatHistoryItem = { role: 'user' | 'assistant'; content: string };
 
@@ -212,7 +223,7 @@ export type AgentDeps = {
 
 export type AgentResult =
   | { ok: true; text: string; toolsUsed: ConsultaToolId[]; model: string; provider: LlmProviderId }
-  | { ok: false; reason: 'rate_limit' | 'error' | 'empty'; detail: string };
+  | { ok: false; reason: 'rate_limit' | 'error' | 'empty'; detail: string; falhas?: LlmFalha[] };
 
 /** @deprecated use LlmHttpError */
 export const GeminiHttpError = LlmHttpError;
@@ -236,12 +247,13 @@ export async function runConsultaAgent(
 
   const base: LlmMessage[] = [
     { role: 'system', content: buildSystemPrompt(ctx, deps.today) },
-    ...history.map<LlmMessage>((h) => ({ role: h.role, content: proteger(h.content) })),
+    ...history.slice(-MAX_HISTORY_MSGS).map<LlmMessage>((h) => ({ role: h.role, content: cortar(proteger(h.content), MAX_HISTORY_CHARS) })),
     { role: 'user', content: proteger(message) },
   ];
   const tools = llmToolDecls();
   let lastErr: Error | null = null;
   let rateLimited = false;
+  const falhas: LlmFalha[] = [];
 
   for (const p of providers) {
     for (const model of p.models) {
@@ -266,7 +278,7 @@ export async function runConsultaAgent(
             } else {
               toolsUsed.push(norm.tool);
               const r = await deps.executeTool(norm.tool, norm.params, norm.ctx);
-              output = r.ok ? { fatos: proteger(r.factsText) } : { erro: proteger(r.error) };
+              output = r.ok ? { fatos: cortar(proteger(r.factsText), MAX_TOOL_RESULT_CHARS) } : { erro: proteger(r.error) };
             }
             convo.push({ role: 'tool', toolCallId: call.id, name: call.name, content: JSON.stringify(output) });
           }
@@ -275,10 +287,15 @@ export async function runConsultaAgent(
       } catch (e) {
         lastErr = e as Error;
         // 429: tenta o próximo modelo/provedor (cota é por modelo); 4xx/5xx de modelo também.
-        if (e instanceof LlmHttpError && e.status === 429) rateLimited = true;
+        if (e instanceof LlmHttpError) {
+          if (e.status === 429) rateLimited = true;
+          falhas.push({ provider: p.provider, model, status: e.status, ...e.info });
+        } else {
+          falhas.push({ provider: p.provider, model, status: 0, detalhe: String(lastErr?.message ?? '').slice(0, 200) });
+        }
       }
     }
   }
-  if (rateLimited) return { ok: false, reason: 'rate_limit', detail: lastErr?.message ?? 'HTTP 429' };
-  return { ok: false, reason: 'error', detail: lastErr?.message ?? 'Falha IA' };
+  if (rateLimited) return { ok: false, reason: 'rate_limit', detail: lastErr?.message ?? 'HTTP 429', falhas };
+  return { ok: false, reason: 'error', detail: lastErr?.message ?? 'Falha IA', falhas };
 }

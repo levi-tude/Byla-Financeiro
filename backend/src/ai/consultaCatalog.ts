@@ -54,6 +54,18 @@ export const CONSULTA_MENU: Array<{ label: string; tool: ConsultaToolId }> = [
 
 export const CONSULTA_MENU_LABELS = CONSULTA_MENU.map((m) => m.label);
 
+const PALAVRAS_NAO_MODALIDADE = new Set(['caixa', 'banco', 'pix', 'dinheiro', 'cartao', 'credito', 'debito', 'hoje', 'ontem', 'entrada', 'entradas', 'modalidade', 'modalidades', 'mes', 'semana', 'dia', 'ano', 'quem', 'que', 'todo', 'tudo']);
+
+/** Ex.: "quanto entrou de pilates esse mes" → "pilates". Recebe texto já normalizado. */
+export function extrairModalidadeEntrada(n: string): string | null {
+  const m = n.match(
+    /\b(?:entrou|entraram|entradas?|recebemos|recebeu|faturou|faturamos|arrecad\w*)\s+(?:de|do|da|dos|das|em|no|na|com)\s+([a-z][a-z0-9 ]{1,30}?)(?=\s+(?:esse|este|neste|nesse|no|na|em|do|da|nos|ultim\w*|mes|semana|ano|hoje)\b|\s*[?.!,]|\s*$)/,
+  );
+  const alvo = m?.[1]?.trim();
+  if (!alvo || PALAVRAS_NAO_MODALIDADE.has(alvo.split(' ')[0]!)) return null;
+  return alvo;
+}
+
 function norm(s: string): string {
   return s
     .normalize('NFD')
@@ -200,6 +212,11 @@ export function resolveConsultaIntent(message: string, now = new Date()): Consul
   }
   if (/\bmeio\b/.test(n) && /\bpagamento|pix|credito|debito/.test(n)) {
     return { tool: 'resumo_meio_pagamento', params: {}, confidence: 0.85, source: 'keyword' };
+  }
+  // "Quanto entrou de Pilates esse mês?" → entradas da modalidade (antes do resumo geral).
+  const mod = extrairModalidadeEntrada(n);
+  if (mod) {
+    return { tool: 'entradas_modalidade_periodo', params: { modalidade: mod }, confidence: 0.85, source: 'keyword' };
   }
   if (/\bmodalidade|parceiro/.test(n) && /\bentrada/.test(n)) {
     return { tool: 'resumo_modalidades', params: {}, confidence: 0.85, source: 'keyword' };

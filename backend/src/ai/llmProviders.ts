@@ -8,7 +8,13 @@ import { config } from '../config.js';
 export type LlmProviderId = 'groq' | 'gemini';
 
 /** Modelos Groq com tool use (https://console.groq.com/docs/tool-use, tabela "Supported Models"). */
-export const GROQ_MODELS = ['openai/gpt-oss-120b', 'llama-3.3-70b-versatile'] as const;
+/**
+ * Cota grátis Groq é por modelo (ex.: 8K tokens/min cada — console.groq.com/docs/rate-limits).
+ * llama-3.3-70b-versatile foi desligado em 16/08/2026 (docs/deprecations) — não usar.
+ */
+export const GROQ_MODELS = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b'] as const;
+/** Espera máxima (s) para repetir uma vez após 429 com retry-after. */
+export const GROQ_MAX_RETRY_AFTER_S = 6;
 export const GEMINI_MODELS = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-flash-latest'] as const;
 
 export type LlmProviderConfig = { provider: LlmProviderId; apiKey: string; models: readonly string[] };
@@ -26,9 +32,28 @@ export class LlmHttpError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** Diagnóstico sem segredos: retry-after, tipo de limite, mensagem do provedor. */
+    public info: { retryAfterS?: number; limite?: string; detalhe?: string } = {},
   ) {
     super(message);
   }
+}
+
+/** Extrai do 429 da Groq o tipo de limite (TPM/RPM/TPD/RPD) e números, sem dados sensíveis. */
+export function parseGroqLimitError(bodyText: string): { limite?: string; detalhe?: string } {
+  let msg = bodyText;
+  try {
+    const j = JSON.parse(bodyText) as { error?: { message?: string } };
+    if (j.error?.message) msg = j.error.message;
+  } catch {
+    /* texto puro */
+  }
+  msg = msg.replace(/org_[A-Za-z0-9]+/g, 'org_***').replace(/\s+/g, ' ').trim().slice(0, 300);
+  const m = msg.match(/\((TPM|RPM|TPD|RPD|ITPM|OTPM)\)|on (tokens|requests) per (minute|day)/i);
+  let limite: string | undefined;
+  if (m?.[1]) limite = m[1].toUpperCase();
+  else if (m?.[2]) limite = `${m[2][0]!.toUpperCase()}P${m[3]![0]!.toUpperCase()}`;
+  return { limite, detalhe: msg || undefined };
 }
 
 /**
@@ -52,7 +77,7 @@ export function resolveLlmProviders(
   return out;
 }
 
-type ChatOpts = { maxTokens?: number; fetchImpl?: typeof fetch; timeoutMs?: number };
+type ChatOpts = { maxTokens?: number; fetchImpl?: typeof fetch; timeoutMs?: number; sleep?: (ms: number) => Promise<void> };
 
 export async function llmChat(
   p: LlmProviderConfig,
@@ -94,16 +119,34 @@ async function groqChat(
       return { role: m.role, content: m.content };
     }),
     ...(tools?.length ? { tools: tools.map((t) => ({ type: 'function', function: t })), tool_choice: 'auto' } : {}),
-    max_completion_tokens: opts.maxTokens ?? 1200,
+    max_completion_tokens: opts.maxTokens ?? 700,
     temperature: 0.2,
   };
-  const res = await f('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${p.apiKey}` },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(opts.timeoutMs ?? 25000),
-  });
-  if (!res.ok) throw new LlmHttpError(res.status, `Groq HTTP ${res.status}`);
+  const payload = JSON.stringify(body);
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  let res: Response | null = null;
+  for (let tentativa = 0; tentativa < 2; tentativa++) {
+    res = await f('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${p.apiKey}` },
+      body: payload,
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 25000),
+    });
+    if (res.ok) break;
+    const bodyText = await res.text().catch(() => '');
+    const retryAfterS = Number(res.headers.get('retry-after') ?? NaN);
+    const info = {
+      ...parseGroqLimitError(bodyText),
+      ...(Number.isFinite(retryAfterS) ? { retryAfterS } : {}),
+    };
+    // 429 de curta duração (TPM/RPM): espera o retry-after e tenta UMA vez.
+    if (res.status === 429 && tentativa === 0 && Number.isFinite(retryAfterS) && retryAfterS <= GROQ_MAX_RETRY_AFTER_S) {
+      await sleep(Math.max(0, retryAfterS) * 1000 + 250);
+      continue;
+    }
+    throw new LlmHttpError(res.status, `Groq HTTP ${res.status}`, info);
+  }
+  if (!res?.ok) throw new LlmHttpError(res?.status ?? 0, `Groq HTTP ${res?.status ?? 0}`);
   const json = (await res.json()) as {
     choices?: { message?: { content?: string | null; tool_calls?: { id: string; function: { name: string; arguments?: string } }[] } }[];
   };
