@@ -88,3 +88,32 @@ A verificação é feita no servidor, a partir de `profiles.role`; o papel envia
 - CPF, telefone e e-mail continuam sendo removidos (`stripPii`).
 - Limites: nomes com menos de 4 letras e apelidos que não estão em nenhuma dessas tabelas (ex.: "Pholha" como texto livre ou dentro de uma categoria) não são trocados.
 - Testes: `backend/src/ai/consultaGroqPseudo.test.ts` (nenhum nome real das fixtures vai no payload; round-trip de "quanto a Aluno Demo Um pagou?").
+
+## Qualidade dos dados (fix/consulta-dados-qualidade)
+
+- **Cobertura do extrato:** toda tool baseada em `transacoes` anexa "Dados do extrato até DD/MM/AAAA" (último lançamento no período) e, se o último lançamento importado (geral) for anterior ao fim do período, "ATENÇÃO: período incompleto". A IA é instruída a repetir isso; se esquecer, `garantirCoberturaExtrato` anexa a linha.
+- **Sem dados ≠ zero:** período sem nenhum lançamento no extrato → "Sem dados do extrato para esse período" (a tool nem soma). Vale para IA e fallback. Balanço/comparação marcam o mês vazio como "sem dados".
+- **Documentos no campo `pessoa`:** `limparDocumentoPessoa` remove CPF/CNPJ completos, parciais, mascarados (`***.456.789-**`) ou colados ao nome; `stripPii` também cobre CNPJ, mascarados e dígitos colados a nome.
+- **Tolerância do par EA/Blead × repasse Samuel:** a view `v_resumo_mensal_oficial` usa **R$ 300**; o código (`BYLA_EXTERNAL_PAIR_TOLERANCE`, padrão) usa **R$ 800** por decisão do Levi em 30/10/2026. Por isso, saídas Samuel com diferença entre R$ 300 e R$ 800 do externo contam como par no código e não na view. Outras divergências (só documentadas, view não alterada):
+  - o código também exclui saídas Samuel entre R$ 4.800 e R$ 6.500 mesmo sem par (a view não);
+  - o código identifica externos por `pessoa` começando com "EA "/"BLEAD AD TECH" **ou `descricao` contendo** esses termos; a view usa `descricao LIKE 'ea %'` (começa com) e `'%blead ad tech%'`;
+  - `v_transacoes_export` classifica qualquer saída `samuel%` como repasse, sem checar valor.
+- **Alunos ativos:** `alunos_por_modalidade` ignora a modalidade literal "(modalidade)" (cabeçalho importado) e mostra o total. Linhas como "BOLSA PROVISORIA" continuam contando.
+
+## Roteador determinístico, subconjunto de ferramentas e fallback
+
+**Ordem de resposta** (`gerarConsultaReply`):
+
+1. **Roteador determinístico** (`backend/src/ai/consultaRouter.ts`) roda **antes da IA**. Perguntas comuns com alta confiança são respondidas direto pelas ferramentas, sem chamar o LLM:
+   - balanço/resultado/“quanto entrou” do mês (da tela, do mês citado ou do mês passado) → `resumo_mes`;
+   - “últimos N meses” e meses contíguos (“maio e junho”) → `balanco_meses`;
+   - “compara setembro com outubro”, “agosto vs setembro” → `comparar_meses`;
+   - “quanto entrou de <modalidade>” no mês ou período (“de jul a out”, “jul-set”), “o Pilates trouxe…” → `entradas_modalidade_periodo`; “entradas por modalidade” → `resumo_modalidades`;
+   - “pagamento do X”, “o X pagou…”, “recebemos da X”, “pagamos ao X” (nome com maiúscula) → `movimentos_por_pessoa`;
+   - “essa semana” → `resumo_semana`; “hoje/ontem” → `resumo_dia`;
+   - recusas fixas: pedidos de escrita (apagar/alterar/lançar) e dados pessoais (CPF, telefone…).
+   Ambíguo (perguntas encadeadas “e de yoga?”, várias modalidades, “deve”, professores, valores, alunos…) → `null` → IA.
+2. **IA** recebe só **3–6 ferramentas relevantes** (`selecionarToolsRelevantes`, por palavras‑chave da pergunta e das 2 últimas do usuário), não as 22.
+3. **Fallback**: se todos os modelos falharem (429/erro/exceção), responde no modo determinístico com o aviso “…respondi no modo simples (menu).” A rota `/api/ai/consulta/chat` usa rate limit *soft*: acima do limite não devolve 429, responde no modo simples. O front não mostra mais “Não consegui consultar os dados agora”; só mostra aviso de sem conexão quando a requisição nem chega ao servidor.
+
+Testes: `backend/src/ai/consultaRouter.test.ts` (nomes fictícios). Na lista de 30 perguntas dos gestores, o roteador responde ~17 sem IA (incluindo as 2 recusas).

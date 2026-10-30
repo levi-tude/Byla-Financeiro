@@ -183,12 +183,40 @@ export function normalizeToolCall(
   return { tool: name as ConsultaToolId, params, ctx };
 }
 
-/** Remove CPF, telefone e e-mail antes de enviar ao LLM. */
+/** Remove CPF/CNPJ (completos, parciais, mascarados ou colados ao nome), telefone e e-mail antes de enviar ao LLM. */
 export function stripPii(text: string): string {
   return text
     .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '[email omitido]')
+    .replace(/\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/g, '[cnpj omitido]')
     .replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, '[cpf omitido]')
+    // CPF/CNPJ mascarado/parcial (ex.: ***.456.789-**, 12.345.678/****-**).
+    .replace(/[*\d]*\*[*\d.\/-]*\d[*\d.\/-]*|\d[\d.\/-]*\*[*\d.\/-]*/g, '[doc omitido]')
+    // Dígitos de documento colados a um nome (ex.: "FULANO 12345678", "FULANO12345678").
+    .replace(/(\p{L})\s?\d{6,14}\b/gu, '$1 [doc omitido]')
     .replace(/(\+?55\s?)?\(?\d{2}\)?\s?9?\d{4}[-\s]?\d{4}\b/g, '[telefone omitido]');
+}
+
+const COBERTURA_RE = /Dados do extrato até (\d{2}\/\d{2}\/\d{4})\.(?: ATENÇÃO: período incompleto[^\n]*)?/g;
+const SEM_DADOS_RE = /Sem dados do extrato para esse período[^\n]*/g;
+
+/**
+ * Pós-processa a resposta da IA com base nos fatos das tools (texto real, não pseudonimizado):
+ * - todas as consultas ao extrato sem lançamento → resposta "sem dados" (nunca R$ 0,00);
+ * - falta a data de cobertura ("até DD/MM/AAAA") → anexa a linha de cobertura.
+ */
+export function garantirCoberturaExtrato(texto: string, fatos: string[]): string {
+  const semDados = fatos.flatMap((f) => f.match(SEM_DADOS_RE) ?? []);
+  const cobertura = [...new Set(fatos.flatMap((f) => f.match(COBERTURA_RE) ?? []))];
+  if (semDados.length && !cobertura.length) {
+    if (/R\$\s*0,00|\bzero\b/i.test(texto) || !/sem dados/i.test(texto)) {
+      return `Sem dados para esse período. ${[...new Set(semDados)].join(' ')}`;
+    }
+    return texto;
+  }
+  const faltando = cobertura.filter((c) => !texto.includes(c.match(/\d{2}\/\d{2}\/\d{4}/)![0]!));
+  const incompletoSemAviso = cobertura.some((c) => c.includes('incompleto')) && !/incomplet/i.test(texto);
+  if (faltando.length || incompletoSemAviso) return `${texto}\n\n${cobertura.join(' ')}`;
+  return texto;
 }
 
 export function buildSystemPrompt(ctx: ConsultaToolContext, today: string): string {
@@ -199,7 +227,8 @@ export function buildSystemPrompt(ctx: ConsultaToolContext, today: string): stri
     'REGRA DE OURO: todo número, valor, data ou nome da resposta deve vir dos resultados das funções. Nunca invente, estime ou complete dados.',
     'Se as funções não trouxerem o dado, diga que não encontrou e sugira a tela do sistema. Se faltar informação (ex.: nome, mês), pergunte de forma curta.',
     'DADO INEXISTENTE NÃO É ZERO: se a função disser "nenhum registro encontrado", ou não trouxer a pessoa/modalidade/mês pedido, responda que não há registro nas fontes consultadas (cite as fontes). NUNCA responda "R$ 0", "zero" ou "não houve pagamento" nesses casos.',
-    'Sempre diga de onde vem cada número (ex.: extrato do banco, Controle de caixa, planilha do Fluxo). Se duas fontes trouxerem valores, mostre as duas sem somar.',
+    'COBERTURA DO EXTRATO: se os fatos trouxerem "Dados do extrato até DD/MM/AAAA", repita essa data na resposta; se trouxerem "período incompleto", avise que o mês/período está incompleto. Se trouxerem "Sem dados do extrato", responda "sem dados para esse período" (com a data do último lançamento) e nunca R$ 0,00.',
+        'Sempre diga de onde vem cada número (ex.: extrato do banco, Controle de caixa, planilha do Fluxo). Se duas fontes trouxerem valores, mostre as duas sem somar.',
     'Para períodos ("últimos 4 meses"), mostre mês a mês e o total, como a função devolve.',
     'Você não pode alterar nada no sistema. Se pedirem para alterar, explique que o chat é só consulta.',
     'Responda em português do Brasil, curto e claro para secretaria/gestão, sem markdown (sem ** nem #). Valores em R$.',
@@ -219,6 +248,10 @@ export type AgentDeps = {
   nomesConhecidos?: NomeConhecido[];
   /** Espião de teste: recebe cada payload enviado ao LLM. */
   onPayload?: (messages: LlmMessage[]) => void;
+  /** Subconjunto de ferramentas enviado à IA (3–6 relevantes). Sem ele, envia todas. */
+  toolIds?: ConsultaToolId[];
+  /** Espião de teste: recebe as ferramentas enviadas ao LLM. */
+  onTools?: (tools: LlmToolDecl[]) => void;
 };
 
 export type AgentResult =
@@ -250,7 +283,10 @@ export async function runConsultaAgent(
     ...history.slice(-MAX_HISTORY_MSGS).map<LlmMessage>((h) => ({ role: h.role, content: cortar(proteger(h.content), MAX_HISTORY_CHARS) })),
     { role: 'user', content: proteger(message) },
   ];
-  const tools = llmToolDecls();
+  const todas = llmToolDecls();
+  const filtradas = deps.toolIds?.length ? todas.filter((t) => deps.toolIds!.includes(t.name as ConsultaToolId)) : todas;
+  const tools = filtradas.length ? filtradas : todas;
+  deps.onTools?.(tools);
   let lastErr: Error | null = null;
   let rateLimited = false;
   const falhas: LlmFalha[] = [];
@@ -259,14 +295,16 @@ export async function runConsultaAgent(
     for (const model of p.models) {
       const convo = [...base];
       const toolsUsed: ConsultaToolId[] = [];
+      const fatosTools: string[] = [];
       try {
         for (let i = 0; i < MAX_AGENT_ITERATIONS; i++) {
           deps.onPayload?.(convo);
           const reply = await llmChat(p, model, convo, tools, { fetchImpl: deps.fetchImpl });
           convo.push({ role: 'assistant', content: reply.text, toolCalls: reply.toolCalls, raw: reply.raw });
           if (reply.toolCalls.length === 0) {
-            const text = pseudo.revelar(reply.text.replace(/\*\*/g, '').trim());
-            if (!text) return { ok: false, reason: 'empty', detail: 'Resposta vazia' };
+            const bruto = pseudo.revelar(reply.text.replace(/\*\*/g, '').trim());
+            if (!bruto) return { ok: false, reason: 'empty', detail: 'Resposta vazia' };
+            const text = garantirCoberturaExtrato(bruto, fatosTools);
             return { ok: true, text, toolsUsed, model, provider: p.provider };
           }
           for (const call of reply.toolCalls) {
@@ -278,6 +316,7 @@ export async function runConsultaAgent(
             } else {
               toolsUsed.push(norm.tool);
               const r = await deps.executeTool(norm.tool, norm.params, norm.ctx);
+              if (r.ok) fatosTools.push(r.factsText);
               output = r.ok ? { fatos: cortar(proteger(r.factsText), MAX_TOOL_RESULT_CHARS) } : { erro: proteger(r.error) };
             }
             convo.push({ role: 'tool', toolCallId: call.id, name: call.name, content: JSON.stringify(output) });

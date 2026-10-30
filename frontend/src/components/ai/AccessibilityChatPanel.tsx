@@ -108,7 +108,7 @@ export function AccessibilityChatPanel({ open, onClose, context }: ConsultaBylaP
           {
             id: uid(),
             role: 'assistant' as const,
-            text: 'Não consegui consultar os dados agora. Tente de novo em alguns segundos.',
+            text: 'Sem conexão com o servidor da Byla agora (a resposta nem chegou). Verifique a internet e use um atalho do menu.',
             createdAt: Date.now(),
           },
         ].slice(-HISTORY_LIMIT),

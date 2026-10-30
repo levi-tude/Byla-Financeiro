@@ -3,6 +3,7 @@ import { achatarBlocosParaMatch } from '../logic/planilhaControleSaidas.js';
 import { loadControleCaixaExisting } from './controleCaixaRead.js';
 import { filtrarTransacoesOficiais, type TransacaoBase } from './transacoesFiltro.js';
 import { getSupabase } from './supabaseClient.js';
+import { limparDocumentoPessoa } from '../ai/pseudonimizacao.js';
 import { PlanilhaFluxoAdapter } from '../adapters/PlanilhaFluxoAdapter.js';
 import { CacheFluxoPlanilhaAdapter } from '../adapters/CacheFluxoPlanilhaAdapter.js';
 import { SupabaseFluxoAdapter } from '../adapters/SupabaseFluxoAdapter.js';
@@ -61,11 +62,11 @@ export async function buscarMovimentosPorPessoa(
     /* sem mapeamento: segue só por nome */
   }
   const viaCategoria = resolverPagadoresPorCategoria(nome, maps);
-  const pagadores = new Map(viaCategoria.map((m) => [normalizeText(m.pessoa_normalizada), m]));
+  const pagadores = new Map(viaCategoria.map((m) => [normalizeText(limparDocumentoPessoa(m.pessoa_normalizada)), m]));
   if (viaCategoria.length) {
     blocos.push(
       `Mapeamento pessoa→categoria: “${nome}” corresponde a ${viaCategoria
-        .map((m) => `${m.pessoa_normalizada} (categoria ${[m.categoria, m.subcategoria].filter(Boolean).join(' / ')})`)
+        .map((m) => `${limparDocumentoPessoa(m.pessoa_normalizada)} (categoria ${[m.categoria, m.subcategoria].filter(Boolean).join(' / ')})`)
         .join('; ')}.`,
     );
   }
@@ -140,10 +141,10 @@ const defaultDeps: SaidasBeneficiarioDeps = {
     const of = filtrarTransacoesOficiais(rows);
     const conv = (direcao: Direcao) => (t: TransacaoBase) => ({
       data: t.data,
-      descricao: `${t.pessoa ?? ''} ${t.descricao ?? ''}`.trim(),
+      descricao: `${limparDocumentoPessoa(t.pessoa)} ${t.descricao ?? ''}`.trim(),
       valor: Number(t.valor),
       direcao,
-      pessoaNorm: t.pessoa ?? '',
+      pessoaNorm: limparDocumentoPessoa(t.pessoa),
     });
     return [...of.entradas.map(conv('entrada')), ...of.saidas.map(conv('saida'))];
   },

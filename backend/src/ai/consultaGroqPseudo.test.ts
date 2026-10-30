@@ -83,7 +83,7 @@ test('Groq: nenhum nome real chega ao LLM; args com código voltam ao nome real;
 test('Groq 429 em todos os modelos → fallback determinístico com aviso', async () => {
   const fetchImpl = (async () => jsonRes(429, { error: { message: 'rate limit' } })) as unknown as typeof fetch;
   const out = await gerarConsultaReply(
-    { message: 'resumo do mês', context: { monthYear: '2026-09' } },
+    { message: 'situação do aluno Ana Clara', context: { monthYear: '2026-09' } },
     {
       providers: groq,
       fetchImpl,

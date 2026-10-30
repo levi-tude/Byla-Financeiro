@@ -7,6 +7,8 @@ type RateLimitOptions = {
   max: number;
   /** Nome amigável no header/log */
   name?: string;
+  /** Se true, não bloqueia: marca `req.rateLimited = true` e segue (a rota decide o modo degradado). */
+  soft?: boolean;
 };
 
 type Bucket = { count: number; resetAt: number };
@@ -53,6 +55,11 @@ export function rateLimit(opts: RateLimitOptions) {
     res.setHeader('X-RateLimit-Remaining', String(remaining));
     res.setHeader('X-RateLimit-Reset', String(Math.ceil(bucket.resetAt / 1000)));
 
+    if (bucket.count > opts.max && opts.soft) {
+      (req as Request & { rateLimited?: boolean }).rateLimited = true;
+      next();
+      return;
+    }
     if (bucket.count > opts.max) {
       const retryAfterSec = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
       res.setHeader('Retry-After', String(retryAfterSec));

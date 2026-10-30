@@ -12,6 +12,8 @@ export function createAiConsultaRouter(): Router {
     name: 'consulta-ia',
     max: config.rateLimitIaMax,
     windowMs: config.rateLimitIaWindowMs,
+    // Acima do limite não devolve 429: responde no modo simples (sem IA), nunca "não consegui consultar".
+    soft: true,
   });
 
   router.get('/ai/consulta/status', (_req: Request, res: Response) => {
@@ -25,7 +27,28 @@ export function createAiConsultaRouter(): Router {
       return;
     }
 
-    const response = await gerarConsultaReply(parsed.data);
+    const rateLimited = (req as Request & { rateLimited?: boolean }).rateLimited === true;
+    let response: Awaited<ReturnType<typeof gerarConsultaReply>>;
+    try {
+      response = await gerarConsultaReply(
+        parsed.data,
+        rateLimited
+          ? { forcarModoSimples: true, avisoInicial: 'Muitas perguntas seguidas; respondi no modo simples (menu).' }
+          : {},
+      );
+    } catch (e) {
+      log('warn', { msg: 'ai_consulta_chat_erro', requestId: req.requestId, detail: e instanceof Error ? e.message : String(e) });
+      response = await gerarConsultaReply(parsed.data, {
+        providers: [],
+        avisoInicial: 'A IA não respondeu agora; respondi no modo simples (menu).',
+      }).catch(() => ({
+        message: 'A IA não respondeu agora; respondi no modo simples (menu). Use um dos atalhos abaixo.',
+        tool: null,
+        confidence: 0,
+        quickReplies: CONSULTA_MENU_LABELS,
+        providerUsed: 'fallback' as const,
+      }));
+    }
 
     log('info', {
       msg: 'ai_consulta_chat',
