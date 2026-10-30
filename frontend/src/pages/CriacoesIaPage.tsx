@@ -54,7 +54,7 @@ function Card({ s, spec, i }: { s: Secao; spec: CriacaoSpec; i: number }) {
   );
 }
 
-function Apresentacao({ spec, onClose }: { spec: CriacaoSpec; onClose: () => void }) {
+export function Apresentacao({ spec, onClose }: { spec: CriacaoSpec; onClose: () => void }) {
   const secoes = useMemo(() => secoesRenderizaveis(spec), [spec]);
   const total = secoes.length + 1;
   const [idx, setIdx] = useState(0);

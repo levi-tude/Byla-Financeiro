@@ -25,6 +25,8 @@ import { CadastroAlunosResumoPage } from './pages/CadastroAlunosResumoPage';
 import { ProgramaBolsasPage } from './pages/ProgramaBolsasPage';
 
 /** Lazy: ECharts + Motion ficam só no chunk desta rota. */
+/** PROTÓTIPO – não mesclar: rota de demo só em dev, sem login, dados de exemplo. */
+const ProtoChatUnicoPage = lazy(() => import('./proto/ProtoChatUnicoPage'));
 const CriacoesIaPage = lazy(() => import('./pages/CriacoesIaPage'));
 
 function HomeByRole() {
@@ -41,6 +43,9 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        {import.meta.env.DEV ? (
+          <Route path="/proto/chat-unico" element={<Suspense fallback={null}><ProtoChatUnicoPage /></Suspense>} />
+        ) : null}
         <Route path="/redefinir-senha" element={<ResetPasswordPage />} />
         <Route
           path="/"
