@@ -248,6 +248,10 @@ export type AgentDeps = {
   nomesConhecidos?: NomeConhecido[];
   /** Espião de teste: recebe cada payload enviado ao LLM. */
   onPayload?: (messages: LlmMessage[]) => void;
+  /** Subconjunto de ferramentas enviado à IA (3–6 relevantes). Sem ele, envia todas. */
+  toolIds?: ConsultaToolId[];
+  /** Espião de teste: recebe as ferramentas enviadas ao LLM. */
+  onTools?: (tools: LlmToolDecl[]) => void;
 };
 
 export type AgentResult =
@@ -279,7 +283,10 @@ export async function runConsultaAgent(
     ...history.slice(-MAX_HISTORY_MSGS).map<LlmMessage>((h) => ({ role: h.role, content: cortar(proteger(h.content), MAX_HISTORY_CHARS) })),
     { role: 'user', content: proteger(message) },
   ];
-  const tools = llmToolDecls();
+  const todas = llmToolDecls();
+  const filtradas = deps.toolIds?.length ? todas.filter((t) => deps.toolIds!.includes(t.name as ConsultaToolId)) : todas;
+  const tools = filtradas.length ? filtradas : todas;
+  deps.onTools?.(tools);
   let lastErr: Error | null = null;
   let rateLimited = false;
   const falhas: LlmFalha[] = [];

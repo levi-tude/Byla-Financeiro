@@ -99,3 +99,21 @@ A verificação é feita no servidor, a partir de `profiles.role`; o papel envia
   - o código identifica externos por `pessoa` começando com "EA "/"BLEAD AD TECH" **ou `descricao` contendo** esses termos; a view usa `descricao LIKE 'ea %'` (começa com) e `'%blead ad tech%'`;
   - `v_transacoes_export` classifica qualquer saída `samuel%` como repasse, sem checar valor.
 - **Alunos ativos:** `alunos_por_modalidade` ignora a modalidade literal "(modalidade)" (cabeçalho importado) e mostra o total. Linhas como "BOLSA PROVISORIA" continuam contando.
+
+## Roteador determinístico, subconjunto de ferramentas e fallback
+
+**Ordem de resposta** (`gerarConsultaReply`):
+
+1. **Roteador determinístico** (`backend/src/ai/consultaRouter.ts`) roda **antes da IA**. Perguntas comuns com alta confiança são respondidas direto pelas ferramentas, sem chamar o LLM:
+   - balanço/resultado/“quanto entrou” do mês (da tela, do mês citado ou do mês passado) → `resumo_mes`;
+   - “últimos N meses” e meses contíguos (“maio e junho”) → `balanco_meses`;
+   - “compara setembro com outubro”, “agosto vs setembro” → `comparar_meses`;
+   - “quanto entrou de <modalidade>” no mês ou período (“de jul a out”, “jul-set”), “o Pilates trouxe…” → `entradas_modalidade_periodo`; “entradas por modalidade” → `resumo_modalidades`;
+   - “pagamento do X”, “o X pagou…”, “recebemos da X”, “pagamos ao X” (nome com maiúscula) → `movimentos_por_pessoa`;
+   - “essa semana” → `resumo_semana`; “hoje/ontem” → `resumo_dia`;
+   - recusas fixas: pedidos de escrita (apagar/alterar/lançar) e dados pessoais (CPF, telefone…).
+   Ambíguo (perguntas encadeadas “e de yoga?”, várias modalidades, “deve”, professores, valores, alunos…) → `null` → IA.
+2. **IA** recebe só **3–6 ferramentas relevantes** (`selecionarToolsRelevantes`, por palavras‑chave da pergunta e das 2 últimas do usuário), não as 22.
+3. **Fallback**: se todos os modelos falharem (429/erro/exceção), responde no modo determinístico com o aviso “…respondi no modo simples (menu).” A rota `/api/ai/consulta/chat` usa rate limit *soft*: acima do limite não devolve 429, responde no modo simples. O front não mostra mais “Não consegui consultar os dados agora”; só mostra aviso de sem conexão quando a requisição nem chega ao servidor.
+
+Testes: `backend/src/ai/consultaRouter.test.ts` (nomes fictícios). Na lista de 30 perguntas dos gestores, o roteador responde ~17 sem IA (incluindo as 2 recusas).
