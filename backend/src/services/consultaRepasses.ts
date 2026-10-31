@@ -8,7 +8,7 @@ import { normalizeText as normalizeTextUpper } from '../logic/conciliacaoTexto.j
 /** Minúsculas, sem acento/pontuação. */
 const normalizeText = (s: string) => normalizeTextUpper(s).toLowerCase();
 import { instrucaoIa } from '../ai/instrucaoIa.js';
-import { NAO_PROFESSORES_PRIMEIRO_NOME, PROFESSORES_BYLA, type ProfessorConfig } from '../config/professoresByla.js';
+import { FUNCIONARIOS_NAO_PROFESSORES, SOCIOS_PRIMEIRO_NOME, NAO_PROFESSORES_PRIMEIRO_NOME, PROFESSORES_BYLA, type ProfessorConfig } from '../config/professoresByla.js';
 import type { SaidaExtrato } from './consultaSaidas.js';
 
 export type LinhaParceiro = { label: string; valor: number | null };
@@ -17,12 +17,13 @@ function brl(n: number): string {
   return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 const pad2 = (n: number) => String(n).padStart(2, '0');
-const primeiroNome = (p: string | null) => normalizeText(String(p ?? '')).split(/\s+/)[0] ?? '';
+const comeca = (nome: string, k: string) => nome === k || nome.startsWith(`${k} `);
+const casaLista = (nome: string, ks: readonly string[]) => ks.some((k) => comeca(nome, k));
 
 export function professorDaSaida(s: SaidaExtrato, lista: readonly ProfessorConfig[] = PROFESSORES_BYLA): ProfessorConfig | null {
-  const pn = primeiroNome(s.pessoa);
-  if (!pn || NAO_PROFESSORES_PRIMEIRO_NOME.includes(pn)) return null;
-  return lista.find((p) => p.primeiroNomeExtrato.includes(pn)) ?? null;
+  const nome = normalizeText(String(s.pessoa ?? ''));
+  if (!nome || casaLista(nome, NAO_PROFESSORES_PRIMEIRO_NOME)) return null;
+  return lista.find((p) => casaLista(nome, p.primeiroNomeExtrato)) ?? null;
 }
 
 export function textoRepassesProfessores(input: {
@@ -37,14 +38,15 @@ export function textoRepassesProfessores(input: {
   const lista = input.lista ?? PROFESSORES_BYLA;
   const ref = `${pad2(input.mes)}/${input.ano}`;
   const filtro = input.professor ? normalizeText(input.professor) : '';
-  if (filtro && NAO_PROFESSORES_PRIMEIRO_NOME.some((n) => filtro.split(/\s+/).includes(n))) {
+  const papel = filtro && casaLista(filtro, SOCIOS_PRIMEIRO_NOME) ? 'sócio' : filtro && casaLista(filtro, FUNCIONARIOS_NAO_PROFESSORES) ? 'funcionário' : '';
+  if (papel) {
     return [
-      `${input.professor} não é professor (sócio): não entra em repasses de professores.`,
+      `${input.professor} não é professor (${papel}): não entra em repasses de professores.`,
       instrucaoIa('Para ver pagamentos a essa pessoa, sugira perguntar "quanto paguei a <nome> em <mês>" (movimentos por pessoa).'),
     ].join('\n');
   }
   const alvo = filtro
-    ? lista.filter((p) => normalizeText(p.apelido) === filtro || normalizeText(p.atividade) === filtro || p.primeiroNomeExtrato.includes(filtro.split(/\s+/)[0]!))
+    ? lista.filter((p) => normalizeText(p.apelido) === filtro || normalizeText(p.atividade) === filtro || casaLista(filtro, p.primeiroNomeExtrato))
     : lista;
   if (filtro && alvo.length === 0) {
     return [
@@ -61,7 +63,7 @@ export function textoRepassesProfessores(input: {
     const doExtrato = input.saidas.filter((s) => professorDaSaida(s, lista) === p);
     const ext = doExtrato.reduce((a, s) => a + Math.abs(Number(s.valor)), 0);
     totalExtrato += ext;
-    const ctrl = input.controle?.filter((l) => p.linhaControle.some((k) => normalizeText(l.label) === k || normalizeText(l.label).includes(k)));
+    const ctrl = input.controle?.filter((l) => p.linhaControle.some((k) => normalizeText(l.label) === k));
     const ctrlTxt =
       input.controle == null
         ? 'Controle indisponível'
@@ -71,18 +73,18 @@ export function textoRepassesProfessores(input: {
             : 'Controle sem valor lançado'
           : 'sem linha no Controle';
     linhas.push(
-      `${p.apelido} (${p.atividade}): extrato ${brl(ext)} em ${doExtrato.length} saída(s) · ${ctrlTxt}${p.inferencia ? ' · identificação por inferência' : ''}`,
+      `${p.apelido} (${p.atividade}): extrato ${brl(ext)} em ${doExtrato.length} saída(s) · ${ctrlTxt}${p.confirmado ? ' · confirmado pelo Levi' : ' · identificação por inferência'}`,
     );
   }
   if (!filtro) linhas.push(`Total no extrato (professores da lista): ${brl(totalExtrato)}.`);
   const outrasCtrl = (input.controle ?? []).filter(
-    (l) => Number(l.valor ?? 0) !== 0 && !lista.some((p) => p.linhaControle.some((k) => normalizeText(l.label).includes(k))),
+    (l) => Number(l.valor ?? 0) !== 0 && !lista.some((p) => p.linhaControle.includes(normalizeText(l.label))),
   );
   if (!filtro && outrasCtrl.length) {
     linhas.push(
-      `Outras linhas de "Saídas Parceiros" sem professor identificado: ${outrasCtrl.map((l) => `${l.label} ${brl(Number(l.valor))}`).join('; ')}.`,
+      `Outras linhas de "Saídas Parceiros" com professores não identificados: ${outrasCtrl.map((l) => `${l.label} ${brl(Number(l.valor))}`).join('; ')}.`,
     );
   }
-  linhas.push(instrucaoIa('Não some extrato com Controle. Sócios (ex.: Samuel) não são professores. Diga que a lista de professores é provisória.'));
+  linhas.push(instrucaoIa('Não some extrato com Controle. Sócios e funcionários não são professores. A linha Dança do Controle tem professores não identificados.'));
   return linhas.join('\n');
 }
