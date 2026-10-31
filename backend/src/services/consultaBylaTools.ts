@@ -16,6 +16,9 @@ import { getConciliacaoVencimentosMesData } from './conciliacaoVencimentosMes.js
 import { montarAlunosPanorama } from './relatorioMontagem.js';
 import { limparDocumentoPessoa } from '../ai/pseudonimizacao.js';
 import { instrucaoIa } from '../ai/instrucaoIa.js';
+import { textoRepassesProfessores } from './consultaRepasses.js';
+import { loadControleCaixaPreferindo } from './controleCaixaRead.js';
+import { textoPrecosPlanos, textoQuemNaoPagou, textoSaldoAluno } from './consultaCobranca.js';
 import { textoMaioresSaidas, textoSaidasProfessores } from './consultaSaidas.js';
 import type { MapeamentoPessoa } from './consultaMovimentosPessoa.js';
 
@@ -249,7 +252,7 @@ export type PagamentoFluxoRow = { aba: string | null; modalidade: string | null;
 export type PagamentosFluxoLoader = (inicio: string, fim: string) => Promise<PagamentoFluxoRow[]>;
 
 const FONTE_MODALIDADE =
-  'Fonte: Fluxo de caixa operacional (pagamentos lançados por aba/modalidade, por data de pagamento). O extrato do banco não tem modalidade preenchida.';
+  'Base: data de pagamento (não competência). Fonte: Fluxo de caixa operacional (pagamentos lançados por aba/modalidade). O extrato do banco não tem modalidade preenchida.';
 
 /** Leitura (só SELECT) dos pagamentos do Fluxo operacional em um intervalo de datas de pagamento. */
 export const loadPagamentosFluxoRange: PagamentosFluxoLoader = async (inicio, fim) => {
@@ -729,6 +732,10 @@ export function periodoExtratoDaTool(
       // Não é exclusivo: um dos meses pode ter dados e o outro não (a tool diz qual).
       return { inicio: rangeMes(x.mes, x.ano).inicio, fim: rangeMes(y.mes, y.ano).fim, exclusivo: false };
     }
+    case 'repasses_professores': {
+      const m = parseMesAnoParam(params.mes) ?? { mes: ctx.mes, ano: ctx.ano };
+      return { ...rangeMes(m.mes, m.ano), exclusivo: false };
+    }
     case 'movimentos_por_pessoa': {
       const ms = periodoParams(params, ctx);
       if (!ms) return null;
@@ -906,6 +913,33 @@ export async function executeConsultaTool(
         break;
       case 'saidas_professores':
         factsText = await toolSaidasProfessores(ctx);
+        break;
+      case 'quem_nao_pagou': {
+        const m = parseMesAnoParam(params.mes) ?? { mes: ctx.mes, ano: ctx.ano };
+        factsText = await textoQuemNaoPagou({ ...m, modalidade: params.modalidade, pagina: Number(params.pagina ?? 1) });
+        break;
+      }
+      case 'saldo_aluno': {
+        if (!params.nome?.trim()) return { ok: false, tool, needsClarification: true, error: 'De qual aluno?' };
+        const m = parseMesAnoParam(params.mes) ?? { mes: ctx.mes, ano: ctx.ano };
+        factsText = await textoSaldoAluno({ nome: params.nome, ...m, meses: Number(params.meses ?? 6) });
+        break;
+      }
+      case 'repasses_professores': {
+        const m = parseMesAnoParam(params.mes) ?? { mes: ctx.mes, ano: ctx.ano };
+        const c2 = { ...ctx, ...m };
+        const [saidas, ctrl] = await Promise.all([loadSaidasMes(c2), loadControleCaixaPreferindo(m.mes, m.ano, 'oficial').catch(() => null)]);
+        const controle =
+          ctrl && 'data' in ctrl
+            ? ctrl.data.blocos
+                .filter((b) => b.tipo === 'saida' && normalizeText(b.titulo).includes('parceir'))
+                .flatMap((b) => b.linhas.map((l) => ({ label: l.label, valor: l.valor == null ? null : Number(l.valor) })))
+            : null;
+        factsText = textoRepassesProfessores({ ...m, professor: params.professor, saidas, controle });
+        break;
+      }
+      case 'precos_planos':
+        factsText = await textoPrecosPlanos({ modalidade: params.modalidade, frequencia: params.frequencia, tipo: params.tipo });
         break;
       default: {
         const _exhaustive: never = tool;

@@ -156,7 +156,55 @@ export function rotearConsultaDeterministica(message: string, ctx: MesAno, now =
   // Saídas: gastos com professores (antes de "pagamento de pessoa": não há nome).
   const mesUnico = meses.length === 1 ? comAno(meses[0]!, ctx) : meses.length === 0 ? ctx : null;
   if (mesUnico && /\bprofessor\w*\b/.test(n) && /\b(gast\w*|pag\w*|saida\w*|despesa\w*|custo\w*|repasse\w*)\b/.test(n) && !extrairPessoa(original)) {
-    return { kind: 'tool', tool: 'saidas_professores', params: {}, ctx: mesUnico, motivo: 'professores' };
+    return { kind: 'tool', tool: 'repasses_professores', params: {}, ctx: mesUnico, motivo: 'professores' };
+  }
+  if (mesUnico && /\brepasses?\b/.test(n) && !extrairPessoa(original)) {
+    return { kind: 'tool', tool: 'repasses_professores', params: {}, ctx: mesUnico, motivo: 'repasses' };
+  }
+
+  // Saldo de um aluno ("quanto o fulano deve?", "saldo do aluno fulano").
+  const devedor =
+    n.match(/\bquanto\s+(?:o|a)\s+(?:alun[oa]\s+)?([a-z]{2,20}(?:\s+[a-z]{2,20})?)\s+(?:deve|ta devendo|esta devendo)\b/)?.[1] ??
+    n.match(/\bsaldo\s+d[oa]\s+alun[oa]\s+([a-z]{2,20}(?:\s+[a-z]{2,20})?)\b/)?.[1] ??
+    null;
+  if (mesUnico && devedor && !MESES[devedor.split(' ').at(-1)!]) {
+    return { kind: 'tool', tool: 'saldo_aluno', params: { nome: devedor }, ctx: mesUnico, motivo: 'saldo_aluno' };
+  }
+
+  // Quem não pagou (por competência, mesmo cálculo da tela Fluxo de caixa).
+  if (
+    mesUnico &&
+    !/\bquanto\b/.test(n) &&
+    /\b(nao pag(ou|aram)|ainda nao pag\w*|inadimpl\w*|quem (esta|ta|tao|estao) devendo|em atraso|atrasad\w*|mensalidades? em aberto)\b/.test(n)
+  ) {
+    const cand = [...n.matchAll(/\b(?:no|na|do|da|de|em)\s+([a-z]{2,20})\b/g)]
+      .map((x) => x[1]!)
+      .filter((w) => !['mes', 'sistema', 'total', 'byla', 'hoje', 'momento', 'agora', 'alunos', 'aluno', 'mensalidade', 'atraso', 'aberto'].includes(w) && !MESES[w] && !MESES_ABREV[w]);
+    const params: Record<string, string> = {};
+    if (cand.length) params.modalidade = cand[0]!;
+    const pg = n.match(/\bpagina\s+(\d{1,2})\b/)?.[1];
+    if (pg) params.pagina = pg;
+    return { kind: 'tool', tool: 'quem_nao_pagou', params, ctx: mesUnico, motivo: 'quem_nao_pagou' };
+  }
+
+  // Preços dos planos.
+  if (
+    /\b(precos?|quanto custa\w*|valor(es)?|tabela)\b/.test(n) &&
+    /\b(planos?|mensalidades?)\b/.test(n) &&
+    !/\b(pag\w*|entrou|recebe\w*)\b/.test(n)
+  ) {
+    const params: Record<string, string> = {};
+    const f = n.match(/\b(\d)\s*x\b/)?.[1];
+    if (f) params.frequencia = `${f}x`;
+    const t = n.match(/\b(mensal|trimestral|semestral)\b/)?.[1];
+    if (t) params.tipo = t;
+    const IGN = ['plano', 'planos', 'preco', 'precos', 'mensalidade', 'mensal', 'semestral', 'trimestral', 'valor', 'valores', 'tabela', 'quanto', 'custa', 'o', 'a', 'os', 'as', 'do', 'da', 'de', 'no', 'na', 'e', 'qual', 'quais', 'sao', 'e', 'x', 'vezes', 'semana', 'por', 'custo', 'dos', 'das'];
+    const m = n
+      .replace(/\b\d\s*x\b/g, ' ')
+      .split(/\s+/)
+      .find((w) => w.length >= 2 && !IGN.includes(w) && !/^\d/.test(w));
+    if (m) params.modalidade = m;
+    return { kind: 'tool', tool: 'precos_planos', params, ctx, motivo: 'precos_planos' };
   }
   // Maiores saídas / pra quem foram os gastos.
   if (
@@ -257,14 +305,14 @@ export function rotearConsultaDeterministica(message: string, ctx: MesAno, now =
 
 /** Grupos de palavras-chave → ferramentas relevantes para a IA. */
 const GRUPOS: Array<{ re: RegExp; tools: ConsultaToolId[] }> = [
+  { re: /\b(nao pagou|inadimpl\w*|atrasad\w*|pendente\w*|devendo)\b/, tools: ['quem_nao_pagou', 'saldo_aluno', 'pendentes_conciliacao'] },
   { re: /\b(ultim\w*\s+\d+|meses|trimestre|semestre)\b/, tools: ['balanco_meses', 'resumo_mes'] },
   { re: /\b(compar\w*|vs|versus|x|gastamos mais|diferenca)\b/, tools: ['comparar_meses', 'resumo_mes'] },
   { re: /\b(modalidade\w*|pilates|yoga|teatro|gr|ballet|jazz|danca|aula\w*)\b/, tools: ['entradas_modalidade_periodo', 'resumo_modalidades', 'alunos_por_modalidade'] },
-  { re: /\b(pagou|pagamento\w*|pagar|recebe\w*|professor\w*|repasse\w*|deve|devendo)\b/, tools: ['movimentos_por_pessoa', 'busca_aluno', 'saidas_professores', 'saidas_planilha_controle'] },
+  { re: /\b(pagou|pagamento\w*|pagar|recebe\w*|professor\w*|repasse\w*|deve|devendo)\b/, tools: ['movimentos_por_pessoa', 'saldo_aluno', 'busca_aluno', 'repasses_professores', 'saidas_planilha_controle'] },
   { re: /\b(r\$|\d+\s*reais|valor|pix de|\d{2,})\b|r\$/, tools: ['busca_por_valor', 'movimentos_banco_dia'] },
   { re: /\b(gast\w*|saida\w*|despesa\w*|custo\w*|maiores)\b/, tools: ['maiores_saidas', 'saidas_planilha_controle', 'resumo_categoria_extrato', 'resumo_mes'] },
-  { re: /\b(alunos?|ativos?|matricul\w*|plano|preco|mensalidade\w*)\b/, tools: ['alunos_por_modalidade', 'resumo_planilha_fluxo', 'busca_aluno'] },
-  { re: /\b(nao pagou|inadimpl\w*|atrasad\w*|pendente\w*|devendo)\b/, tools: ['inadimplencia_mes', 'pendentes_conciliacao'] },
+  { re: /\b(alunos?|ativos?|matricul\w*|plano|preco|mensalidade\w*)\b/, tools: ['precos_planos', 'alunos_por_modalidade', 'resumo_planilha_fluxo', 'busca_aluno'] },
   { re: /\b(semana)\b/, tools: ['resumo_semana'] },
   { re: /\b(hoje|ontem|dia)\b/, tools: ['resumo_dia', 'pagamentos_fluxo_dia', 'movimentos_banco_dia'] },
   { re: /\b(atualizad\w*|extrato|banco|conciliac\w*|vinculo)\b/, tools: ['resumo_mes', 'sem_vinculo_validacao', 'pendentes_conciliacao'] },
