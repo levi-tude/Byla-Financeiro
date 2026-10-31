@@ -10,7 +10,7 @@
 export type ProfessorConfig = {
   apelido: string;
   atividade: string;
-  /** Início do nome (normalizado, minúsculo) como aparece no extrato: "wendel", "maria clara". */
+  /** Início do nome (normalizado, minúsculo) como aparece no extrato: "weider", "maria clara". */
   primeiroNomeExtrato: string[];
   /** Linha do bloco "Saídas Parceiros" do Controle de caixa (comparação exata, normalizada). */
   linhaControle: string[];
@@ -24,10 +24,10 @@ export const PROFESSORES_BYLA: readonly ProfessorConfig[] = [
   {
     apelido: 'Pholha',
     atividade: 'Funcional',
-    primeiroNomeExtrato: ['wendel'],
+    primeiroNomeExtrato: ['weider'],
     linhaControle: ['funcional', 'pholha'],
     confirmado: true,
-    obs: 'Pholha = Wendel no extrato (não confundir com outros nomes parecidos).',
+    obs: 'Pholha (Wendel) recebe pela conta do Weider no extrato.',
   },
   { apelido: 'João', atividade: 'Teatro', primeiroNomeExtrato: ['joao'], linhaControle: ['teatro'], confirmado: true },
   { apelido: 'Ludmila', atividade: 'Yoga', primeiroNomeExtrato: ['ludmila'], linhaControle: ['yoga'], confirmado: true },
@@ -40,6 +40,17 @@ export const PROFESSORES_BYLA: readonly ProfessorConfig[] = [
     confirmado: true,
     obs: 'Byla Dança tem outras professoras e organizadoras ainda não identificadas.',
   },
+  { apelido: 'Sara', atividade: 'Byla Dança', primeiroNomeExtrato: ['sara'], linhaControle: [], confirmado: true },
+  { apelido: 'Naluh', atividade: 'Jazz (Byla Dança)', primeiroNomeExtrato: ['naluh'], linhaControle: [], confirmado: true },
+];
+
+/**
+ * Repasses que NÃO são de professor (confirmado pelo Levi): aparecem em linha separada,
+ * fora do total de professores.
+ */
+export type RepasseGeralConfig = { rotulo: string; nomeExtrato: string[] };
+export const REPASSES_GERAIS: readonly RepasseGeralConfig[] = [
+  { rotulo: 'Repasse Byla Dança / Luciana (Academia Cultural)', nomeExtrato: ['academia cultural'] },
 ];
 
 /** Sócios: nunca são professores. */

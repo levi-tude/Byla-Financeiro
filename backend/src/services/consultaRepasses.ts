@@ -8,7 +8,7 @@ import { normalizeText as normalizeTextUpper } from '../logic/conciliacaoTexto.j
 /** Minúsculas, sem acento/pontuação. */
 const normalizeText = (s: string) => normalizeTextUpper(s).toLowerCase();
 import { instrucaoIa } from '../ai/instrucaoIa.js';
-import { FUNCIONARIOS_NAO_PROFESSORES, SOCIOS_PRIMEIRO_NOME, NAO_PROFESSORES_PRIMEIRO_NOME, PROFESSORES_BYLA, type ProfessorConfig } from '../config/professoresByla.js';
+import { REPASSES_GERAIS, FUNCIONARIOS_NAO_PROFESSORES, SOCIOS_PRIMEIRO_NOME, NAO_PROFESSORES_PRIMEIRO_NOME, PROFESSORES_BYLA, type ProfessorConfig } from '../config/professoresByla.js';
 import type { SaidaExtrato } from './consultaSaidas.js';
 
 export type LinhaParceiro = { label: string; valor: number | null };
@@ -76,7 +76,15 @@ export function textoRepassesProfessores(input: {
       `${p.apelido} (${p.atividade}): extrato ${brl(ext)} em ${doExtrato.length} saída(s) · ${ctrlTxt}${p.confirmado ? ' · confirmado pelo Levi' : ' · identificação por inferência'}`,
     );
   }
-  if (!filtro) linhas.push(`Total no extrato (professores da lista): ${brl(totalExtrato)}.`);
+  if (!filtro) {
+    linhas.push(`Total no extrato (professores da lista): ${brl(totalExtrato)}.`);
+    for (const g of REPASSES_GERAIS) {
+      const doExt = input.saidas.filter((s) => casaLista(normalizeText(String(s.pessoa ?? '')), g.nomeExtrato));
+      if (!doExt.length) continue;
+      const v = doExt.reduce((a, s) => a + Math.abs(Number(s.valor)), 0);
+      linhas.push(`${g.rotulo}: extrato ${brl(v)} em ${doExt.length} saída(s) · não é professor, fora do total acima.`);
+    }
+  }
   const outrasCtrl = (input.controle ?? []).filter(
     (l) => Number(l.valor ?? 0) !== 0 && !lista.some((p) => p.linhaControle.includes(normalizeText(l.label))),
   );

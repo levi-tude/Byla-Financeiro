@@ -140,8 +140,10 @@ describe('repasses_professores', () => {
     { data: '2026-09-06', pessoa: 'Bruna Ficticia Teste', valor: -265 },
     { data: '2026-09-07', pessoa: 'Samuel Socio Ficticio', valor: -5000 },
     { data: '2026-09-08', pessoa: 'Mercado Exemplo', valor: -80 },
-    { data: '2026-09-09', pessoa: 'Wendel Ficticio Teste', valor: -900 },
-    { data: '2026-09-09', pessoa: 'Weider Ficticio Outro', valor: -333 },
+    { data: '2026-09-09', pessoa: 'Weider Ficticio Teste', valor: -900 },
+    { data: '2026-09-13', pessoa: 'Sara Ficticia Danca', valor: -150 },
+    { data: '2026-09-13', pessoa: 'Naluh Ficticia Jazz', valor: -250 },
+    { data: '2026-09-14', pessoa: 'Academia Cultural Ficticia Ltda', valor: -2350 },
     { data: '2026-09-10', pessoa: 'Joao Ficticio Palco', valor: -400 },
     { data: '2026-09-10', pessoa: 'Ludmila Ficticia Paz', valor: -300 },
     { data: '2026-09-11', pessoa: 'Maria Clara Ficticia', valor: -500 },
@@ -164,10 +166,13 @@ describe('repasses_professores', () => {
     assert.match(t, /João \(Teatro\): extrato R\$\s?400,00 em 1 saída\(s\) · Controle R\$\s?400,00/);
     assert.match(t, /Ludmila \(Yoga\): extrato R\$\s?300,00/);
     assert.match(t, /Maria Clara \(Byla Dança\): extrato R\$\s?500,00 em 1 saída\(s\) · sem linha no Controle/);
-    assert.match(t, /Total no extrato \(professores da lista\): R\$\s?3\.565,00/);
+    assert.match(t, /Total no extrato \(professores da lista\): R\$\s?3\.965,00/);
+    assert.match(t, /Sara \(Byla Dança\): extrato R\$\s?150,00/);
+    assert.match(t, /Naluh \(Jazz \(Byla Dança\)\): extrato R\$\s?250,00/);
+    assert.match(t, /Repasse Byla Dança \/ Luciana \(Academia Cultural\): extrato R\$\s?2\.350,00 em 1 saída\(s\) · não é professor/);
     assert.match(t, /professores não identificados: Dança R\$\s?1\.455,00; Teatro Infantil R\$\s?150,00/);
     assert.doesNotMatch(t, /inferência/);
-    assert.doesNotMatch(t, /Samuel|Luciana|Andrea|Eduarda|Weider|5\.000|4\.444|333|777|666/);
+    assert.doesNotMatch(t, /Samuel|Andrea|Eduarda|Luciana Socia|5\.000|4\.444|333|777|666/);
   });
   test('Samuel não é professor', () => {
     assert.match(textoRepassesProfessores({ mes: 9, ano: 2026, professor: 'Samuel', saidas, controle }), /não é professor \(sócio\)/);
