@@ -113,7 +113,7 @@ export const CONSULTA_TOOL_DECLS: ToolDecl[] = [
   {
     name: 'movimentos_por_pessoa',
     description:
-      'Movimentos de uma pessoa, professor, parceiro ou apelido (ex.: "Pholha"): o que a Byla RECEBEU dela e o que PAGOU a ela. Busca por nome e pela categoria do mapeamento pessoa→categoria (resolve apelido → pagador real no banco), no extrato (entradas e saídas), no Controle de caixa e na planilha de saídas/repasses. Use para "quanto foi o pagamento do X" e responda a direção (recebido de / pago a).',
+      'Movimentos de uma pessoa, professor, parceiro ou apelido (ex.: "Mari" do Pilates): o que a Byla RECEBEU dela e o que PAGOU a ela. Busca por nome e pela categoria do mapeamento pessoa→categoria (resolve apelido → pagador real no banco), no extrato (entradas e saídas), no Controle de caixa e na planilha de saídas/repasses. Use para "quanto foi o pagamento do X" e responda a direção (recebido de / pago a).',
     params: {
       ...MES_ANO,
       nome: { type: 'string', description: 'Nome ou parte do nome do beneficiário.' },
