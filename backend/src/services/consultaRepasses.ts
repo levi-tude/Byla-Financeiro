@@ -93,6 +93,9 @@ export function textoRepassesProfessores(input: {
       `Outras linhas de "Saídas Parceiros" com professores não identificados: ${outrasCtrl.map((l) => `${l.label} ${brl(Number(l.valor))}`).join('; ')}.`,
     );
   }
+  linhas.push(
+    'Atenção: o Controle é por competência; o repasse pago no extrato em um mês costuma corresponder ao Controle do mês anterior (ex.: pago em setembro = Controle de agosto).',
+  );
   linhas.push(instrucaoIa('Não some extrato com Controle. Sócios e funcionários não são professores. A linha Dança do Controle tem professores não identificados.'));
   return linhas.join('\n');
 }

@@ -932,7 +932,7 @@ export async function executeConsultaTool(
         const controle =
           ctrl && 'data' in ctrl
             ? ctrl.data.blocos
-                .filter((b) => b.tipo === 'saida' && normalizeText(b.titulo).includes('parceir'))
+                .filter((b) => b.tipo === 'saida' && normalizeText(b.titulo).toLowerCase().includes('parceir'))
                 .flatMap((b) => b.linhas.map((l) => ({ label: l.label, valor: l.valor == null ? null : Number(l.valor) })))
             : null;
         factsText = textoRepassesProfessores({ ...m, professor: params.professor, saidas, controle });
