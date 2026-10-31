@@ -27,7 +27,11 @@ export type ConsultaToolId =
   | 'saidas_planilha_controle'
   | 'resumo_planilha_fluxo'
   | 'maiores_saidas'
-  | 'saidas_professores';
+  | 'saidas_professores'
+  | 'quem_nao_pagou'
+  | 'precos_planos'
+  | 'saldo_aluno'
+  | 'repasses_professores';
 
 export type ConsultaIntent = {
   tool: ConsultaToolId;
@@ -270,6 +274,6 @@ export function resolveConsultaIntent(message: string, now = new Date()): Consul
 export function mensagemRecusaForaDoCatalogo(): string {
   const exemplos = CONSULTA_MENU_LABELS.slice(0, 6).join('; ');
   return (
-    `Não tenho essa consulta no catálogo ainda. Use um dos atalhos do menu ou pergunte algo como: ${exemplos}.`
+    `Ainda não tenho consulta para isso. Use um dos atalhos do menu ou pergunte algo como: ${exemplos}.`
   );
 }

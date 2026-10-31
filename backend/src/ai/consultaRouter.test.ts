@@ -90,9 +90,7 @@ describe('roteador: baixa confiança vai para a IA', () => {
     'Quanto entrou de GR e de teatro em agosto?',
     'Teve pagamento de aluno em dezembro?',
     'Achei um PIX de 2.500 em outubro, de quem é?',
-    'Quem do pilates ainda não pagou outubro?',
     'Os dados tão atualizados?',
-    'quanto o fulano deve?',
     'me conta uma piada',
   ]) {
     test(q, () => assert.equal(rota(q), null));
@@ -109,7 +107,7 @@ describe('subconjunto de ferramentas (3–6)', () => {
   test('relevância', () => {
     assert.ok(selecionarToolsRelevantes('Quantos alunos ativos tem no pilates?').includes('alunos_por_modalidade'));
     assert.ok(selecionarToolsRelevantes('Achei um PIX de 2.500 em outubro').includes('busca_por_valor'));
-    assert.ok(selecionarToolsRelevantes('quem não pagou outubro?').includes('inadimplencia_mes'));
+    assert.ok(selecionarToolsRelevantes('quem não pagou outubro?').includes('quem_nao_pagou'));
   });
 });
 
@@ -176,7 +174,7 @@ describe('serviço', () => {
   test('IA recebe só 3–6 ferramentas', async () => {
     let qtd = -1;
     await gerarConsultaReply(
-      { message: 'Quem do pilates ainda não pagou outubro?', context: { monthYear: '2026-10' } },
+      { message: 'e de yoga em outubro, quem ainda falta?', context: { monthYear: '2026-10' } },
       { providers: groq, nomesConhecidos: [], fetchImpl: r429, onTools: (t) => { qtd = t.length; }, executeTool: async (tool) => ({ ok: true, tool, factsText: 'x' }) as never },
     );
     assert.ok(qtd >= 3 && qtd <= 6, String(qtd));

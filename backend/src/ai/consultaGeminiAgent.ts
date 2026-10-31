@@ -138,6 +138,41 @@ export const CONSULTA_TOOL_DECLS: ToolDecl[] = [
     params: MES_ANO,
   },
   {
+    name: 'quem_nao_pagou',
+    description:
+      'Quem não pagou a mensalidade de um mês (por competência), com o mesmo cálculo da tela Fluxo de caixa: pendente, parcial e previsto (plano semestral sem lançamento). Exclui bolsa/exceção. Lista completa paginada.',
+    params: {
+      ...MES_ANO,
+      modalidade: { type: 'string', description: 'Modalidade/aba (ex.: pilates). Opcional.' },
+      pagina: { type: 'number', description: 'Página da lista (1, 2…). Opcional.' },
+    },
+  },
+  {
+    name: 'saldo_aluno',
+    description: 'Quanto um aluno deve: esperado × pago por mês (competência) e total em aberto, mesmo cálculo da tela Fluxo de caixa.',
+    params: {
+      ...MES_ANO,
+      nome: { type: 'string', description: 'Nome do aluno.' },
+      meses: { type: 'number', description: 'Quantos meses até o mês informado (padrão 6, máx. 12).' },
+    },
+    required: ['nome'],
+  },
+  {
+    name: 'precos_planos',
+    description: 'Preços dos planos (tabela oficial de planos). Sem preço oficial, mostra o valor praticado pelos alunos ativos (não oficial).',
+    params: {
+      modalidade: { type: 'string', description: 'Modalidade (ex.: pilates). Opcional.' },
+      frequencia: { type: 'string', description: 'Vezes por semana (ex.: 2x). Opcional.' },
+      tipo: { type: 'string', description: 'mensal, trimestral ou semestral. Opcional.' },
+    },
+  },
+  {
+    name: 'repasses_professores',
+    description:
+      'Repasses/pagamentos a professores (quem dá aula) no mês: bloco Saídas Parceiros do Controle de caixa e saídas do extrato. Sócios não são professores.',
+    params: { ...MES_ANO, professor: { type: 'string', description: 'Apelido do professor ou atividade (opcional).' } },
+  },
+  {
     name: 'resumo_planilha_fluxo',
     description: 'Planilha FLUXO DE CAIXA: alunos e mensalidades da competência por aba.',
     params: MES_ANO,
@@ -230,6 +265,17 @@ export function garantirCoberturaExtrato(texto: string, fatos: string[]): string
   return texto;
 }
 
+const BASE_RE = /Base: (data de pagamento|competência)/;
+
+/** Se os fatos informam a base (data de pagamento × competência) e a resposta não cita, anexa. */
+export function garantirBaseValor(texto: string, fatos: string[]): string {
+  const bases = [...new Set(fatos.flatMap((f) => (f.match(BASE_RE) ? [f.match(BASE_RE)![1]!] : [])))];
+  if (!bases.length) return texto;
+  const t = texto.toLowerCase();
+  if (bases.every((b) => t.includes(b))) return texto;
+  return `${texto}\n\nBase: ${bases.join(' e ')}.`;
+}
+
 export function buildSystemPrompt(ctx: ConsultaToolContext, today: string): string {
   return [
     'Você é o Consulta Byla, assistente de consulta (somente leitura) do Espaço Byla, escola de dança, yoga, pilates e teatro em Salvador.',
@@ -240,6 +286,9 @@ export function buildSystemPrompt(ctx: ConsultaToolContext, today: string): stri
     'DADO INEXISTENTE NÃO É ZERO: se a função disser "nenhum registro encontrado", ou não trouxer a pessoa/modalidade/mês pedido, responda que não há registro nas fontes consultadas (cite as fontes). NUNCA responda "R$ 0", "zero" ou "não houve pagamento" nesses casos.',
     'COBERTURA DO EXTRATO: se os fatos trouxerem "Dados do extrato até DD/MM/AAAA", repita essa data na resposta; se trouxerem "período incompleto", avise que o mês/período está incompleto. Se trouxerem "Sem dados do extrato", responda "sem dados para esse período" (com a data do último lançamento) e nunca R$ 0,00.',
         'Sempre diga de onde vem cada número (ex.: extrato do banco, Controle de caixa, planilha do Fluxo). Se duas fontes trouxerem valores, mostre as duas sem somar.',
+    'SEM CONSULTA: se nenhuma função cobrir a pergunta, responda exatamente que ainda não tenho consulta para isso ("Ainda não tenho consulta para isso.") e sugira a tela do sistema. Nunca afirme nada sem dado de função.',
+    'BASE DO VALOR: ao falar de valores por modalidade ou de mensalidades, diga sempre se é por data de pagamento ou por competência, como a função informa ("Base: …").',
+    'FONTES DIFERENTES: não junte nem compare como se fossem a mesma coisa contagens de fontes diferentes (ex.: nº de alunos da planilha × nº de pagamentos do Fluxo). Mostre cada uma com sua fonte.',
     'Para períodos ("últimos 4 meses"), mostre mês a mês e o total, como a função devolve.',
     'NOMES PROTEGIDOS: nomes de pessoas chegam como códigos "Pessoa N" ou "Aluno N". Copie o código exatamente como veio (ex.: "Pessoa 2"), sem traduzir, abreviar ou renumerar; o sistema troca pelo nome real.',
     'Linhas com instruções (ex.: "não informe valor zero") são só para você: não as repita ao usuário.',
@@ -317,7 +366,7 @@ export async function runConsultaAgent(
           if (reply.toolCalls.length === 0) {
             const bruto = pseudo.revelar(reply.text.replace(/\*\*/g, '').trim());
             if (!bruto) return { ok: false, reason: 'empty', detail: 'Resposta vazia' };
-            const text = garantirCoberturaExtrato(bruto, fatosTools);
+            const text = garantirBaseValor(garantirCoberturaExtrato(bruto, fatosTools), fatosTools);
             return { ok: true, text, toolsUsed, model, provider: p.provider };
           }
           for (const call of reply.toolCalls) {
