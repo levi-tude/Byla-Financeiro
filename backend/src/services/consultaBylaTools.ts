@@ -928,14 +928,17 @@ export async function executeConsultaTool(
       case 'repasses_professores': {
         const m = parseMesAnoParam(params.mes) ?? { mes: ctx.mes, ano: ctx.ano };
         const c2 = { ...ctx, ...m };
-        const [saidas, ctrl] = await Promise.all([loadSaidasMes(c2), loadControleCaixaPreferindo(m.mes, m.ano, 'oficial').catch(() => null)]);
+        const r = rangeMes(c2.mes, c2.ano);
+        const [txs, ctrl] = await Promise.all([loadTransacoesRange(r.inicio, r.fim), loadControleCaixaPreferindo(m.mes, m.ano, 'oficial').catch(() => null)]);
+        const saidas = txs.filter((t) => normalizarTipoTransacao(t.tipo) === 'saida');
+        const entradas = txs.filter((t) => normalizarTipoTransacao(t.tipo) === 'entrada');
         const controle =
           ctrl && 'data' in ctrl
             ? ctrl.data.blocos
                 .filter((b) => b.tipo === 'saida' && normalizeText(b.titulo).toLowerCase().includes('parceir'))
                 .flatMap((b) => b.linhas.map((l) => ({ label: l.label, valor: l.valor == null ? null : Number(l.valor) })))
             : null;
-        factsText = textoRepassesProfessores({ ...m, professor: params.professor, saidas, controle });
+        factsText = textoRepassesProfessores({ ...m, professor: params.professor, saidas, entradas, controle });
         break;
       }
       case 'precos_planos':

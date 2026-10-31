@@ -8,7 +8,7 @@ import { normalizeText as normalizeTextUpper } from '../logic/conciliacaoTexto.j
 /** Minúsculas, sem acento/pontuação. */
 const normalizeText = (s: string) => normalizeTextUpper(s).toLowerCase();
 import { instrucaoIa } from '../ai/instrucaoIa.js';
-import { REPASSES_GERAIS, FUNCIONARIOS_NAO_PROFESSORES, SOCIOS_PRIMEIRO_NOME, NAO_PROFESSORES_PRIMEIRO_NOME, PROFESSORES_BYLA, type ProfessorConfig } from '../config/professoresByla.js';
+import { COWORKING_PAGANTES, REPASSES_GERAIS, FUNCIONARIOS_NAO_PROFESSORES, SOCIOS_PRIMEIRO_NOME, NAO_PROFESSORES_PRIMEIRO_NOME, PROFESSORES_BYLA, type ProfessorConfig } from '../config/professoresByla.js';
 import type { SaidaExtrato } from './consultaSaidas.js';
 
 export type LinhaParceiro = { label: string; valor: number | null };
@@ -31,6 +31,8 @@ export function textoRepassesProfessores(input: {
   ano: number;
   professor?: string;
   saidas: SaidaExtrato[];
+  /** Entradas do mês (para quem paga coworking ao Byla). */
+  entradas?: SaidaExtrato[];
   /** null = Controle do mês indisponível. */
   controle: LinhaParceiro[] | null;
   lista?: readonly ProfessorConfig[];
@@ -39,6 +41,20 @@ export function textoRepassesProfessores(input: {
   const ref = `${pad2(input.mes)}/${input.ano}`;
   const filtro = input.professor ? normalizeText(input.professor) : '';
   const papel = filtro && casaLista(filtro, SOCIOS_PRIMEIRO_NOME) ? 'sócio' : filtro && casaLista(filtro, FUNCIONARIOS_NAO_PROFESSORES) ? 'funcionário' : '';
+  const cow = filtro ? COWORKING_PAGANTES.find((c) => filtro.split(' ').some((t) => c.aliases.includes(t))) : undefined;
+  if (cow) {
+    const ent = (input.entradas ?? []).filter((e) => casaLista(normalizeText(String(e.pessoa ?? '')), cow.nomeExtrato));
+    const tot = ent.reduce((a, e) => a + Math.abs(Number(e.valor)), 0);
+    return [
+      `${cow.rotulo} não é professor que recebe repasse: é pagamento de coworking RECEBIDO pelo Byla (entrada). Base: data do pagamento (extrato).`,
+      input.entradas == null
+        ? 'Entradas do mês indisponíveis.'
+        : ent.length
+          ? `Entradas de coworking em ${ref}: ${brl(tot)} em ${ent.length} lançamento(s): ${ent.map((e) => `${e.data} ${brl(Math.abs(Number(e.valor)))}`).join('; ')}.`
+          : `Nenhuma entrada de coworking em ${ref}.`,
+      instrucaoIa('Não trate como repasse/saída nem some aos professores.'),
+    ].join('\n');
+  }
   if (papel) {
     return [
       `${input.professor} não é professor (${papel}): não entra em repasses de professores.`,

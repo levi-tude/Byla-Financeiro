@@ -134,13 +134,22 @@ describe('precos_planos', () => {
   });
 });
 
+describe('roteador coworking', () => {
+  test('pholha/weider/coworking vão para repasses com filtro pholha', async () => {
+    for (const q of ['quanto o pholha pagou em setembro?', 'pagamento do weider em outubro', 'repasse do professor de funcional em setembro']) {
+      const r = rotearConsultaDeterministica(q, { mes: 10, ano: 2026 }, new Date(2026, 9, 31)) as { kind: string; tool?: string; params?: { professor?: string } };
+      assert.equal(r.tool, 'repasses_professores', q);
+      assert.equal(r.params?.professor, 'pholha', q);
+    }
+  });
+});
+
 describe('repasses_professores', () => {
   const saidas = [
     { data: '2026-09-05', pessoa: 'Marina Ficticia Exemplo', valor: -1200 },
     { data: '2026-09-06', pessoa: 'Bruna Ficticia Teste', valor: -265 },
     { data: '2026-09-07', pessoa: 'Samuel Socio Ficticio', valor: -5000 },
     { data: '2026-09-08', pessoa: 'Mercado Exemplo', valor: -80 },
-    { data: '2026-09-09', pessoa: 'Weider Ficticio Teste', valor: -900 },
     { data: '2026-09-13', pessoa: 'Sara Ficticia Danca', valor: -150 },
     { data: '2026-09-13', pessoa: 'Naluh Ficticia Jazz', valor: -250 },
     { data: '2026-09-14', pessoa: 'Academia Cultural Ficticia Ltda', valor: -2350 },
@@ -162,11 +171,11 @@ describe('repasses_professores', () => {
     const t = textoRepassesProfessores({ mes: 9, ano: 2026, saidas, controle });
     assert.match(t, /Mari \(Pilates\): extrato R\$\s?1\.200,00 em 1 saída\(s\) · Controle R\$\s?1\.248,50 · confirmado pelo Levi/);
     assert.match(t, /Bruna \(GR\): extrato R\$\s?265,00/);
-    assert.match(t, /Pholha \(Funcional\): extrato R\$\s?900,00 em 1 saída\(s\) · sem linha no Controle/);
+    assert.doesNotMatch(t, /Pholha|Funcional/);
     assert.match(t, /João \(Teatro\): extrato R\$\s?400,00 em 1 saída\(s\) · Controle R\$\s?400,00/);
     assert.match(t, /Ludmila \(Yoga\): extrato R\$\s?300,00/);
     assert.match(t, /Maria Clara \(Byla Dança\): extrato R\$\s?500,00 em 1 saída\(s\) · sem linha no Controle/);
-    assert.match(t, /Total no extrato \(professores da lista\): R\$\s?3\.965,00/);
+    assert.match(t, /Total no extrato \(professores da lista\): R\$\s?3\.065,00/);
     assert.match(t, /Sara \(Byla Dança\): extrato R\$\s?150,00/);
     assert.match(t, /Naluh \(Jazz \(Byla Dança\)\): extrato R\$\s?250,00/);
     assert.match(t, /Repasse Byla Dança \/ Luciana \(Academia Cultural\): extrato R\$\s?2\.350,00 em 1 saída\(s\) · não é professor/);
@@ -179,7 +188,16 @@ describe('repasses_professores', () => {
     assert.match(textoRepassesProfessores({ mes: 9, ano: 2026, professor: 'Luciana', saidas, controle }), /não é professor \(sócio\)/);
     assert.match(textoRepassesProfessores({ mes: 9, ano: 2026, professor: 'Andrea', saidas, controle }), /não é professor \(funcionário\)/);
     assert.match(textoRepassesProfessores({ mes: 9, ano: 2026, professor: 'Maria Eduarda', saidas, controle }), /não é professor \(funcionário\)/);
-    assert.match(textoRepassesProfessores({ mes: 9, ano: 2026, professor: 'Pholha', saidas, controle }), /Pholha \(Funcional\): extrato R\$\s?900,00/);
+    const entradas = [
+      { data: '2026-09-10', pessoa: 'Weider Ficticio Teste', valor: 2500 },
+      { data: '2026-09-11', pessoa: 'Aluno Ficticio', valor: 260 },
+    ];
+    for (const q of ['Pholha', 'Weider', 'funcional']) {
+      const c = textoRepassesProfessores({ mes: 9, ano: 2026, professor: q, saidas, entradas, controle });
+      assert.match(c, /pagamento de coworking RECEBIDO pelo Byla/);
+      assert.match(c, /Entradas de coworking em 09\/2026: R\$\s?2\.500,00 em 1 lançamento\(s\)/);
+      assert.doesNotMatch(c, /260,00/);
+    }
   });
   test('filtro por professor e Controle indisponível', () => {
     const t = textoRepassesProfessores({ mes: 9, ano: 2026, professor: 'bruna', saidas, controle: null });

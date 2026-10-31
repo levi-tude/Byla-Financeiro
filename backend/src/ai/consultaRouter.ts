@@ -155,6 +155,10 @@ export function rotearConsultaDeterministica(message: string, ctx: MesAno, now =
 
   // Saídas: gastos com professores (antes de "pagamento de pessoa": não há nome).
   const mesUnico = meses.length === 1 ? comAno(meses[0]!, ctx) : meses.length === 0 ? ctx : null;
+  // Pholha/Weider (Funcional) paga coworking ao Byla: não é repasse de professor.
+  if (mesUnico && (/\b(pholha|weider|wendel|coworking)\b/.test(n) || (/\bfuncional\b/.test(n) && /\b(professor\w*|repasse\w*)\b/.test(n)))) {
+    return { kind: 'tool', tool: 'repasses_professores', params: { professor: 'pholha' }, ctx: mesUnico, motivo: 'coworking' };
+  }
   if (mesUnico && /\bprofessor\w*\b/.test(n) && /\b(gast\w*|pag\w*|saida\w*|despesa\w*|custo\w*|repasse\w*)\b/.test(n) && !extrairPessoa(original)) {
     return { kind: 'tool', tool: 'repasses_professores', params: {}, ctx: mesUnico, motivo: 'professores' };
   }

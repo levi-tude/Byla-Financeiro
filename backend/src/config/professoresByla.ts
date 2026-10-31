@@ -10,7 +10,7 @@
 export type ProfessorConfig = {
   apelido: string;
   atividade: string;
-  /** Início do nome (normalizado, minúsculo) como aparece no extrato: "weider", "maria clara". */
+  /** Início do nome (normalizado, minúsculo) como aparece no extrato: "marina", "maria clara". */
   primeiroNomeExtrato: string[];
   /** Linha do bloco "Saídas Parceiros" do Controle de caixa (comparação exata, normalizada). */
   linhaControle: string[];
@@ -21,14 +21,6 @@ export type ProfessorConfig = {
 export const PROFESSORES_BYLA: readonly ProfessorConfig[] = [
   { apelido: 'Mari', atividade: 'Pilates', primeiroNomeExtrato: ['marina'], linhaControle: ['pilates mari'], confirmado: true },
   { apelido: 'Bruna', atividade: 'GR', primeiroNomeExtrato: ['bruna'], linhaControle: ['bruna gr'], confirmado: true },
-  {
-    apelido: 'Pholha',
-    atividade: 'Funcional',
-    primeiroNomeExtrato: ['weider'],
-    linhaControle: ['funcional', 'pholha'],
-    confirmado: true,
-    obs: 'Pholha (Wendel) recebe pela conta do Weider no extrato.',
-  },
   { apelido: 'João', atividade: 'Teatro', primeiroNomeExtrato: ['joao'], linhaControle: ['teatro'], confirmado: true },
   { apelido: 'Ludmila', atividade: 'Yoga', primeiroNomeExtrato: ['ludmila'], linhaControle: ['yoga'], confirmado: true },
   {
@@ -59,3 +51,12 @@ export const SOCIOS_PRIMEIRO_NOME: readonly string[] = ['samuel', 'luciana'];
 export const FUNCIONARIOS_NAO_PROFESSORES: readonly string[] = ['andrea', 'maria eduarda'];
 /** Nunca entram como professores. */
 export const NAO_PROFESSORES_PRIMEIRO_NOME: readonly string[] = [...SOCIOS_PRIMEIRO_NOME, ...FUNCIONARIOS_NAO_PROFESSORES];
+
+/**
+ * NÃO são professores: pagam coworking ao Byla (entrada), confirmado pelo Levi 31/10/2026.
+ * `aliases` = como podem perguntar; `nomeExtrato` = início do nome no extrato.
+ */
+export type CoworkingConfig = { rotulo: string; aliases: string[]; nomeExtrato: string[] };
+export const COWORKING_PAGANTES: readonly CoworkingConfig[] = [
+  { rotulo: 'Pholha (Funcional)', aliases: ['pholha', 'weider', 'wendel', 'funcional'], nomeExtrato: ['weider'] },
+];
