@@ -1,7 +1,10 @@
 /**
  * Migra um mês do CONTROLE DE CAIXA (planilha) para tabelas operacionais no Supabase.
+ * Grava no modo 'oficial' (Planilha). Por padrão roda em DRY-RUN (não grava nada).
  * Uso:
- *   npm run migrate:controle-mes -- 3 2026
+ *   npm run migrate:controle-mes -- 3 2026            # dry-run: mostra o que seria gravado
+ *   npm run migrate:controle-mes -- 3 2026 --apply    # grava (substitui blocos/linhas do oficial do mês)
+ *   (opcional) --json  imprime o payload completo
  */
 import dotenv from 'dotenv';
 import path from 'path';
@@ -26,8 +29,10 @@ async function main() {
     process.exit(1);
   }
 
+  const apply = process.argv.includes('--apply');
+  const printJson = process.argv.includes('--json');
   const supabase = getSupabase();
-  if (!supabase) {
+  if (!supabase && apply) {
     console.error('Supabase não configurado. Verifique SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY.');
     process.exit(1);
   }
@@ -38,6 +43,36 @@ async function main() {
   if (error) {
     console.error(`Erro ao ler planilha: ${error}`);
     process.exit(1);
+  }
+
+  const blocosEntradaPrev = totais.entradasBlocos ?? [];
+  const blocosSaidaPrev = totais.saidasBlocos ?? [];
+  const soma = (ls: { valorNum?: number }[]) => Math.round(ls.reduce((a, l) => a + (l.valorNum ?? 0), 0) * 100) / 100;
+  console.log(`${apply ? 'APPLY' : 'DRY-RUN'}: competência ${mes}/${ano} (modo oficial) ← aba "${totais.aba}"`);
+  console.log(`  entrada_total=${totais.entradaTotal} saida_total=${totais.saidaTotal} lucro_total=${totais.lucroTotal}`);
+  console.log(`  saida_parceiros_total=${totais.saidaParceirosTotal} saida_fixas_total=${totais.saidaFixasTotal} saida_soma_secoes_principais=${totais.saidaSomaSecoesPrincipais}`);
+  let nLinhas = 0;
+  for (const [tipo, bs] of [['entrada', blocosEntradaPrev], ['saida', blocosSaidaPrev]] as const) {
+    for (const b of bs) {
+      nLinhas += b.linhas.length;
+      console.log(`  [${tipo}] ${b.titulo}: ${b.linhas.length} linhas, soma=${soma(b.linhas)}`);
+    }
+  }
+  console.log(`  a gravar: 1 período, ${blocosEntradaPrev.length + blocosSaidaPrev.length} blocos, ${nLinhas} linhas`);
+  if (supabase) {
+    const ex = await supabase.from('controle_caixa_periodos').select('id, aba_ref, origem, updated_at')
+      .eq('mes', mes).eq('ano', ano).eq('modo', 'oficial').maybeSingle();
+    if (ex.data) {
+      const bl = await supabase.from('controle_caixa_blocos').select('id', { count: 'exact', head: false }).eq('periodo_id', ex.data.id);
+      const ids = (bl.data ?? []).map((b: { id: string }) => b.id);
+      const ln = ids.length ? await supabase.from('controle_caixa_linhas').select('id', { count: 'exact', head: true }).in('bloco_id', ids) : { count: 0 };
+      console.log(`  EXISTENTE (será SUBSTITUÍDO): aba_ref=${ex.data.aba_ref} origem=${ex.data.origem} blocos=${ids.length} linhas=${ln.count}`);
+    } else console.log('  existente: nenhum período oficial para este mês (nada será sobrescrito)');
+  }
+  if (printJson) console.log(JSON.stringify({ totais }, null, 2));
+  if (!apply || !supabase) {
+    console.log('DRY-RUN: nada foi gravado. Use --apply para gravar.');
+    return;
   }
 
   const upsertPeriodo = await supabase
@@ -54,8 +89,9 @@ async function main() {
         saida_fixas_total: asNumber(totais.saidaFixasTotal),
         saida_soma_secoes_principais: asNumber(totais.saidaSomaSecoesPrincipais),
         origem: 'migracao_planilha',
+        modo: 'oficial',
       },
-      { onConflict: 'mes,ano' }
+      { onConflict: 'mes,ano,modo' }
     )
     .select('id')
     .single();
