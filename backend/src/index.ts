@@ -1,4 +1,5 @@
 import './loadEnv.js';
+import { Sentry, sentryEnabled } from './observability/sentry.js';
 import express from 'express';
 import cors from 'cors';
 import { randomUUID } from 'crypto';
@@ -49,6 +50,9 @@ app.get('/health', (_req, res) => {
 });
 
 app.use('/api', apiRoutes);
+
+// Sentry: captura erros não tratados das rotas (só se SENTRY_DSN existir).
+if (sentryEnabled) Sentry.setupExpressErrorHandler(app);
 
 app.listen(config.port, () => {
   log('info', { msg: `Byla backend listening on http://localhost:${config.port}` });
