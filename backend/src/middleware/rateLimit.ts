@@ -7,6 +7,8 @@ type RateLimitOptions = {
   max: number;
   /** Nome amigável no header/log */
   name?: string;
+  /** Se true, não bloqueia: marca `req.rateLimited = true` e segue (a rota decide o modo degradado). */
+  soft?: boolean;
 };
 
 type Bucket = { count: number; resetAt: number };
@@ -22,7 +24,7 @@ function getStore(name: string): Map<string, Bucket> {
   return s;
 }
 
-function clientKey(req: Request): string {
+export function clientKey(req: Request): string {
   const authUser = (req as Request & { authUser?: { userId?: string } }).authUser;
   if (authUser?.userId) return `u:${authUser.userId}`;
   const xf = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim();
@@ -53,6 +55,11 @@ export function rateLimit(opts: RateLimitOptions) {
     res.setHeader('X-RateLimit-Remaining', String(remaining));
     res.setHeader('X-RateLimit-Reset', String(Math.ceil(bucket.resetAt / 1000)));
 
+    if (bucket.count > opts.max && opts.soft) {
+      (req as Request & { rateLimited?: boolean }).rateLimited = true;
+      next();
+      return;
+    }
     if (bucket.count > opts.max) {
       const retryAfterSec = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
       res.setHeader('Retry-After', String(retryAfterSec));
@@ -64,6 +71,27 @@ export function rateLimit(opts: RateLimitOptions) {
       return;
     }
     next();
+  };
+}
+
+/**
+ * Cota consumida sob demanda (ex.: só quando a pergunta vai mesmo para a IA).
+ * `consumir(key)` conta 1 uso e retorna false se passou do máximo na janela.
+ */
+export function criarCota(opts: { name: string; max: number; windowMs: number; now?: () => number }) {
+  const store = getStore(opts.name);
+  const now = opts.now ?? Date.now;
+  return {
+    consumir(key: string): boolean {
+      const t = now();
+      let bucket = store.get(key);
+      if (!bucket || t >= bucket.resetAt) {
+        bucket = { count: 0, resetAt: t + opts.windowMs };
+        store.set(key, bucket);
+      }
+      bucket.count += 1;
+      return bucket.count <= opts.max;
+    },
   };
 }
 

@@ -1,3 +1,4 @@
+import { log } from './logger.js';
 /**
  * Orquestrador Consulta Byla: menu/keywords → tools; fatos só das tools.
  */
@@ -11,9 +12,11 @@ import {
 } from '../ai/consultaCatalog.js';
 import { config } from '../config.js';
 import { executeConsultaTool } from './consultaBylaTools.js';
+import { formatarRespostaUsuario } from '../ai/respostaUsuario.js';
 import { runConsultaAgent, type AgentDeps, type ChatHistoryItem } from '../ai/consultaGeminiAgent.js';
 import { todayIsoLocal } from '../ai/consultaCatalog.js';
 import { GEMINI_MODELS, resolveLlmProviders, type LlmProviderConfig } from '../ai/llmProviders.js';
+import { rotearConsultaDeterministica, selecionarToolsRelevantes, type RotaDeterministica } from '../ai/consultaRouter.js';
 import { carregarNomesConhecidos, type NomeConhecido } from '../ai/pseudonimizacao.js';
 
 export type ConsultaServiceInput = {
@@ -56,7 +59,42 @@ export type ConsultaReplyDeps = {
   nomesConhecidos?: NomeConhecido[];
   fetchImpl?: typeof fetch;
   executeTool?: AgentDeps['executeTool'];
+  /** Pula a IA (ex.: limite de requisições do backend) e responde no modo simples. */
+  forcarModoSimples?: boolean;
+  /** Aviso prefixado quando cair no modo simples. */
+  avisoInicial?: string;
+  onTools?: AgentDeps['onTools'];
+  /**
+   * Cota de IA: chamado só quando a pergunta realmente vai para a IA (o roteador não gasta cota).
+   * Retorna false → modo simples com aviso.
+   */
+  consumirCotaIa?: () => boolean;
 };
+
+export const AVISO_COTA_IA = 'Muitas perguntas seguidas; respondi no modo simples (menu).';
+
+/** Executa a rota do roteador determinístico. `null` = a ferramenta pediu esclarecimento → segue para a IA. */
+async function responderRota(
+  rota: RotaDeterministica,
+  executeTool: AgentDeps['executeTool'],
+): Promise<ConsultaServiceOutput | null> {
+  if (rota.kind === 'recusa') {
+    return { message: rota.message, tool: null, confidence: 1, quickReplies: CONSULTA_MENU_LABELS.slice(0, 8), providerUsed: 'deterministic' };
+  }
+  try {
+    const result = await executeTool(rota.tool, rota.params, rota.ctx);
+    if (!result.ok && result.needsClarification) return null;
+    return {
+      message: result.ok ? result.factsText : result.error,
+      tool: result.tool,
+      confidence: 0.95,
+      quickReplies: CONSULTA_MENU_LABELS.slice(0, 8),
+      providerUsed: 'deterministic',
+    };
+  } catch {
+    return null;
+  }
+}
 
 const AVISO_FALLBACK: Record<'rate_limit' | 'error' | 'empty', string> = {
   rate_limit: 'O limite gratuito da IA foi atingido agora; respondi no modo simples (menu).',
@@ -64,9 +102,21 @@ const AVISO_FALLBACK: Record<'rate_limit' | 'error' | 'empty', string> = {
   empty: 'A IA não respondeu agora; respondi no modo simples (menu).',
 };
 
+/**
+ * Toda resposta ao usuário (roteador, IA, fallback, erro) passa pelo saneamento final:
+ * sem instruções internas do LLM, sem CPF/CNPJ/telefone/e-mail e sem nome duplicado.
+ */
 export async function gerarConsultaReply(
   input: ConsultaServiceInput,
   deps: ConsultaReplyDeps = {},
+): Promise<ConsultaServiceOutput> {
+  const out = await gerarConsultaReplyBruto(input, deps);
+  return { ...out, message: formatarRespostaUsuario(out.message) };
+}
+
+async function gerarConsultaReplyBruto(
+  input: ConsultaServiceInput,
+  deps: ConsultaReplyDeps,
 ): Promise<ConsultaServiceOutput> {
   const providers =
     deps.providers ??
@@ -76,9 +126,27 @@ export async function gerarConsultaReply(
         : []
       : resolveLlmProviders());
   const executeTool = deps.executeTool ?? executeConsultaTool;
-  let aviso = '';
-  if (providers.length) {
-    const ctx = defaultMesAno(input.context?.monthYear);
+  const ctx = defaultMesAno(input.context?.monthYear);
+
+  // 1) Roteador determinístico ANTES da IA: perguntas comuns com alta confiança não gastam LLM.
+  let rota: RotaDeterministica | null = null;
+  try {
+    rota = rotearConsultaDeterministica(input.message, ctx);
+  } catch {
+    rota = null;
+  }
+  if (rota) {
+    const det = await responderRota(rota, executeTool);
+    if (det) return det;
+  }
+
+  let aviso = deps.avisoInicial ?? '';
+  let modoSimples = !!deps.forcarModoSimples;
+  if (providers.length && !modoSimples && deps.consumirCotaIa && !deps.consumirCotaIa()) {
+    modoSimples = true;
+    aviso = aviso || AVISO_COTA_IA;
+  }
+  if (providers.length && !modoSimples) {
     let nomesConhecidos = deps.nomesConhecidos;
     if (!nomesConhecidos) {
       try {
@@ -87,13 +155,23 @@ export async function gerarConsultaReply(
         nomesConhecidos = [];
       }
     }
-    const r = await runConsultaAgent(input.message, input.history ?? [], ctx, {
-      providers,
-      nomesConhecidos,
-      fetchImpl: deps.fetchImpl,
-      executeTool,
-      today: todayIsoLocal(),
-    });
+    let r: Awaited<ReturnType<typeof runConsultaAgent>>;
+    try {
+      r = await runConsultaAgent(input.message, input.history ?? [], ctx, {
+        providers,
+        nomesConhecidos,
+        fetchImpl: deps.fetchImpl,
+        executeTool,
+        today: todayIsoLocal(),
+        toolIds: selecionarToolsRelevantes(
+          input.message,
+          (input.history ?? []).filter((h) => h.role === 'user').map((h) => h.content),
+        ),
+        onTools: deps.onTools,
+      });
+    } catch (e) {
+      r = { ok: false, reason: 'error', detail: e instanceof Error ? e.message : String(e) };
+    }
     if (r.ok) {
       return {
         message: sanitize(r.text),
@@ -103,9 +181,23 @@ export async function gerarConsultaReply(
         providerUsed: r.provider,
       };
     }
+    // Sem segredos: só provedor, modelo, status HTTP, retry-after e tipo de limite (TPM/RPM/TPD).
+    log('warn', { msg: 'ai_consulta_llm_falha', reason: r.reason, falhas: r.falhas ?? [] });
     aviso = AVISO_FALLBACK[r.reason];
   }
-  const det = await gerarConsultaDeterministica(input, executeTool);
+  let det: ConsultaServiceOutput;
+  try {
+    det = await gerarConsultaDeterministica(input, executeTool);
+  } catch (e) {
+    log('warn', { msg: 'ai_consulta_deterministica_falha', detail: e instanceof Error ? e.message : String(e) });
+    det = {
+      message: mensagemRecusaForaDoCatalogo(),
+      tool: null,
+      confidence: 0,
+      quickReplies: CONSULTA_MENU_LABELS,
+      providerUsed: 'deterministic',
+    };
+  }
   if (aviso) return { ...det, message: `${aviso}\n\n${det.message}`, providerUsed: 'fallback' };
   return det;
 }
@@ -116,6 +208,7 @@ async function gerarConsultaDeterministica(
 ): Promise<ConsultaServiceOutput> {
   const quickReplies = CONSULTA_MENU_LABELS.slice(0, 8);
   const intent = resolveConsultaIntent(input.message);
+  const ctx = defaultMesAno(input.context?.monthYear);
 
   if (!intent) {
     return {
@@ -127,7 +220,6 @@ async function gerarConsultaDeterministica(
     };
   }
 
-  const ctx = defaultMesAno(input.context?.monthYear);
   const result = await executeTool(intent.tool, intent.params, ctx);
 
   if (!result.ok) {

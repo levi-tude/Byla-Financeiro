@@ -16,6 +16,7 @@ import {
 import { resolverRegimeCobranca } from '../logic/regimeCobrancaAluno.js';
 import { findPagamentoDuplicado } from '../logic/fluxoPagamentoDedupe.js';
 import { competenciaNoCicloAtual } from '../logic/planoCicloPrevisto.js';
+import { keyAlunoFluxo, normalizarAbaFluxo, statusCompetenciaAluno } from '../logic/fluxoStatusCompetencia.js';
 import { gravarOverlayStickyDoAluno } from '../services/fluxoAlunoOverlaySticky.js';
 import {
   CACHE_TTL_SEC,
@@ -338,15 +339,6 @@ function addMonths(baseAno: number, baseMes: number, delta: number): { ano: numb
   return { ano: dt.getFullYear(), mes: dt.getMonth() + 1 };
 }
 
-function normalizarAbaFluxo(aba: string): string {
-  const raw = String(aba ?? '').trim();
-  const upper = raw
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-    .toUpperCase();
-  if (upper === 'PILATES MARINA') return 'PILATES';
-  return raw;
-}
 
 /** Lê colunas comuns da planilha salvas em raw_row (quando a migração não preencheu o campo tipado). */
 function extrairCamposPlanilhaDeRaw(raw: unknown): {
@@ -1233,8 +1225,7 @@ export default function createFluxoOperacionalRouter(): Router {
       (pagamentosRows ?? []).map((p) => String(p.id)),
     );
 
-    const keyAluno = (aba: string, modalidade: string, linha: number, nome: string) =>
-      `${normalizarAbaFluxo(aba).trim().toLowerCase()}|${modalidade.trim().toLowerCase()}|${linha}|${nome.trim().toLowerCase()}`;
+    const keyAluno = keyAlunoFluxo;
 
     const pagoPorAlunoMes = new Map<string, number>();
     const detalhePorAlunoMes = new Map<string, { dataPagamento: string | null; formaPagamento: string | null; valorPago: number }>();
@@ -1317,23 +1308,15 @@ export default function createFluxoOperacionalRouter(): Router {
             alvo: { ano: m.ano, mes: m.mes },
           });
 
-        let status: 'pago' | 'parcial' | 'pendente' | 'sem_dado' | 'futuro' | 'previsto' = 'sem_dado';
-        if (semCobranca) {
-          status = 'sem_dado';
-        } else if (pago > 0) {
-          if (esperado == null) status = 'pago';
-          else if (pago < esperado) status = 'parcial';
-          else status = 'pago';
-        } else if (noCicloPrevisto) {
-          // Virtual: Previsto (plano) ≠ lançado. Não cria candidato de Validação.
-          status = 'previsto';
-        } else if (keyMes > mesAtualRealKey) {
-          status = 'futuro';
-        } else if (esperado == null) {
-          status = 'sem_dado';
-        } else {
-          status = 'pendente';
-        }
+        // Regra compartilhada com o chat (quem_nao_pagou / saldo_aluno).
+        const status = statusCompetenciaAluno({
+          semCobranca,
+          pago,
+          esperado,
+          noCicloPrevisto,
+          keyMes,
+          mesAtualRealKey,
+        });
         return {
           ano: m.ano,
           mes: m.mes,

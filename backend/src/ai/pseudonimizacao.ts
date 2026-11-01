@@ -6,6 +6,22 @@
  */
 import { getSupabase } from '../services/supabaseClient.js';
 
+/**
+ * Remove dígitos de documento (CPF/CNPJ completos, parciais ou mascarados com *) colados
+ * ao nome no campo `pessoa` do extrato. Ex.: "FULANO DE TAL 123.456.789-00" → "FULANO DE TAL";
+ * "***.456.789-** FULANA" → "FULANA"; "BELTRANO12345678" → "BELTRANO".
+ * Só deve ser aplicado a nomes (não a textos com valores/datas).
+ */
+export function limparDocumentoPessoa(pessoa: string | null | undefined): string {
+  if (!pessoa) return '';
+  return pessoa
+    .replace(/[*\d][\d.*\/\-]*\d[\d.*\/\-]*|\*{2,}[\d.*\/\-]*/g, ' ')
+    .replace(/\s+[-–/.]+(?=\s|$)/g, ' ')
+    .replace(/^[\s\-–/.]+|[\s\-–/.]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export type NomeConhecido = { nome: string; tipo: 'aluno' | 'pessoa' };
 
 /** Normaliza 1 char → 1 char (minúsculo, sem acento), mantendo posições. */
@@ -17,7 +33,8 @@ function normStr(s: string): string {
   return Array.from(s, normChar).join('');
 }
 const isWordChar = (c: string | undefined) => !!c && /[\p{L}\p{N}]/u.test(c);
-const CODIGO_RE = /\b(Aluno|Pessoa) (\d{1,4})\b/g;
+/** Códigos como o LLM às vezes os reescreve: "Pessoa 2", "pessoa 2", "PESSOA 2", "Pessoa2", "Pessoa nº 2", "Pessoa #2". */
+const CODIGO_RE = /(?<![\p{L}\p{N}])(aluno|pessoa)\s*(?:n\s*[º°o.]\s*|#\s*)?(\d{1,4})(?![\p{N}])/giu;
 
 export class Pseudonimizador {
   private nomes: { norm: string; tipo: NomeConhecido['tipo'] }[];
@@ -74,8 +91,17 @@ export class Pseudonimizador {
     return src;
   }
 
+  /** Códigos que apareceram em `revelar` sem nome correspondente (diagnóstico). */
+  naoResolvidos = new Set<string>();
+
   revelar(texto: string): string {
-    return texto.replace(CODIGO_RE, (m) => this.nomePorCodigo.get(m) ?? m);
+    return texto.replace(CODIGO_RE, (m, tipo: string, num: string) => {
+      const chave = `${tipo.toLowerCase() === 'aluno' ? 'Aluno' : 'Pessoa'} ${Number(num)}`;
+      const nome = this.nomePorCodigo.get(chave);
+      if (nome) return nome;
+      if (this.nomePorCodigo.size) this.naoResolvidos.add(chave);
+      return m;
+    });
   }
 
   revelarArgs(args: Record<string, unknown>): Record<string, unknown> {
@@ -93,14 +119,36 @@ export async function carregarNomesConhecidos(): Promise<NomeConhecido[]> {
   const supabase = getSupabase();
   if (!supabase) return [];
   const nomes: NomeConhecido[] = [];
-  const [alunos, maps, trans] = await Promise.all([
-    supabase.from('fluxo_pagamentos_operacionais').select('aluno_nome').limit(10000),
-    supabase.from('mapeamento_pessoa_categoria').select('pessoa_normalizada').limit(5000),
-    supabase.from('transacoes').select('pessoa').not('pessoa', 'is', null).limit(10000),
+  // O PostgREST corta em 1000 linhas por resposta: pagina com .range() para não perder nomes
+  // (nome fora da lista não é pseudonimizado → o LLM inventa "Pessoa N" sem correspondência).
+  const [alunos, cadastro, maps, trans] = await Promise.all([
+    carregarPaginado<{ aluno_nome: string | null }>((a, b) => supabase.from('fluxo_pagamentos_operacionais').select('aluno_nome').range(a, b)),
+    // Cadastro do Fluxo: inclui quem nunca pagou (aparece em quem_nao_pagou / saldo_aluno).
+    carregarPaginado<{ aluno_nome: string | null }>((a, b) => supabase.from('fluxo_alunos_operacionais').select('aluno_nome').range(a, b)),
+    carregarPaginado<{ pessoa_normalizada: string | null }>((a, b) => supabase.from('mapeamento_pessoa_categoria').select('pessoa_normalizada').range(a, b)),
+    carregarPaginado<{ pessoa: string | null }>((a, b) => supabase.from('transacoes').select('pessoa').not('pessoa', 'is', null).range(a, b)),
   ]);
-  for (const r of (alunos.data ?? []) as { aluno_nome: string | null }[]) if (r.aluno_nome) nomes.push({ nome: r.aluno_nome, tipo: 'aluno' });
-  for (const r of (maps.data ?? []) as { pessoa_normalizada: string | null }[]) if (r.pessoa_normalizada) nomes.push({ nome: r.pessoa_normalizada, tipo: 'pessoa' });
-  for (const r of (trans.data ?? []) as { pessoa: string | null }[]) if (r.pessoa) nomes.push({ nome: r.pessoa, tipo: 'pessoa' });
+  for (const r of [...alunos, ...cadastro]) if (r.aluno_nome) nomes.push({ nome: limparDocumentoPessoa(r.aluno_nome), tipo: 'aluno' });
+  for (const r of maps) if (r.pessoa_normalizada) nomes.push({ nome: limparDocumentoPessoa(r.pessoa_normalizada), tipo: 'pessoa' });
+  for (const r of trans) if (r.pessoa) nomes.push({ nome: limparDocumentoPessoa(r.pessoa), tipo: 'pessoa' });
   cache = { at: Date.now(), nomes };
   return nomes;
+}
+
+type Pagina<T> = PromiseLike<{ data: T[] | null; error: unknown }>;
+
+/** Lê todas as páginas (até `maxLinhas`) de uma consulta Supabase. Erro → o que já leu. */
+export async function carregarPaginado<T>(
+  pagina: (de: number, ate: number) => Pagina<T>,
+  tamanho = 1000,
+  maxLinhas = 30000,
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let de = 0; de < maxLinhas; de += tamanho) {
+    const { data, error } = await pagina(de, de + tamanho - 1);
+    if (error || !data) break;
+    out.push(...data);
+    if (data.length < tamanho) break;
+  }
+  return out;
 }

@@ -5,7 +5,7 @@ import { mensagemRecusaForaDoCatalogo, resolveConsultaIntent } from '../ai/consu
 describe('consultaByla orchestration helpers', () => {
   it('recusa fora do catálogo tem sugestão de menu', () => {
     const msg = mensagemRecusaForaDoCatalogo();
-    assert.match(msg, /não tenho essa consulta/i);
+    assert.match(msg, /ainda não tenho consulta para isso/i);
     assert.match(msg, /Resumo do mês/);
   });
 

@@ -20,7 +20,8 @@ const FONTE_EXTRATO = 'Extrato bancário oficial (v_resumo_mensal_oficial / tran
 export type CriacaoToolId = 'balanco_meses' | 'entradas_modalidade_mes' | 'meio_pagamento_mes' | 'comparar_meses';
 
 export type CriacaoToolDeps = {
-  resumoMes: (mes: number, ano: number) => Promise<{ entradas: number; saidas: number }>;
+  /** null = mês sem lançamentos no extrato (não é zero) — fica fora do dataset. */
+  resumoMes: (mes: number, ano: number) => Promise<{ entradas: number; saidas: number } | null>;
   modalidades: (mes: number, ano: number) => Promise<Map<string, { total: number; qtd: number }>>;
   meios: (mes: number, ano: number) => Promise<Map<string, { entradas: number; saidas: number; qtd: number }>>;
 };
@@ -56,12 +57,11 @@ export async function datasetBalanco(ref: MesAno, n: number, deps: CriacaoToolDe
       { key: 'saidas', label: 'Saídas', formato: 'brl' },
       { key: 'saldo', label: 'Saldo', formato: 'brl' },
     ],
-    linhas: meses.map((m, i) => ({
-      mes: `${m.ano}-${pad2(m.mes)}`,
-      entradas: r2(nums[i]!.entradas),
-      saidas: r2(nums[i]!.saidas),
-      saldo: r2(nums[i]!.entradas - nums[i]!.saidas),
-    })),
+    linhas: meses.flatMap((m, i) => {
+      const r = nums[i];
+      if (!r) return [];
+      return [{ mes: `${m.ano}-${pad2(m.mes)}`, entradas: r2(r.entradas), saidas: r2(r.saidas), saldo: r2(r.entradas - r.saidas) }];
+    }),
   };
 }
 
@@ -119,7 +119,7 @@ export async function datasetComparar(a: MesAno, b: MesAno, deps: CriacaoToolDep
       { key: 'saidas', label: 'Saídas', formato: 'brl' },
       { key: 'saldo', label: 'Saldo', formato: 'brl' },
     ],
-    linhas: [row(a, ra), row(b, rb)],
+    linhas: [...(ra ? [row(a, ra)] : []), ...(rb ? [row(b, rb)] : [])],
   };
 }
 

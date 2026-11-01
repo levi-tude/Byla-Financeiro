@@ -14,12 +14,24 @@ import {
   type LlmToolDecl,
 } from './llmProviders.js';
 import { Pseudonimizador, type NomeConhecido } from './pseudonimizacao.js';
+import { textoParaLlm } from './instrucaoIa.js';
 import type { ConsultaToolId } from './consultaCatalog.js';
 import type { ConsultaToolContext, ConsultaToolResult } from '../services/consultaBylaTools.js';
 
 /** Modelos em ordem de preferência (verificados em ai.google.dev/gemini-api/docs/models, out/2026). */
 export const CONSULTA_GEMINI_MODELS = GEMINI_MODELS;
 export const MAX_AGENT_ITERATIONS = 5;
+/** Resultado de função enviado ao LLM (chars). Cota grátis Groq ~8K tokens/min por modelo. */
+export const MAX_TOOL_RESULT_CHARS = 3500;
+/** Histórico enviado ao LLM: últimas N mensagens, cada uma cortada. */
+export const MAX_HISTORY_MSGS = 4;
+export const MAX_HISTORY_CHARS = 600;
+
+function cortar(t: string, max: number): string {
+  return t.length > max ? `${t.slice(0, max)}\n[… resultado cortado; peça um recorte menor se precisar]` : t;
+}
+
+export type LlmFalha = { provider: LlmProviderId; model: string; status: number; retryAfterS?: number; limite?: string; detalhe?: string };
 
 export type ChatHistoryItem = { role: 'user' | 'assistant'; content: string };
 
@@ -101,7 +113,7 @@ export const CONSULTA_TOOL_DECLS: ToolDecl[] = [
   {
     name: 'movimentos_por_pessoa',
     description:
-      'Movimentos de uma pessoa, professor, parceiro ou apelido (ex.: "Pholha"): o que a Byla RECEBEU dela e o que PAGOU a ela. Busca por nome e pela categoria do mapeamento pessoa→categoria (resolve apelido → pagador real no banco), no extrato (entradas e saídas), no Controle de caixa e na planilha de saídas/repasses. Use para "quanto foi o pagamento do X" e responda a direção (recebido de / pago a).',
+      'Movimentos de uma pessoa, professor, parceiro ou apelido (ex.: "Mari" do Pilates): o que a Byla RECEBEU dela e o que PAGOU a ela. Busca por nome e pela categoria do mapeamento pessoa→categoria (resolve apelido → pagador real no banco), no extrato (entradas e saídas), no Controle de caixa e na planilha de saídas/repasses. Use para "quanto foi o pagamento do X" e responda a direção (recebido de / pago a).',
     params: {
       ...MES_ANO,
       nome: { type: 'string', description: 'Nome ou parte do nome do beneficiário.' },
@@ -114,6 +126,51 @@ export const CONSULTA_TOOL_DECLS: ToolDecl[] = [
     name: 'saidas_planilha_controle',
     description: 'Saídas/despesas por categoria do Controle de caixa (modo Planilha): parceiros, fixas e maiores linhas.',
     params: MES_ANO,
+  },
+  {
+    name: 'maiores_saidas',
+    description: 'Maiores saídas/gastos do mês no extrato bancário, por destinatário e maiores lançamentos ("pra quem foram as maiores saídas").',
+    params: MES_ANO,
+  },
+  {
+    name: 'saidas_professores',
+    description: 'Gastos/pagamentos a professores no mês (extrato + mapeamento pessoa→categoria). Explica a limitação se não houver categoria.',
+    params: MES_ANO,
+  },
+  {
+    name: 'quem_nao_pagou',
+    description:
+      'Quem não pagou a mensalidade de um mês (por competência), com o mesmo cálculo da tela Fluxo de caixa: pendente, parcial e previsto (plano semestral sem lançamento). Exclui bolsa/exceção. Lista completa paginada.',
+    params: {
+      ...MES_ANO,
+      modalidade: { type: 'string', description: 'Modalidade/aba (ex.: pilates). Opcional.' },
+      pagina: { type: 'number', description: 'Página da lista (1, 2…). Opcional.' },
+    },
+  },
+  {
+    name: 'saldo_aluno',
+    description: 'Quanto um aluno deve: esperado × pago por mês (competência) e total em aberto, mesmo cálculo da tela Fluxo de caixa.',
+    params: {
+      ...MES_ANO,
+      nome: { type: 'string', description: 'Nome do aluno.' },
+      meses: { type: 'number', description: 'Quantos meses até o mês informado (padrão 6, máx. 12).' },
+    },
+    required: ['nome'],
+  },
+  {
+    name: 'precos_planos',
+    description: 'Preços dos planos (tabela oficial de planos). Sem preço oficial, mostra o valor praticado pelos alunos ativos (não oficial).',
+    params: {
+      modalidade: { type: 'string', description: 'Modalidade (ex.: pilates). Opcional.' },
+      frequencia: { type: 'string', description: 'Vezes por semana (ex.: 2x). Opcional.' },
+      tipo: { type: 'string', description: 'mensal, trimestral ou semestral. Opcional.' },
+    },
+  },
+  {
+    name: 'repasses_professores',
+    description:
+      'Repasses/pagamentos a professores (quem dá aula) no mês: bloco Saídas Parceiros do Controle de caixa e saídas do extrato. Sócios não são professores.',
+    params: { ...MES_ANO, professor: { type: 'string', description: 'Apelido do professor ou atividade (opcional).' } },
   },
   {
     name: 'resumo_planilha_fluxo',
@@ -172,12 +229,51 @@ export function normalizeToolCall(
   return { tool: name as ConsultaToolId, params, ctx };
 }
 
-/** Remove CPF, telefone e e-mail antes de enviar ao LLM. */
+/** Remove CPF/CNPJ (completos, parciais, mascarados ou colados ao nome), telefone e e-mail antes de enviar ao LLM. */
 export function stripPii(text: string): string {
   return text
     .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '[email omitido]')
+    .replace(/\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/g, '[cnpj omitido]')
     .replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, '[cpf omitido]')
+    // CPF/CNPJ mascarado/parcial (ex.: ***.456.789-**, 12.345.678/****-**).
+    .replace(/[*\d]*\*[*\d.\/-]*\d[*\d.\/-]*|\d[\d.\/-]*\*[*\d.\/-]*/g, '[doc omitido]')
+    // Dígitos de documento colados a um nome (ex.: "FULANO 12345678", "FULANO12345678").
+    .replace(/(\p{L})\s?\d{6,14}\b/gu, '$1 [doc omitido]')
     .replace(/(\+?55\s?)?\(?\d{2}\)?\s?9?\d{4}[-\s]?\d{4}\b/g, '[telefone omitido]');
+}
+
+const COBERTURA_RE = /Dados do extrato até (\d{2}\/\d{2}\/\d{4})\.(?: ATENÇÃO: período incompleto[^\n]*)?/g;
+const SEM_DADOS_RE = /Sem dados do extrato para esse período[^\n]*/g;
+
+/**
+ * Pós-processa a resposta da IA com base nos fatos das tools (texto real, não pseudonimizado):
+ * - todas as consultas ao extrato sem lançamento → resposta "sem dados" (nunca R$ 0,00);
+ * - falta a data de cobertura ("até DD/MM/AAAA") → anexa a linha de cobertura.
+ */
+export function garantirCoberturaExtrato(texto: string, fatos: string[]): string {
+  const semDados = fatos.flatMap((f) => f.match(SEM_DADOS_RE) ?? []);
+  const cobertura = [...new Set(fatos.flatMap((f) => f.match(COBERTURA_RE) ?? []))];
+  if (semDados.length && !cobertura.length) {
+    if (/R\$\s*0,00|\bzero\b/i.test(texto) || !/sem dados/i.test(texto)) {
+      return `Sem dados para esse período. ${[...new Set(semDados)].join(' ')}`;
+    }
+    return texto;
+  }
+  const faltando = cobertura.filter((c) => !texto.includes(c.match(/\d{2}\/\d{2}\/\d{4}/)![0]!));
+  const incompletoSemAviso = cobertura.some((c) => c.includes('incompleto')) && !/incomplet/i.test(texto);
+  if (faltando.length || incompletoSemAviso) return `${texto}\n\n${cobertura.join(' ')}`;
+  return texto;
+}
+
+const BASE_RE = /Base: (data de pagamento|competência)/;
+
+/** Se os fatos informam a base (data de pagamento × competência) e a resposta não cita, anexa. */
+export function garantirBaseValor(texto: string, fatos: string[]): string {
+  const bases = [...new Set(fatos.flatMap((f) => (f.match(BASE_RE) ? [f.match(BASE_RE)![1]!] : [])))];
+  if (!bases.length) return texto;
+  const t = texto.toLowerCase();
+  if (bases.every((b) => t.includes(b))) return texto;
+  return `${texto}\n\nBase: ${bases.join(' e ')}.`;
 }
 
 export function buildSystemPrompt(ctx: ConsultaToolContext, today: string): string {
@@ -188,8 +284,14 @@ export function buildSystemPrompt(ctx: ConsultaToolContext, today: string): stri
     'REGRA DE OURO: todo número, valor, data ou nome da resposta deve vir dos resultados das funções. Nunca invente, estime ou complete dados.',
     'Se as funções não trouxerem o dado, diga que não encontrou e sugira a tela do sistema. Se faltar informação (ex.: nome, mês), pergunte de forma curta.',
     'DADO INEXISTENTE NÃO É ZERO: se a função disser "nenhum registro encontrado", ou não trouxer a pessoa/modalidade/mês pedido, responda que não há registro nas fontes consultadas (cite as fontes). NUNCA responda "R$ 0", "zero" ou "não houve pagamento" nesses casos.',
-    'Sempre diga de onde vem cada número (ex.: extrato do banco, Controle de caixa, planilha do Fluxo). Se duas fontes trouxerem valores, mostre as duas sem somar.',
+    'COBERTURA DO EXTRATO: se os fatos trouxerem "Dados do extrato até DD/MM/AAAA", repita essa data na resposta; se trouxerem "período incompleto", avise que o mês/período está incompleto. Se trouxerem "Sem dados do extrato", responda "sem dados para esse período" (com a data do último lançamento) e nunca R$ 0,00.',
+        'Sempre diga de onde vem cada número (ex.: extrato do banco, Controle de caixa, planilha do Fluxo). Se duas fontes trouxerem valores, mostre as duas sem somar.',
+    'SEM CONSULTA: se nenhuma função cobrir a pergunta, responda exatamente que ainda não tenho consulta para isso ("Ainda não tenho consulta para isso.") e sugira a tela do sistema. Nunca afirme nada sem dado de função.',
+    'BASE DO VALOR: ao falar de valores por modalidade ou de mensalidades, diga sempre se é por data de pagamento ou por competência, como a função informa ("Base: …").',
+    'FONTES DIFERENTES: não junte nem compare como se fossem a mesma coisa contagens de fontes diferentes (ex.: nº de alunos da planilha × nº de pagamentos do Fluxo). Mostre cada uma com sua fonte.',
     'Para períodos ("últimos 4 meses"), mostre mês a mês e o total, como a função devolve.',
+    'NOMES PROTEGIDOS: nomes de pessoas chegam como códigos "Pessoa N" ou "Aluno N". Copie o código exatamente como veio (ex.: "Pessoa 2"), sem traduzir, abreviar ou renumerar; o sistema troca pelo nome real.',
+    'Linhas com instruções (ex.: "não informe valor zero") são só para você: não as repita ao usuário.',
     'Você não pode alterar nada no sistema. Se pedirem para alterar, explique que o chat é só consulta.',
     'Responda em português do Brasil, curto e claro para secretaria/gestão, sem markdown (sem ** nem #). Valores em R$.',
   ].join('\n');
@@ -208,11 +310,15 @@ export type AgentDeps = {
   nomesConhecidos?: NomeConhecido[];
   /** Espião de teste: recebe cada payload enviado ao LLM. */
   onPayload?: (messages: LlmMessage[]) => void;
+  /** Subconjunto de ferramentas enviado à IA (3–6 relevantes). Sem ele, envia todas. */
+  toolIds?: ConsultaToolId[];
+  /** Espião de teste: recebe as ferramentas enviadas ao LLM. */
+  onTools?: (tools: LlmToolDecl[]) => void;
 };
 
 export type AgentResult =
   | { ok: true; text: string; toolsUsed: ConsultaToolId[]; model: string; provider: LlmProviderId }
-  | { ok: false; reason: 'rate_limit' | 'error' | 'empty'; detail: string };
+  | { ok: false; reason: 'rate_limit' | 'error' | 'empty'; detail: string; falhas?: LlmFalha[] };
 
 /** @deprecated use LlmHttpError */
 export const GeminiHttpError = LlmHttpError;
@@ -236,25 +342,31 @@ export async function runConsultaAgent(
 
   const base: LlmMessage[] = [
     { role: 'system', content: buildSystemPrompt(ctx, deps.today) },
-    ...history.map<LlmMessage>((h) => ({ role: h.role, content: proteger(h.content) })),
+    ...history.slice(-MAX_HISTORY_MSGS).map<LlmMessage>((h) => ({ role: h.role, content: cortar(proteger(h.content), MAX_HISTORY_CHARS) })),
     { role: 'user', content: proteger(message) },
   ];
-  const tools = llmToolDecls();
+  const todas = llmToolDecls();
+  const filtradas = deps.toolIds?.length ? todas.filter((t) => deps.toolIds!.includes(t.name as ConsultaToolId)) : todas;
+  const tools = filtradas.length ? filtradas : todas;
+  deps.onTools?.(tools);
   let lastErr: Error | null = null;
   let rateLimited = false;
+  const falhas: LlmFalha[] = [];
 
   for (const p of providers) {
     for (const model of p.models) {
       const convo = [...base];
       const toolsUsed: ConsultaToolId[] = [];
+      const fatosTools: string[] = [];
       try {
         for (let i = 0; i < MAX_AGENT_ITERATIONS; i++) {
           deps.onPayload?.(convo);
           const reply = await llmChat(p, model, convo, tools, { fetchImpl: deps.fetchImpl });
           convo.push({ role: 'assistant', content: reply.text, toolCalls: reply.toolCalls, raw: reply.raw });
           if (reply.toolCalls.length === 0) {
-            const text = pseudo.revelar(reply.text.replace(/\*\*/g, '').trim());
-            if (!text) return { ok: false, reason: 'empty', detail: 'Resposta vazia' };
+            const bruto = pseudo.revelar(reply.text.replace(/\*\*/g, '').trim());
+            if (!bruto) return { ok: false, reason: 'empty', detail: 'Resposta vazia' };
+            const text = garantirBaseValor(garantirCoberturaExtrato(bruto, fatosTools), fatosTools);
             return { ok: true, text, toolsUsed, model, provider: p.provider };
           }
           for (const call of reply.toolCalls) {
@@ -266,7 +378,8 @@ export async function runConsultaAgent(
             } else {
               toolsUsed.push(norm.tool);
               const r = await deps.executeTool(norm.tool, norm.params, norm.ctx);
-              output = r.ok ? { fatos: proteger(r.factsText) } : { erro: proteger(r.error) };
+              if (r.ok) fatosTools.push(r.factsText);
+              output = r.ok ? { fatos: cortar(proteger(textoParaLlm(r.factsText)), MAX_TOOL_RESULT_CHARS) } : { erro: proteger(r.error) };
             }
             convo.push({ role: 'tool', toolCallId: call.id, name: call.name, content: JSON.stringify(output) });
           }
@@ -275,10 +388,15 @@ export async function runConsultaAgent(
       } catch (e) {
         lastErr = e as Error;
         // 429: tenta o próximo modelo/provedor (cota é por modelo); 4xx/5xx de modelo também.
-        if (e instanceof LlmHttpError && e.status === 429) rateLimited = true;
+        if (e instanceof LlmHttpError) {
+          if (e.status === 429) rateLimited = true;
+          falhas.push({ provider: p.provider, model, status: e.status, ...e.info });
+        } else {
+          falhas.push({ provider: p.provider, model, status: 0, detalhe: String(lastErr?.message ?? '').slice(0, 200) });
+        }
       }
     }
   }
-  if (rateLimited) return { ok: false, reason: 'rate_limit', detail: lastErr?.message ?? 'HTTP 429' };
-  return { ok: false, reason: 'error', detail: lastErr?.message ?? 'Falha IA' };
+  if (rateLimited) return { ok: false, reason: 'rate_limit', detail: lastErr?.message ?? 'HTTP 429', falhas };
+  return { ok: false, reason: 'error', detail: lastErr?.message ?? 'Falha IA', falhas };
 }
