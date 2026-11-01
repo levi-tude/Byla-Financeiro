@@ -15,6 +15,7 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 import { criarMesAno } from '../src/domain/MesAno.js';
 import { PlanilhaFluxoAdapter } from '../src/adapters/PlanilhaFluxoAdapter.js';
+import { checarConsistenciaControle } from '../src/logic/planilhaControleCorteTotal.js';
 import { getSupabase } from '../src/services/supabaseClient.js';
 
 function asNumber(v: number | null | undefined): number | null {
@@ -68,6 +69,26 @@ async function main() {
       const ln = ids.length ? await supabase.from('controle_caixa_linhas').select('id', { count: 'exact', head: true }).in('bloco_id', ids) : { count: 0 };
       console.log(`  EXISTENTE (será SUBSTITUÍDO): aba_ref=${ex.data.aba_ref} origem=${ex.data.origem} blocos=${ids.length} linhas=${ln.count}`);
     } else console.log('  existente: nenhum período oficial para este mês (nada será sobrescrito)');
+  }
+  const divergencias = checarConsistenciaControle({
+    blocos: [
+      ...blocosEntradaPrev.map((b) => ({ tipo: 'entrada' as const, titulo: b.titulo, linhas: b.linhas })),
+      ...blocosSaidaPrev.map((b) => ({ tipo: 'saida' as const, titulo: b.titulo, linhas: b.linhas })),
+    ],
+    totaisBlocos: totais.totaisBlocosPlanilha ?? [],
+    entradaTotal: totais.entradaTotal,
+    saidaTotal: totais.saidaTotal,
+    lucroLido: totais.lucroLidoPlanilha ?? null,
+  });
+  if (divergencias.length) {
+    console.log(`  AVISO: ${divergencias.length} divergência(s) entre o lido e os totais da planilha (tolerância R$ 0,01):`);
+    for (const d of divergencias) console.log(`    - ${d.item}: lido=${d.lido} planilha=${d.planilha} diferença=${d.diferenca}`);
+  } else {
+    console.log('  checagem: blocos e totais gerais batem com a planilha (tolerância R$ 0,01)');
+  }
+  if (apply && divergencias.length) {
+    console.error('RECUSADO: --apply não grava com divergências. Corrija a planilha ou o leitor e rode o dry-run de novo.');
+    process.exit(2);
   }
   if (printJson) console.log(JSON.stringify({ totais }, null, 2));
   if (!apply || !supabase) {
