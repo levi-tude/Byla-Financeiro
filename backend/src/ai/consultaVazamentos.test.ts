@@ -131,7 +131,7 @@ describe('E) saídas', () => {
     const a = rotearConsultaDeterministica('Pra quem foram as maiores saídas de outubro?', ctx);
     assert.ok(a && a.kind === 'tool' && a.tool === 'maiores_saidas' && a.ctx.mes === 10);
     const b = rotearConsultaDeterministica('Quanto gastei com professores em setembro?', ctx);
-    assert.ok(b && b.kind === 'tool' && b.tool === 'saidas_professores' && b.ctx.mes === 9);
+    assert.ok(b && b.kind === 'tool' && b.tool === 'repasses_professores' && b.ctx.mes === 9);
   });
   const saidas = [
     { data: '2026-10-05', pessoa: 'LOCADORA FICTICIA 12345678000199', valor: -3000 },

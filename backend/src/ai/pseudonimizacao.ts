@@ -121,12 +121,14 @@ export async function carregarNomesConhecidos(): Promise<NomeConhecido[]> {
   const nomes: NomeConhecido[] = [];
   // O PostgREST corta em 1000 linhas por resposta: pagina com .range() para não perder nomes
   // (nome fora da lista não é pseudonimizado → o LLM inventa "Pessoa N" sem correspondência).
-  const [alunos, maps, trans] = await Promise.all([
+  const [alunos, cadastro, maps, trans] = await Promise.all([
     carregarPaginado<{ aluno_nome: string | null }>((a, b) => supabase.from('fluxo_pagamentos_operacionais').select('aluno_nome').range(a, b)),
+    // Cadastro do Fluxo: inclui quem nunca pagou (aparece em quem_nao_pagou / saldo_aluno).
+    carregarPaginado<{ aluno_nome: string | null }>((a, b) => supabase.from('fluxo_alunos_operacionais').select('aluno_nome').range(a, b)),
     carregarPaginado<{ pessoa_normalizada: string | null }>((a, b) => supabase.from('mapeamento_pessoa_categoria').select('pessoa_normalizada').range(a, b)),
     carregarPaginado<{ pessoa: string | null }>((a, b) => supabase.from('transacoes').select('pessoa').not('pessoa', 'is', null).range(a, b)),
   ]);
-  for (const r of alunos) if (r.aluno_nome) nomes.push({ nome: r.aluno_nome, tipo: 'aluno' });
+  for (const r of [...alunos, ...cadastro]) if (r.aluno_nome) nomes.push({ nome: limparDocumentoPessoa(r.aluno_nome), tipo: 'aluno' });
   for (const r of maps) if (r.pessoa_normalizada) nomes.push({ nome: limparDocumentoPessoa(r.pessoa_normalizada), tipo: 'pessoa' });
   for (const r of trans) if (r.pessoa) nomes.push({ nome: limparDocumentoPessoa(r.pessoa), tipo: 'pessoa' });
   cache = { at: Date.now(), nomes };
