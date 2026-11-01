@@ -18,6 +18,10 @@ import { todayIsoLocal } from '../ai/consultaCatalog.js';
 import { GEMINI_MODELS, resolveLlmProviders, type LlmProviderConfig } from '../ai/llmProviders.js';
 import { rotearConsultaDeterministica, selecionarToolsRelevantes, type RotaDeterministica } from '../ai/consultaRouter.js';
 import { carregarNomesConhecidos, type NomeConhecido } from '../ai/pseudonimizacao.js';
+import type { CriacaoSpec } from '../ai/criacoesSpec.js';
+import { dicaVisualParaIa, extrairVisualDaIa, specDaConsulta, specPropostoPelaIa, type VisualDeps } from '../ai/consultaVisual.js';
+import { realDeps } from './criacoesDatasets.js';
+import { loadSaidasMes } from './consultaBylaTools.js';
 
 export type ConsultaServiceInput = {
   message: string;
@@ -35,6 +39,13 @@ export type ConsultaServiceOutput = {
   confidence: number;
   quickReplies: string[];
   providerUsed: 'deterministic' | 'gemini' | 'groq' | 'openai' | 'fallback';
+  /** Cartão visual (spec JSON das Criações da IA, já validado/hidratado). Ausente = só texto. */
+  visual?: CriacaoSpec | null;
+};
+
+const realVisualDeps: VisualDeps = {
+  ...realDeps,
+  saidasMes: (mes, ano) => loadSaidasMes({ mes, ano }),
 };
 
 function defaultMesAno(monthYear?: string): { mes: number; ano: number } {
@@ -69,6 +80,8 @@ export type ConsultaReplyDeps = {
    * Retorna false → modo simples com aviso.
    */
   consumirCotaIa?: () => boolean;
+  /** Fontes dos cartões visuais. Padrão: reais quando executeTool não é injetado; `null` desliga. */
+  visualDeps?: VisualDeps | null;
 };
 
 export const AVISO_COTA_IA = 'Muitas perguntas seguidas; respondi no modo simples (menu).';
@@ -111,7 +124,7 @@ export async function gerarConsultaReply(
   deps: ConsultaReplyDeps = {},
 ): Promise<ConsultaServiceOutput> {
   const out = await gerarConsultaReplyBruto(input, deps);
-  return { ...out, message: formatarRespostaUsuario(out.message) };
+  return { ...out, message: formatarRespostaUsuario(out.message), visual: out.visual ?? null };
 }
 
 async function gerarConsultaReplyBruto(
@@ -125,8 +138,24 @@ async function gerarConsultaReplyBruto(
         ? [{ provider: 'gemini' as const, apiKey: deps.apiKey, models: GEMINI_MODELS }]
         : []
       : resolveLlmProviders());
-  const executeTool = deps.executeTool ?? executeConsultaTool;
+  const executeToolBase = deps.executeTool ?? executeConsultaTool;
   const ctx = defaultMesAno(input.context?.monthYear);
+  const visualDeps = deps.visualDeps !== undefined ? deps.visualDeps : deps.executeTool ? null : realVisualDeps;
+
+  // Registra a última chamada bem-sucedida para montar o cartão visual (sem IA).
+  let ultimoVisual: CriacaoSpec | null = null;
+  let comDica = false;
+  const executeTool: AgentDeps['executeTool'] = async (tool, params, c) => {
+    const r = await executeToolBase(tool, params, c);
+    if (r.ok && visualDeps) {
+      const spec = await specDaConsulta(r.tool, params, c, r.factsText, visualDeps);
+      if (spec) {
+        ultimoVisual = spec;
+        if (comDica) return { ...r, factsText: `${r.factsText}\n${dicaVisualParaIa(spec)}` };
+      }
+    }
+    return r;
+  };
 
   // 1) Roteador determinístico ANTES da IA: perguntas comuns com alta confiança não gastam LLM.
   let rota: RotaDeterministica | null = null;
@@ -137,7 +166,7 @@ async function gerarConsultaReplyBruto(
   }
   if (rota) {
     const det = await responderRota(rota, executeTool);
-    if (det) return det;
+    if (det) return { ...det, visual: ultimoVisual };
   }
 
   let aviso = deps.avisoInicial ?? '';
@@ -156,6 +185,7 @@ async function gerarConsultaReplyBruto(
       }
     }
     let r: Awaited<ReturnType<typeof runConsultaAgent>>;
+    comDica = true;
     try {
       r = await runConsultaAgent(input.message, input.history ?? [], ctx, {
         providers,
@@ -172,9 +202,14 @@ async function gerarConsultaReplyBruto(
     } catch (e) {
       r = { ok: false, reason: 'error', detail: e instanceof Error ? e.message : String(e) };
     }
+    comDica = false;
     if (r.ok) {
+      const { texto, draft } = extrairVisualDaIa(r.text);
+      const base = ultimoVisual as CriacaoSpec | null;
+      const proposto = base ? specPropostoPelaIa(draft, base.datasets, r.provider === 'groq' ? 'groq' : 'gemini') : null;
       return {
-        message: sanitize(r.text),
+        visual: proposto ?? base,
+        message: sanitize(texto),
         tool: r.toolsUsed[0] ?? null,
         confidence: 1,
         quickReplies: CONSULTA_MENU_LABELS.slice(0, 8),
@@ -198,6 +233,7 @@ async function gerarConsultaReplyBruto(
       providerUsed: 'deterministic',
     };
   }
+  det = { ...det, visual: ultimoVisual };
   if (aviso) return { ...det, message: `${aviso}\n\n${det.message}`, providerUsed: 'fallback' };
   return det;
 }

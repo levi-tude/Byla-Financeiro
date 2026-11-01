@@ -638,7 +638,7 @@ function mesesEntre(a: { mes: number; ano: number }, b: { mes: number; ano: numb
   return mesesAte(b.mes, b.ano, n);
 }
 
-function periodoParams(params: Record<string, string>, ctx: ConsultaToolContext) {
+export function periodoParams(params: Record<string, string>, ctx: ConsultaToolContext) {
   const ini = parseMesAnoParam(params.mes_inicio);
   const fim = parseMesAnoParam(params.mes_fim);
   if (ini && fim) return mesesEntre(ini, fim);
@@ -766,7 +766,7 @@ export function periodoExtratoDaTool(
   }
 }
 
-async function loadSaidasMes(ctx: ConsultaToolContext) {
+export async function loadSaidasMes(ctx: ConsultaToolContext) {
   const { inicio, fim } = rangeMes(ctx.mes, ctx.ano);
   const rows = await loadTransacoesRange(inicio, fim);
   return rows.filter((t) => normalizarTipoTransacao(t.tipo) === 'saida');

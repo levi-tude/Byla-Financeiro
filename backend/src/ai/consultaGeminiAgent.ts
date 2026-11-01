@@ -292,6 +292,7 @@ export function buildSystemPrompt(ctx: ConsultaToolContext, today: string): stri
     'Para períodos ("últimos 4 meses"), mostre mês a mês e o total, como a função devolve.',
     'NOMES PROTEGIDOS: nomes de pessoas chegam como códigos "Pessoa N" ou "Aluno N". Copie o código exatamente como veio (ex.: "Pessoa 2"), sem traduzir, abreviar ou renumerar; o sistema troca pelo nome real.',
     'Linhas com instruções (ex.: "não informe valor zero") são só para você: não as repita ao usuário.',
+    'CARTÃO VISUAL (opcional): se um resultado trouxer "Visual disponível: datasets …", você pode acrescentar ao fim UM bloco <visual>{"titulo":"…","secoes":[…]}</visual> só com JSON, usando seções kpi_cards (itens: label, dataset, linha 0|"ultima"|"total", coluna), bar_chart/line_chart (dataset, x, series), donut/ranking (dataset, label, valor) ou table (dataset). Nunca escreva código, HTML, nomes ou números no bloco.',
     'Você não pode alterar nada no sistema. Se pedirem para alterar, explique que o chat é só consulta.',
     'Responda em português do Brasil, curto e claro para secretaria/gestão, sem markdown (sem ** nem #). Valores em R$.',
   ].join('\n');

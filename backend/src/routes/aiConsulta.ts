@@ -69,6 +69,7 @@ export function createAiConsultaRouter(): Router {
       confidence: response.confidence,
       quickReplies: response.quickReplies,
       providerUsed: response.providerUsed,
+      visual: response.visual ?? null,
     });
   });
 

@@ -1795,6 +1795,8 @@ export interface ConsultaBylaChatResponse {
   confidence: number;
   quickReplies: string[];
   providerUsed?: string;
+  /** Cartão visual da resposta (mesmo spec das Criações da IA). */
+  visual?: import('../criacoes/types').CriacaoSpec | null;
 }
 
 export async function chatConsultaByla(payload: ConsultaBylaChatRequest): Promise<ConsultaBylaChatResponse> {
