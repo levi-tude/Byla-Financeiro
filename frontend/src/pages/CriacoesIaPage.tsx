@@ -7,22 +7,18 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { gerarCriacaoIa } from '../services/backendApi';
+import {
+  abrirCriacaoSalva,
+  apagarCriacaoSalva,
+  gerarCriacaoIa,
+  listarCriacoesSalvas,
+  salvarCriacaoIa,
+  type CriacaoSalvaResumo,
+  type CriacaoVisibilidade,
+} from '../services/backendApi';
 import { DEMO_BALANCO_4_MESES } from '../criacoes/demoSpec';
 import { fonteDaSecao, SectionView } from '../criacoes/SectionView';
 import { secoesRenderizaveis, type CriacaoSpec, type Secao } from '../criacoes/types';
-
-const LS_KEY = 'byla.criacoesIa.salvas.v1';
-type Salva = { id: string; prompt: string; spec: CriacaoSpec; salvaEm: string };
-
-function lerSalvas(): Salva[] {
-  try {
-    const v = JSON.parse(localStorage.getItem(LS_KEY) ?? '[]');
-    return Array.isArray(v) ? v.slice(0, 20) : [];
-  } catch {
-    return [];
-  }
-}
 
 const SUGESTOES = ['Balanço dos últimos 4 meses', 'Entradas por modalidade deste mês', 'Compare agosto com setembro', 'Meios de pagamento do mês'];
 
@@ -167,7 +163,23 @@ export default function CriacoesIaPage() {
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [apresentando, setApresentando] = useState(params.get('apresentar') === '1');
-  const [salvas, setSalvas] = useState<Salva[]>(lerSalvas);
+  const [salvas, setSalvas] = useState<CriacaoSalvaResumo[]>([]);
+  const [salvando, setSalvando] = useState(false);
+  const [formSalvar, setFormSalvar] = useState<{ titulo: string; visibilidade: CriacaoVisibilidade } | null>(null);
+  const [msgSalvas, setMsgSalvas] = useState<string | null>(null);
+
+  const recarregarSalvas = useCallback(async () => {
+    try {
+      const r = await listarCriacoesSalvas();
+      setSalvas(r.items);
+    } catch (e) {
+      setMsgSalvas(e instanceof Error ? e.message : 'Falha ao carregar as visões salvas.');
+    }
+  }, []);
+
+  useEffect(() => {
+    void recarregarSalvas();
+  }, [recarregarSalvas]);
   const reduce = useReducedMotion();
 
   const gerar = async (p: string) => {
@@ -186,18 +198,46 @@ export default function CriacoesIaPage() {
     }
   };
 
-  const salvar = () => {
-    if (!spec) return;
-    const nova: Salva = { id: `${Date.now()}`, prompt: ultimoPrompt || spec.titulo, spec, salvaEm: new Date().toISOString() };
-    const lista = [nova, ...salvas].slice(0, 20);
-    localStorage.setItem(LS_KEY, JSON.stringify(lista));
-    setSalvas(lista);
+  const salvar = async () => {
+    if (!spec || !formSalvar) return;
+    setSalvando(true);
+    setMsgSalvas(null);
+    try {
+      await salvarCriacaoIa({
+        titulo: formSalvar.titulo.trim(),
+        prompt: ultimoPrompt && ultimoPrompt !== 'demo' ? ultimoPrompt.slice(0, 500) : undefined,
+        visibilidade: formSalvar.visibilidade,
+        spec,
+      });
+      setFormSalvar(null);
+      setMsgSalvas(formSalvar.visibilidade === 'compartilhada' ? 'Visão salva e compartilhada com admin e gestão.' : 'Visão salva (só você vê).');
+      await recarregarSalvas();
+    } catch (e) {
+      setMsgSalvas(e instanceof Error ? e.message : 'Falha ao salvar.');
+    } finally {
+      setSalvando(false);
+    }
   };
 
-  const remover = (id: string) => {
-    const lista = salvas.filter((s) => s.id !== id);
-    localStorage.setItem(LS_KEY, JSON.stringify(lista));
-    setSalvas(lista);
+  const abrir = async (id: string) => {
+    setMsgSalvas(null);
+    try {
+      const r = await abrirCriacaoSalva(id);
+      setSpec(r.item.spec);
+      setUltimoPrompt(r.item.prompt ?? '');
+    } catch (e) {
+      setMsgSalvas(e instanceof Error ? e.message : 'Falha ao abrir.');
+    }
+  };
+
+  const remover = async (s: CriacaoSalvaResumo) => {
+    if (!window.confirm(`Apagar a visão "${s.titulo}"?`)) return;
+    try {
+      await apagarCriacaoSalva(s.id);
+      await recarregarSalvas();
+    } catch (e) {
+      setMsgSalvas(e instanceof Error ? e.message : 'Falha ao apagar.');
+    }
   };
 
   const secoes = spec ? secoesRenderizaveis(spec) : [];
@@ -243,13 +283,20 @@ export default function CriacoesIaPage() {
 
         {erro ? <div className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-700 dark:text-rose-200">{erro}</div> : null}
 
+        {msgSalvas ? <p className="mt-3 text-xs text-slate-600 dark:text-slate-300">{msgSalvas}</p> : null}
+
         {salvas.length > 0 ? (
           <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
-            <span className="text-slate-500">Salvas neste navegador:</span>
+            <span className="text-slate-500">Visões salvas:</span>
             {salvas.map((s) => (
               <span key={s.id} className="inline-flex items-center gap-1 rounded-full border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.03] pl-3">
-                <button type="button" onClick={() => setSpec(s.spec)} className="py-1 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">{s.spec.titulo}</button>
-                <button type="button" onClick={() => remover(s.id)} aria-label="Remover" className="px-2 py-1 text-slate-500 hover:text-rose-600 dark:hover:text-rose-300">×</button>
+                <button type="button" onClick={() => void abrir(s.id)} className="py-1 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">{s.titulo}</button>
+                <span className="text-[10px] text-slate-400" title={s.visibilidade === 'compartilhada' ? 'Compartilhada com admin e gestão' : 'Privada (só você)'}>
+                  {s.visibilidade === 'compartilhada' ? 'compartilhada' : 'privada'}
+                </span>
+                {s.minha ? (
+                  <button type="button" onClick={() => void remover(s)} aria-label={`Apagar ${s.titulo}`} className="px-2 py-1 text-slate-500 hover:text-rose-600 dark:hover:text-rose-300">×</button>
+                ) : <span className="pr-3" />}
               </span>
             ))}
           </div>
@@ -273,10 +320,43 @@ export default function CriacoesIaPage() {
                   </span>
                 </div>
                 <div className="flex gap-2">
-                  <button type="button" onClick={salvar} className="rounded-xl border border-slate-300 dark:border-white/15 px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/5">Salvar</button>
+                  <button type="button" onClick={() => setFormSalvar({ titulo: (spec.titulo || '').slice(0, 120), visibilidade: 'privada' })} className="rounded-xl border border-slate-300 dark:border-white/15 px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/5">Salvar</button>
                   <button type="button" onClick={() => setApresentando(true)} className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200">▶ Apresentar</button>
                 </div>
               </div>
+              {formSalvar ? (
+                <form
+                  onSubmit={(e) => { e.preventDefault(); void salvar(); }}
+                  className="mb-5 flex flex-col gap-3 rounded-2xl border border-slate-200 dark:border-white/10 bg-white/80 dark:bg-slate-900/70 p-4 text-sm sm:flex-row sm:items-end"
+                >
+                  <label className="flex flex-1 flex-col gap-1">
+                    <span className="text-xs text-slate-500">Nome da visão</span>
+                    <input
+                      value={formSalvar.titulo}
+                      onChange={(e) => setFormSalvar({ ...formSalvar, titulo: e.target.value })}
+                      maxLength={120}
+                      className="rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-950/70 px-3 py-2"
+                    />
+                  </label>
+                  <fieldset className="flex gap-4">
+                    <legend className="mb-1 text-xs text-slate-500">Quem vê</legend>
+                    <label className="inline-flex items-center gap-1">
+                      <input type="radio" name="visibilidade" checked={formSalvar.visibilidade === 'privada'} onChange={() => setFormSalvar({ ...formSalvar, visibilidade: 'privada' })} />
+                      Só eu (privada)
+                    </label>
+                    <label className="inline-flex items-center gap-1">
+                      <input type="radio" name="visibilidade" checked={formSalvar.visibilidade === 'compartilhada'} onChange={() => setFormSalvar({ ...formSalvar, visibilidade: 'compartilhada' })} />
+                      Admin e gestão (compartilhada)
+                    </label>
+                  </fieldset>
+                  <div className="flex gap-2">
+                    <button type="submit" disabled={salvando || formSalvar.titulo.trim().length < 3} className="rounded-xl bg-rose-600 px-4 py-2 font-semibold text-white disabled:opacity-40">
+                      {salvando ? 'Salvando…' : 'Salvar visão'}
+                    </button>
+                    <button type="button" onClick={() => setFormSalvar(null)} className="rounded-xl border border-slate-300 dark:border-white/15 px-4 py-2">Cancelar</button>
+                  </div>
+                </form>
+              ) : null}
               {spec.avisos.length > 0 ? (
                 <ul className="mb-5 space-y-1 text-xs text-amber-700 dark:text-amber-200/80">{spec.avisos.map((a, i) => <li key={i}>• {a}</li>)}</ul>
               ) : null}

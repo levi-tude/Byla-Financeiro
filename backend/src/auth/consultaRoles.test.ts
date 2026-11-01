@@ -42,7 +42,7 @@ test('Consulta Byla e Criações da IA: só admin e gestor (secretaria 403), com
   assert.deepEqual([...CONSULTA_PREFIXES], ['/ai/consulta', '/ai/criacoes']);
   const porPapel = requireRoles(CONSULTA_ROLES);
   const gestorSoIa = restrictGestor(CONSULTA_PREFIXES);
-  for (const path of ['/ai/consulta/chat', '/ai/consulta/status', '/ai/criacoes/gerar']) {
+  for (const path of ['/ai/consulta/chat', '/ai/consulta/status', '/ai/criacoes/gerar', '/ai/criacoes/salvas', '/ai/criacoes/salvas/x']) {
     assert.equal(run(porPapel, 'secretaria', path), 403, `secretaria em ${path}`);
     assert.equal(run(porPapel, 'admin', path), 200, `admin em ${path}`);
     assert.equal(run(porPapel, 'gestor', path), 200, `gestor em ${path}`);
