@@ -41,7 +41,7 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 
-function rangeMes(mes: number, ano: number): { inicio: string; fim: string } {
+export function rangeMes(mes: number, ano: number): { inicio: string; fim: string } {
   const inicio = `${ano}-${pad2(mes)}-01`;
   const fim = `${ano}-${pad2(mes)}-${pad2(new Date(ano, mes, 0).getDate())}`;
   return { inicio, fim };
@@ -60,7 +60,7 @@ function semanaAround(dataRef: string): { inicio: string; fim: string } {
   return { inicio: iso(seg), fim: iso(dom) };
 }
 
-async function loadTransacoesRange(inicio: string, fim: string): Promise<TransacaoBase[]> {
+export async function loadTransacoesRange(inicio: string, fim: string): Promise<TransacaoBase[]> {
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase não configurado.');
   const { data, error } = await supabase
@@ -250,6 +250,25 @@ async function toolResumoMeio(ctx: ConsultaToolContext): Promise<string> {
 
 export type PagamentoFluxoRow = { aba: string | null; modalidade: string | null; valor: number | string | null };
 export type PagamentosFluxoLoader = (inicio: string, fim: string) => Promise<PagamentoFluxoRow[]>;
+
+/** Entradas por modalidade (aba do Fluxo operacional) no mês — usado pelas Criações da IA. */
+export async function entradasPorModalidade(
+  mes: number,
+  ano: number,
+  load: PagamentosFluxoLoader = (i, f) => loadPagamentosFluxoRange(i, f),
+): Promise<Map<string, { total: number; qtd: number }>> {
+  const ini = `${ano}-${String(mes).padStart(2, '0')}-01`;
+  const fim = `${ano}-${String(mes).padStart(2, '0')}-${String(new Date(ano, mes, 0).getDate()).padStart(2, '0')}`;
+  const map = new Map<string, { total: number; qtd: number }>();
+  for (const r of await load(ini, fim)) {
+    const k = (r.aba || r.modalidade || 'Sem aba').trim().toUpperCase();
+    const cur = map.get(k) ?? { total: 0, qtd: 0 };
+    cur.total += Number(r.valor) || 0;
+    cur.qtd += 1;
+    map.set(k, cur);
+  }
+  return map;
+}
 
 const FONTE_MODALIDADE =
   'Base: data de pagamento (não competência). Fonte: Fluxo de caixa operacional (pagamentos lançados por aba/modalidade). O extrato do banco não tem modalidade preenchida.';
@@ -512,7 +531,7 @@ async function toolInadimplencia(ctx: ConsultaToolContext): Promise<string> {
 }
 
 /** null = mês sem nenhum lançamento no extrato (não é zero). */
-async function resumoMesNumeros(mes: number, ano: number): Promise<{ entradas: number; saidas: number } | null> {
+export async function resumoMesNumeros(mes: number, ano: number): Promise<{ entradas: number; saidas: number } | null> {
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase não configurado.');
   const { data, error } = await supabase

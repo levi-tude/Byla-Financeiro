@@ -1801,6 +1801,43 @@ export async function chatConsultaByla(payload: ConsultaBylaChatRequest): Promis
   return requestPost<ConsultaBylaChatResponse>('/api/ai/consulta/chat', payload);
 }
 
+/** Criações da IA: o backend devolve um spec JSON validado (números vêm das ferramentas, não da IA). */
+export async function gerarCriacaoIa(payload: { prompt: string; monthYear?: string }): Promise<{ spec: import('../criacoes/types').CriacaoSpec }> {
+  return requestPost<{ spec: import('../criacoes/types').CriacaoSpec }>('/api/ai/criacoes/gerar', payload);
+}
+
+export type CriacaoVisibilidade = 'privada' | 'compartilhada';
+export type CriacaoSalvaResumo = {
+  id: string;
+  titulo: string;
+  prompt: string | null;
+  visibilidade: CriacaoVisibilidade;
+  minha: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function listarCriacoesSalvas(): Promise<{ items: CriacaoSalvaResumo[] }> {
+  return request<{ items: CriacaoSalvaResumo[] }>('/api/ai/criacoes/salvas');
+}
+
+export async function abrirCriacaoSalva(id: string): Promise<{ item: CriacaoSalvaResumo & { spec: import('../criacoes/types').CriacaoSpec } }> {
+  return request(`/api/ai/criacoes/salvas/${encodeURIComponent(id)}`);
+}
+
+export async function salvarCriacaoIa(payload: {
+  titulo: string;
+  prompt?: string;
+  visibilidade: CriacaoVisibilidade;
+  spec: import('../criacoes/types').CriacaoSpec;
+}): Promise<{ item: CriacaoSalvaResumo }> {
+  return requestPost<{ item: CriacaoSalvaResumo }>('/api/ai/criacoes/salvas', payload);
+}
+
+export async function apagarCriacaoSalva(id: string): Promise<{ ok: boolean }> {
+  return requestDelete<{ ok: boolean }>(`/api/ai/criacoes/salvas/${encodeURIComponent(id)}`);
+}
+
 export async function getAcessibilidadeIAStatus(): Promise<{ configured: boolean; provider: 'gemini' | 'groq' | 'openai' | null }> {
   if (!BASE_URL) return { configured: false, provider: null };
   const res = await apiFetch('/api/ai/assistant/status', { method: 'GET' });

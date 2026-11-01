@@ -92,6 +92,12 @@ export const navSections: NavSection[] = [
     ],
   },
   {
+    id: 'ia',
+    label: 'IA',
+    roles: ['admin', 'gestor'],
+    items: [{ path: '/criacoes-ia', label: 'Criações da IA', roles: ['admin', 'gestor'] }],
+  },
+  {
     id: 'relatorios',
     label: 'Relatórios',
     roles: ['admin'],

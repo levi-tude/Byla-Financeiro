@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { LayoutShell } from './app/LayoutShell';
 import { OverviewPage } from './pages/OverviewPage';
@@ -22,6 +23,9 @@ import { FinancasAlunosPage } from './pages/FinancasAlunosPage';
 import { MatchesProvaveisPage } from './pages/MatchesProvaveisPage';
 import { CadastroAlunosResumoPage } from './pages/CadastroAlunosResumoPage';
 import { ProgramaBolsasPage } from './pages/ProgramaBolsasPage';
+
+/** Lazy: ECharts + Motion ficam só no chunk desta rota. */
+const CriacoesIaPage = lazy(() => import('./pages/CriacoesIaPage'));
 
 function HomeByRole() {
   const auth = useAuth();
@@ -95,6 +99,16 @@ export default function App() {
             element={
               <RequireAuth roles={['admin']}>
                 <DespesasPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="criacoes-ia"
+            element={
+              <RequireAuth roles={['admin', 'gestor']}>
+                <Suspense fallback={<div className="p-8 text-sm text-slate-500">Carregando Criações da IA…</div>}>
+                  <CriacoesIaPage />
+                </Suspense>
               </RequireAuth>
             }
           />

@@ -32,7 +32,7 @@ import { createSaidasPainelRouter } from './saidasPainel.js';
 import { createCadastroCompletoRouter } from './cadastroCompleto.js';
 import planilhaEntradaSaidaRoutes from './planilhaEntradaSaida.js';
 import { attachAuthUser, requireRoles, restrictGestor } from '../middleware/auth.js';
-import { CONSULTA_ROLES } from '../auth/roles.js';
+import { CONSULTA_PREFIXES, CONSULTA_ROLES } from '../auth/roles.js';
 import { getSupabase } from '../services/supabaseClient.js';
 import { isEligibleSheet } from '../businessRules.js';
 import { lerPagamentosPorAbaEAno } from '../services/planilhaPagamentos.js';
@@ -40,6 +40,7 @@ import createControleCaixaRouter from './controleCaixa.js';
 import createFluxoOperacionalRouter from './fluxoOperacional.js';
 import { createAiAssistantRouter } from './aiAssistant.js';
 import { createAiConsultaRouter } from './aiConsulta.js';
+import { createAiCriacoesRouter } from './aiCriacoes.js';
 import { createSyncFluxoAutoRouter } from './syncFluxoAuto.js';
 import {
   createAluguelSalasAutomaticoRouter,
@@ -49,7 +50,7 @@ import {
 const router = Router();
 
 router.use(attachAuthUser);
-router.use(restrictGestor(['/ai/consulta']));
+router.use(restrictGestor(CONSULTA_PREFIXES));
 
 const planilhaRange = new PlanilhaRangeAdapter();
 const alunosUseCase = new GetAlunosCompletoUseCase(
@@ -86,7 +87,7 @@ router.use(
   requireRoles(['secretaria', 'admin']),
 );
 
-router.use(['/ai/consulta'], requireRoles(CONSULTA_ROLES));
+router.use([...CONSULTA_PREFIXES], requireRoles(CONSULTA_ROLES));
 
 router.use(
   [
@@ -221,6 +222,7 @@ router.use(createControleCaixaRouter());
 router.use(createFluxoOperacionalRouter());
 router.use(createAiAssistantRouter());
 router.use(createAiConsultaRouter());
+router.use(createAiCriacoesRouter());
 router.use(despesasRoutes);
 router.use(createDespesasClassificacaoRouter());
 router.use(createEntradasClassificacaoRouter());
