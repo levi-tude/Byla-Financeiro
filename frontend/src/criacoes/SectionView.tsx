@@ -180,7 +180,7 @@ function Comparison({ s, ds }: { s: Extract<Secao, { type: 'comparison' }>; ds: 
         const c = col(ds, k);
         const va = isNum(a[k]) ? a[k] : null;
         const vb = isNum(b[k]) ? b[k] : null;
-        const delta = va != null && vb != null && va !== 0 ? ((vb - va) / Math.abs(va)) * 100 : null;
+        const v = variacaoComparacao(va, vb);
         const up = (vb ?? 0) >= (va ?? 0);
         return (
           <motion.div
@@ -202,9 +202,9 @@ function Comparison({ s, ds }: { s: Extract<Secao, { type: 'comparison' }>; ds: 
                 <div className="text-xl font-semibold text-slate-900 dark:text-white tabular-nums">{vb == null ? 'sem dados' : fmt(vb, c.formato)}</div>
               </div>
             </div>
-            {delta != null ? (
+            {v ? (
               <div className={`mt-3 inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${up ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-rose-500/15 text-rose-600 dark:text-rose-300'}`}>
-                {up ? '▲' : '▼'} {Math.abs(delta).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
+                {up ? '▲' : '▼'} {fmt(Math.abs(v.diff), c.formato)} · {v.pct == null ? 'n/a %' : `${v.pct.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`}
               </div>
             ) : null}
           </motion.div>
@@ -238,7 +238,19 @@ function Tabela({ s, ds }: { s: Extract<Secao, { type: 'table' }>; ds: Dataset }
   );
 }
 
-export function KpiCards({ s }: { s: Extract<Secao, { type: 'kpi_cards' }> }) {
+/**
+ * Variação entre dois valores: diferença absoluta sempre; % só com base relevante e mesmo sinal
+ * (ex.: saldo R$ 100 → R$ -1.678 daria "▼ 1.778,8%", que não significa nada → "n/a").
+ */
+export function variacaoComparacao(va: number | null, vb: number | null): { diff: number; pct: number | null } | null {
+  if (va == null || vb == null) return null;
+  const diff = vb - va;
+  const baseOk = Math.abs(va) >= 100 && Math.sign(va) === Math.sign(vb) && va !== 0;
+  const pct = baseOk ? Math.abs((diff / Math.abs(va)) * 100) : null;
+  return { diff, pct: pct != null && pct <= 300 ? pct : null };
+}
+
+export function KpiCards({ s, estatico = false }: { s: Extract<Secao, { type: 'kpi_cards' }>; estatico?: boolean }) {
   const reduce = useReducedMotion();
   return (
     <div className={`grid gap-4 sm:grid-cols-2 ${s.itens.length >= 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
@@ -255,7 +267,7 @@ export function KpiCards({ s }: { s: Extract<Secao, { type: 'kpi_cards' }> }) {
           <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{k.label}</div>
           {k.ref ? <div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{k.ref}</div> : null}
           <div className={`mt-3 text-2xl font-bold sm:text-3xl ${k.valor < 0 ? 'text-rose-600 dark:text-rose-300' : 'text-slate-900 dark:text-white'}`}>
-            <NumberTicker value={k.valor} delay={0.2 + i * 0.1} format={(n) => fmt(n, k.formato)} />
+            <NumberTicker value={k.valor} delay={Math.min(0.15, i * 0.05)} animar={!estatico} format={(n) => fmt(n, k.formato)} />
           </div>
         </motion.div>
       ))}
@@ -263,10 +275,10 @@ export function KpiCards({ s }: { s: Extract<Secao, { type: 'kpi_cards' }> }) {
   );
 }
 
-export function SectionView({ s, datasets }: { s: Secao; datasets: Dataset[] }) {
+export function SectionView({ s, datasets, estatico = false }: { s: Secao; datasets: Dataset[]; estatico?: boolean }) {
   if (s.type === 'narrative')
     return <p className="max-w-3xl text-lg leading-relaxed text-slate-700 dark:text-slate-200 sm:text-xl">{s.texto}</p>;
-  if (s.type === 'kpi_cards') return <KpiCards s={s} />;
+  if (s.type === 'kpi_cards') return <KpiCards s={s} estatico={estatico} />;
   const ds = datasets.find((d) => d.id === s.dataset);
   if (!ds) return null;
   const chaves =

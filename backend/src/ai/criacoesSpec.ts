@@ -126,14 +126,24 @@ function valorLinha(ds: Dataset, linha: z.infer<typeof linhaRef>, coluna: string
   return isNumero(v) ? { valor: v, ref: mesDe(row) } : null;
 }
 
-/** Remove valores escritos pelo modelo no texto livre: números só vêm dos datasets. */
+const NUM_NARRATIVA = /R\$\s*-?\d|-?\d+(?:[.,]\d+)?\s*%|\b\d{1,3}(?:\.\d{3})+(?:,\d+)?\b|\b\d+,\d{2}\b/i;
+
+/**
+ * Números só vêm dos datasets: frases da IA com valor/percentual são descartadas inteiras
+ * (nunca viram "(ver gráfico)"). Marcadores "(ver gráfico)" que a IA escreva também saem.
+ */
 export function sanitizeNarrativa(texto: string): string {
-  return texto
+  const limpo = texto
     .replace(/<[^>]*>/g, '')
-    .replace(/R\$\s*-?[\d.,]+/gi, '(ver gráfico)')
-    .replace(/-?\d+(?:[.,]\d+)?\s*%/g, '(ver gráfico)')
-    .replace(/\b\d{1,3}(?:\.\d{3})+(?:,\d+)?\b/g, '(ver gráfico)')
-    .replace(/\*\*|`|#/g, '')
+    .replace(/\(?\s*ver (?:o )?gr[aá]fico\s*\)?/gi, '')
+    .replace(/\*\*|`|#/g, '');
+  const frases = limpo.match(/[^.!?\n]+(?:[.!?]+|$)|\n/g) ?? [];
+  return frases
+    .filter((f) => !NUM_NARRATIVA.test(f))
+    .join('')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\s+([.,;!?])/g, '$1')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
@@ -206,8 +216,8 @@ export function validarEHidratar(
       return;
     }
     const r = checkSecao(p.data, byId);
-    if (typeof r === 'string') avisos.push(`Seção ${i + 1} descartada (${r}).`);
-    else secoes.push(r);
+    if (typeof r !== 'string') secoes.push(r);
+    else if (r !== 'narrativa vazia') avisos.push(`Seção ${i + 1} descartada (${r}).`);
   });
   if (!secoes.some((s) => s.type !== 'narrative')) return { ok: false, erro: 'Nenhuma seção com dados válidos.' };
   const usados = new Set(secoes.flatMap((s) => (s.type === 'narrative' ? [] : s.type === 'kpi_cards' ? s.itens.map((i) => i.dataset) : [s.dataset])));

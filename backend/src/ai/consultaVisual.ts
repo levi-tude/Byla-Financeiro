@@ -13,6 +13,7 @@ import { stripPii } from './consultaGeminiAgent.js';
 import { limparDocumentoPessoa } from './pseudonimizacao.js';
 import { instrucaoIa } from './instrucaoIa.js';
 import { normalizeText } from '../logic/conciliacaoTexto.js';
+import { casaModalidade, chaveModalidade } from '../logic/modalidadeMatch.js';
 import { professorDaSaida } from '../services/consultaRepasses.js';
 import type { SaidaExtrato } from '../services/consultaSaidas.js';
 import {
@@ -169,28 +170,80 @@ async function montar(tool: ConsultaToolId, params: Record<string, string>, ctx:
       );
     }
     case 'entradas_modalidade_periodo': {
-      const alvo = normalizeText(params.modalidade ?? '').toLowerCase();
-      if (!alvo) return null;
+      const alvos = (params.modalidade ?? '').split(/\s*,\s*/).map((x) => x.trim()).filter(Boolean);
+      if (!alvos.length) return null;
       const ini = parseYm(params.mes_inicio) ?? ctx;
       const fim = parseYm(params.mes_fim) ?? ini;
       const meses = mesesEntre(ini, fim);
       const maps = await Promise.all(meses.map((m) => deps.modalidades(m.mes, m.ano)));
-      const linhas = meses.map((m, i) => {
+      const soma = (i: number, alvo: string) => {
         let total = 0;
         let qtd = 0;
         for (const [k, v] of maps[i]!) {
-          if (normalizeText(k).toLowerCase().includes(alvo)) {
+          if (casaModalidade(k, alvo)) {
             total += v.total;
             qtd += v.qtd;
           }
         }
-        return { mes: `${m.ano}-${pad2(m.mes)}`, total: r2(total), qtd };
-      });
+        return { total: r2(total), qtd };
+      };
+      const nomes = alvos.join(' e ');
+      const fonte = 'Fluxo de caixa operacional (data de pagamento)';
+      if (alvos.length > 1) {
+        const comDados = alvos.filter((a) => meses.some((_, i) => soma(i, a).qtd > 0));
+        if (!comDados.length) return null;
+        if (meses.length === 1) {
+          const d: Dataset = {
+            id: 'modalidades_comparadas',
+            titulo: `Entradas — ${nomes}`,
+            fonte,
+            colunas: [
+              { key: 'modalidade', label: 'Modalidade', formato: 'texto' },
+              { key: 'total', label: 'Total', formato: 'brl' },
+              { key: 'qtd', label: 'Pagamentos', formato: 'numero' },
+            ],
+            linhas: alvos.map((a) => ({ modalidade: a, ...soma(0, a) })),
+          };
+          return hidratar(
+            {
+              titulo: `Entradas de ${nomes}`,
+              subtitulo: fonte,
+              secoes: [
+                { type: 'kpi_cards', titulo: 'Total', itens: [{ label: 'Entradas', dataset: d.id, linha: 'total', coluna: 'total' }] },
+                { type: 'bar_chart', titulo: 'Por modalidade', dataset: d.id, x: 'modalidade', series: ['total'] },
+                { type: 'table', titulo: 'Valores', dataset: d.id },
+              ],
+            },
+            [d],
+          );
+        }
+        const cols = alvos.map((a) => ({ key: chaveModalidade(a) || 'm', label: a, formato: 'brl' as const }));
+        const d: Dataset = {
+          id: 'modalidades_periodo',
+          titulo: `Entradas — ${nomes}`,
+          fonte,
+          colunas: [{ key: 'mes', label: 'Mês', formato: 'mes' }, ...cols],
+          linhas: meses.map((m, i) => ({ mes: `${m.ano}-${pad2(m.mes)}`, ...Object.fromEntries(alvos.map((a, j) => [cols[j]!.key, soma(i, a).total])) })),
+        };
+        return hidratar(
+          {
+            titulo: `Entradas de ${nomes}`,
+            subtitulo: fonte,
+            secoes: [
+              { type: 'bar_chart', titulo: 'Mês a mês', dataset: d.id, x: 'mes', series: cols.map((c) => c.key) },
+              { type: 'table', titulo: 'Valores', dataset: d.id },
+            ],
+          },
+          [d],
+        );
+      }
+      const alvo = alvos[0]!;
+      const linhas = meses.map((m, i) => ({ mes: `${m.ano}-${pad2(m.mes)}`, ...soma(i, alvo) }));
       if (!linhas.some((l) => l.qtd > 0)) return null; // sem registro ≠ zero: só texto
       const d: Dataset = {
         id: 'modalidade_periodo',
-        titulo: `Entradas — ${params.modalidade}`,
-        fonte: 'Fluxo de caixa operacional (data de pagamento)',
+        titulo: `Entradas — ${alvo}`,
+        fonte,
         colunas: [
           { key: 'mes', label: 'Mês', formato: 'mes' },
           { key: 'total', label: 'Total', formato: 'brl' },
@@ -209,7 +262,7 @@ async function montar(tool: ConsultaToolId, params: Record<string, string>, ctx:
         },
       ];
       if (linhas.length > 1) secoes.push({ type: 'bar_chart', titulo: 'Mês a mês', dataset: d.id, x: 'mes', series: ['total'] });
-      return hidratar({ titulo: `Entradas de ${params.modalidade}`, subtitulo: 'Fluxo de caixa (data de pagamento)', secoes }, [d]);
+      return hidratar({ titulo: `Entradas de ${alvo}`, subtitulo: fonte, secoes }, [d]);
     }
     case 'maiores_saidas': {
       const saidas = await deps.saidasMes(ctx.mes, ctx.ano);

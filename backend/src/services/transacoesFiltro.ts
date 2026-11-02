@@ -98,6 +98,15 @@ export function normalizarMetodoPagamento(input: string | null | undefined): Met
   return 'Outros';
 }
 
+/** Rótulo para saídas: o extrato não traz o meio de pagamento das saídas (só o favorecido). */
+export const MEIO_SAIDA_NAO_INFORMADO = 'Não informado no extrato';
+
+/** Meio para resumos (Criações/chat): saída sem meio identificável → "Não informado no extrato" (não "Outros"). */
+export function meioParaResumo(metodoRaw: string | null | undefined, tipo: 'entrada' | 'saida'): string {
+  const m = metodoPagamentoFinal(metodoRaw, tipo);
+  return tipo === 'saida' && m === 'Outros' ? MEIO_SAIDA_NAO_INFORMADO : m;
+}
+
 /**
  * Método usado na listagem / resumos.
  * Regra catch‑all **somente para entradas**: se `normalizarMetodoPagamento` der `Outros`, assume **PIX**.

@@ -6,7 +6,8 @@ import { carregarNomesConhecidos, type NomeConhecido } from '../ai/pseudonimizac
 import { todayIsoLocal } from '../ai/consultaCatalog.js';
 import { runCriacoesAgent, type CriacoesAgentDeps } from '../ai/criacoesGeminiAgent.js';
 import { mesPt, validarEHidratar, type CriacaoSpec } from '../ai/criacoesSpec.js';
-import { extrairMeses, normRouter } from '../ai/consultaRouter.js';
+import { extrairMeses, modalidadesCitadas, normRouter } from '../ai/consultaRouter.js';
+import { casaModalidade, chaveModalidade } from '../logic/modalidadeMatch.js';
 import { datasetBalanco, datasetComparar, datasetMeios, datasetModalidades, parseYm, realDeps, type CriacaoToolDeps, type MesAno } from './criacoesDatasets.js';
 
 export function mesesDoPrompt(prompt: string): number {
@@ -64,6 +65,143 @@ async function mesComDados(ref: MesAno, deps: CriacaoToolDeps): Promise<{ mes: M
   return { mes: ref, aviso: `${mesPt(ymStr(ref))} ainda não tem extrato.` };
 }
 
+const NOTA_FUNCIONAL = 'Funcional não aparece no Fluxo de caixa por modalidade: é coworking (entrada no extrato).';
+
+/**
+ * "Pilates de julho a outubro" → série mensal de UMA modalidade;
+ * "compare pilates com funcional em outubro" / "GR e teatro em agosto" → modalidades lado a lado.
+ * undefined = o pedido não cita modalidade conhecida (segue o fluxo normal).
+ */
+async function specModalidadesCitadas(
+  n: string,
+  ref: MesAno,
+  deps: CriacaoToolDeps,
+): Promise<{ draft: unknown; datasets: Parameters<typeof validarEHidratar>[1]; avisos: (string | undefined)[] } | null | undefined> {
+  const mods = modalidadesCitadas(n);
+  if (!mods.length) return undefined;
+  const ms = extrairMeses(n);
+  if (mods.length === 1 && ms.length < 2) return undefined;
+  const anoDe = (mes: number) => (mes > ref.mes ? ref.ano - 1 : ref.ano);
+  let meses: MesAno[];
+  let aviso: string | undefined;
+  if (ms.length >= 2) {
+    const a = { mes: ms[0]!, ano: anoDe(ms[0]!) };
+    const b = { mes: ms[ms.length - 1]!, ano: anoDe(ms[ms.length - 1]!) };
+    const [x, y] = a.ano * 12 + a.mes <= b.ano * 12 + b.mes ? [a, b] : [b, a];
+    meses = [];
+    for (let i = x.ano * 12 + x.mes - 1; i <= y.ano * 12 + y.mes - 1 && meses.length < 12; i++) meses.push({ ano: Math.floor(i / 12), mes: (i % 12) + 1 });
+  } else if (ms.length === 1) {
+    meses = [{ mes: ms[0]!, ano: anoDe(ms[0]!) }];
+  } else {
+    const r = await mesComDados(ref, deps);
+    meses = [r.mes];
+    aviso = r.aviso;
+  }
+  const maps = await Promise.all(meses.map((m) => deps.modalidades(m.mes, m.ano)));
+  const soma = (i: number, alvo: string) => {
+    let total = 0;
+    let qtd = 0;
+    for (const [k, v] of maps[i]!) if (casaModalidade(k, alvo)) { total += v.total; qtd += v.qtd; }
+    return { total: Math.round(total * 100) / 100, qtd };
+  };
+  const semDados = mods.filter((a) => meses.every((_, i) => soma(i, a).qtd === 0));
+  const avisos: (string | undefined)[] = [aviso];
+  const periodo = meses.length === 1 ? mesPt(ymStr(meses[0]!)) : `${mesPt(ymStr(meses[0]!))} a ${mesPt(ymStr(meses[meses.length - 1]!))}`;
+  for (const a of semDados) avisos.push(chaveModalidade(a) === 'funcional' ? NOTA_FUNCIONAL : `${a}: sem registro no Fluxo de caixa em ${periodo}.`);
+  if (semDados.length === mods.length) return null;
+  const nomes = mods.join(' e ');
+  const fonte = 'Fluxo de caixa operacional (data de pagamento)';
+  const grafico = /\blinha/.test(n) ? 'line_chart' : 'bar_chart';
+  const id = `mod_${mods.map(chaveModalidade).join('_')}_${ymStr(meses[0]!).replace('-', '_')}_${meses.length}`.slice(0, 40);
+
+  if (mods.length === 1) {
+    const alvo = mods[0]!;
+    const ds = {
+      id,
+      titulo: `Entradas de ${alvo} — ${periodo}`,
+      fonte,
+      colunas: [
+        { key: 'mes', label: 'Mês', formato: 'mes' as const },
+        { key: 'total', label: 'Entradas', formato: 'brl' as const },
+        { key: 'qtd', label: 'Pagamentos', formato: 'numero' as const },
+      ],
+      linhas: meses.map((m, i) => {
+        const v = soma(i, alvo);
+        return { mes: ymStr(m), total: v.qtd ? v.total : null, qtd: v.qtd ? v.qtd : null };
+      }),
+    };
+    return {
+      draft: {
+        titulo: `Entradas de ${alvo} — ${periodo}`,
+        subtitulo: fonte,
+        secoes: [
+          { type: 'kpi_cards', titulo: 'Total do período', itens: [{ label: 'Entradas', dataset: id, linha: 'total', coluna: 'total' }, { label: 'Pagamentos', dataset: id, linha: 'total', coluna: 'qtd' }] },
+          { type: grafico, titulo: 'Mês a mês', dataset: id, x: 'mes', series: ['total'] },
+          { type: 'table', titulo: 'Valores', dataset: id },
+        ],
+      },
+      datasets: [ds],
+      avisos,
+    };
+  }
+
+  if (meses.length === 1) {
+    const ds = {
+      id,
+      titulo: `Entradas de ${nomes} — ${periodo}`,
+      fonte,
+      colunas: [
+        { key: 'modalidade', label: 'Modalidade', formato: 'texto' as const },
+        { key: 'total', label: 'Entradas', formato: 'brl' as const },
+        { key: 'qtd', label: 'Pagamentos', formato: 'numero' as const },
+      ],
+      linhas: mods.map((a) => {
+        const v = soma(0, a);
+        return { modalidade: a, total: v.qtd ? v.total : null, qtd: v.qtd ? v.qtd : null };
+      }),
+    };
+    return {
+      draft: {
+        titulo: `${nomes} — ${periodo}`,
+        subtitulo: fonte,
+        secoes: [
+          { type: 'bar_chart', titulo: 'Entradas por modalidade', dataset: id, x: 'modalidade', series: ['total'] },
+          { type: 'table', titulo: 'Valores', dataset: id },
+        ],
+      },
+      datasets: [ds],
+      avisos,
+    };
+  }
+
+  const cols = mods.map((a) => ({ key: chaveModalidade(a), label: a, formato: 'brl' as const }));
+  const ds = {
+    id,
+    titulo: `Entradas de ${nomes} — ${periodo}`,
+    fonte,
+    colunas: [{ key: 'mes', label: 'Mês', formato: 'mes' as const }, ...cols],
+    linhas: meses.map((m, i) => ({
+      mes: ymStr(m),
+      ...Object.fromEntries(mods.map((a, j) => {
+        const v = soma(i, a);
+        return [cols[j]!.key, v.qtd ? v.total : null];
+      })),
+    })),
+  };
+  return {
+    draft: {
+      titulo: `${nomes} — ${periodo}`,
+      subtitulo: fonte,
+      secoes: [
+        { type: grafico, titulo: 'Mês a mês', dataset: id, x: 'mes', series: cols.map((c) => c.key) },
+        { type: 'table', titulo: 'Valores', dataset: id },
+      ],
+    },
+    datasets: [ds],
+    avisos,
+  };
+}
+
 /**
  * Pedidos "de botão" (presets e perguntas simples) viram spec determinístico, sem IA (~ms em vez de ~15 s).
  * Devolve null quando o pedido não é reconhecido → segue para a IA.
@@ -77,6 +215,9 @@ export async function specPreset(prompt: string, ref: MesAno, deps: CriacaoToolD
     r.spec.avisos.unshift(...avisos.filter((a): a is string => !!a));
     return r.spec;
   };
+
+  const porModalidade = await specModalidadesCitadas(n, ref, deps);
+  if (porModalidade !== undefined) return porModalidade ? montar(porModalidade.draft, porModalidade.datasets, porModalidade.avisos) : null;
 
   if (/\bcompar/.test(n)) {
     const ms = extrairMeses(n);
@@ -137,13 +278,12 @@ export async function specPreset(prompt: string, ref: MesAno, deps: CriacaoToolD
             ],
           },
           { type: 'donut', titulo: 'Entradas por meio', dataset: ds.id, label: 'meio', valor: 'entradas' },
-          { type: 'ranking', titulo: 'Saídas por meio', dataset: ds.id, label: 'meio', valor: 'saidas', top: 8 },
-          { type: 'bar_chart', titulo: 'Entradas × saídas por meio', dataset: ds.id, x: 'meio', series: ['entradas', 'saidas'] },
+          { type: 'ranking', titulo: 'Entradas por meio', dataset: ds.id, label: 'meio', valor: 'entradas', top: 8 },
           { type: 'table', titulo: 'Tabela', dataset: ds.id },
         ],
       },
       [ds],
-      [aviso],
+      [aviso, 'O extrato do banco não informa o meio de pagamento das saídas (só o favorecido): saídas aparecem como "Não informado no extrato".'],
     );
   }
 

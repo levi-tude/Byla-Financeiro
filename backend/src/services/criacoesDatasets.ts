@@ -10,7 +10,7 @@ import {
   rangeMes,
   resumoMesNumeros,
 } from './consultaBylaTools.js';
-import { metodoPagamentoFinal, normalizarTipoTransacao } from './transacoesFiltro.js';
+import { metodoPagamentoFinal, meioParaResumo, normalizarTipoTransacao } from './transacoesFiltro.js';
 
 export type MesAno = { mes: number; ano: number };
 const pad2 = (n: number) => String(n).padStart(2, '0');
@@ -33,7 +33,7 @@ async function meiosReal(mes: number, ano: number) {
   const map = new Map<string, { entradas: number; saidas: number; qtd: number }>();
   for (const t of await loadTransacoesRange(inicio, fim)) {
     const tipoN = normalizarTipoTransacao(t.tipo);
-    const metodo = metodoPagamentoFinal(`${t.pessoa} ${t.descricao ?? ''}`, tipoN);
+    const metodo = meioParaResumo(`${t.pessoa} ${t.descricao ?? ''}`, tipoN);
     const e = map.get(metodo) ?? { entradas: 0, saidas: 0, qtd: 0 };
     const v = Math.abs(Number(t.valor || 0));
     if (tipoN === 'saida') e.saidas += v;

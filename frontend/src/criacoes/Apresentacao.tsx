@@ -81,7 +81,7 @@ export function Apresentacao({ spec, onClose }: { spec: CriacaoSpec; onClose: ()
               <>
                 <h2 className="mb-8 text-3xl font-bold tracking-tight sm:text-5xl">{tituloSecao(s)}</h2>
                 <div className="[&_canvas]:!max-w-full">
-                  <SectionView s={s} datasets={spec.datasets} />
+                  <SectionView s={s} datasets={spec.datasets} estatico />
                 </div>
                 {fonteDaSecao(s, spec.datasets) ? <p className="mt-6 text-xs text-slate-500">Fonte: {fonteDaSecao(s, spec.datasets)}</p> : null}
               </>

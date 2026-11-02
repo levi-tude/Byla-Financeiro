@@ -31,7 +31,8 @@ export type ConsultaToolId =
   | 'quem_nao_pagou'
   | 'precos_planos'
   | 'saldo_aluno'
-  | 'repasses_professores';
+  | 'repasses_professores'
+  | 'atualizacao_dados';
 
 export type ConsultaIntent = {
   tool: ConsultaToolId;
