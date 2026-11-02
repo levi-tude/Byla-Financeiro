@@ -9,5 +9,5 @@ import type { EChartsCoreOption } from 'echarts/core';
 echarts.use([BarChart, LineChart, PieChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, CanvasRenderer]);
 
 export function EChart({ option, height = 360 }: { option: EChartsCoreOption; height?: number }) {
-  return <ReactEChartsCore echarts={echarts} option={option} style={{ height, width: '100%' }} notMerge={false} lazyUpdate />;
+  return <ReactEChartsCore echarts={echarts} option={option} style={{ height, width: '100%' }} notMerge lazyUpdate />;
 }

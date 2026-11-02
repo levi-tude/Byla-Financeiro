@@ -2,7 +2,7 @@
  * Criações da IA — tools só-leitura que devolvem DATASETS estruturados (agregados, sem PII).
  * Reaproveitam as mesmas consultas do Consulta Byla (consultaBylaTools.ts).
  */
-import type { Dataset } from '../ai/criacoesSpec.js';
+import { mesPt, type Dataset } from '../ai/criacoesSpec.js';
 import {
   entradasPorModalidade,
   loadTransacoesRange,
@@ -10,17 +10,19 @@ import {
   rangeMes,
   resumoMesNumeros,
 } from './consultaBylaTools.js';
-import { metodoPagamentoFinal, normalizarTipoTransacao } from './transacoesFiltro.js';
+import { metodoPagamentoFinal, meioParaResumo, normalizarTipoTransacao } from './transacoesFiltro.js';
 
 export type MesAno = { mes: number; ano: number };
 const pad2 = (n: number) => String(n).padStart(2, '0');
+const ym = (m: MesAno) => `${m.ano}-${pad2(m.mes)}`;
+const rotMes = (m: MesAno) => mesPt(ym(m));
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const FONTE_EXTRATO = 'Extrato bancário oficial (v_resumo_mensal_oficial / transações oficiais)';
 
 export type CriacaoToolId = 'balanco_meses' | 'entradas_modalidade_mes' | 'meio_pagamento_mes' | 'comparar_meses';
 
 export type CriacaoToolDeps = {
-  /** null = mês sem lançamentos no extrato (não é zero) — fica fora do dataset. */
+  /** null = mês sem lançamentos no extrato (não é zero) — fica no dataset com valores null ("sem dados"). */
   resumoMes: (mes: number, ano: number) => Promise<{ entradas: number; saidas: number } | null>;
   modalidades: (mes: number, ano: number) => Promise<Map<string, { total: number; qtd: number }>>;
   meios: (mes: number, ano: number) => Promise<Map<string, { entradas: number; saidas: number; qtd: number }>>;
@@ -31,7 +33,7 @@ async function meiosReal(mes: number, ano: number) {
   const map = new Map<string, { entradas: number; saidas: number; qtd: number }>();
   for (const t of await loadTransacoesRange(inicio, fim)) {
     const tipoN = normalizarTipoTransacao(t.tipo);
-    const metodo = metodoPagamentoFinal(`${t.pessoa} ${t.descricao ?? ''}`, tipoN);
+    const metodo = meioParaResumo(`${t.pessoa} ${t.descricao ?? ''}`, tipoN);
     const e = map.get(metodo) ?? { entradas: 0, saidas: 0, qtd: 0 };
     const v = Math.abs(Number(t.valor || 0));
     if (tipoN === 'saida') e.saidas += v;
@@ -57,11 +59,13 @@ export async function datasetBalanco(ref: MesAno, n: number, deps: CriacaoToolDe
       { key: 'saidas', label: 'Saídas', formato: 'brl' },
       { key: 'saldo', label: 'Saldo', formato: 'brl' },
     ],
-    linhas: meses.flatMap((m, i) => {
+    // Todos os meses aparecem; mês sem extrato fica com null (= "sem dados"), nunca some nem vira zero.
+    linhas: meses.map((m, i) => {
       const r = nums[i];
-      if (!r) return [];
-      return [{ mes: `${m.ano}-${pad2(m.mes)}`, entradas: r2(r.entradas), saidas: r2(r.saidas), saldo: r2(r.entradas - r.saidas) }];
+      if (!r) return { mes: ym(m), entradas: null, saidas: null, saldo: null };
+      return { mes: ym(m), entradas: r2(r.entradas), saidas: r2(r.saidas), saldo: r2(r.entradas - r.saidas) };
     }),
+    vazio: `Sem dados de extrato entre ${rotMes(meses[0]!)} e ${rotMes(meses[meses.length - 1]!)}`,
   };
 }
 
@@ -69,7 +73,8 @@ export async function datasetModalidades(ref: MesAno, deps: CriacaoToolDeps): Pr
   const map = await deps.modalidades(ref.mes, ref.ano);
   return {
     id: `modalidades_${ref.ano}_${pad2(ref.mes)}`,
-    titulo: `Entradas por modalidade — ${pad2(ref.mes)}/${ref.ano}`,
+    titulo: `Entradas por modalidade — ${rotMes(ref)}`,
+    vazio: `Sem dados de modalidade para ${rotMes(ref)}`,
     fonte: 'Extrato bancário oficial (v_transacoes_export, entradas com modalidade)',
     colunas: [
       { key: 'modalidade', label: 'Modalidade', formato: 'texto' },
@@ -87,7 +92,8 @@ export async function datasetMeios(ref: MesAno, deps: CriacaoToolDeps): Promise<
   const map = await deps.meios(ref.mes, ref.ano);
   return {
     id: `meios_${ref.ano}_${pad2(ref.mes)}`,
-    titulo: `Meios de pagamento — ${pad2(ref.mes)}/${ref.ano}`,
+    titulo: `Meios de pagamento — ${rotMes(ref)}`,
+    vazio: `Sem dados de meios de pagamento para ${rotMes(ref)}`,
     fonte: 'Extrato bancário oficial (transações do mês)',
     colunas: [
       { key: 'meio', label: 'Meio', formato: 'texto' },
@@ -103,15 +109,14 @@ export async function datasetMeios(ref: MesAno, deps: CriacaoToolDeps): Promise<
 
 export async function datasetComparar(a: MesAno, b: MesAno, deps: CriacaoToolDeps): Promise<Dataset> {
   const [ra, rb] = await Promise.all([deps.resumoMes(a.mes, a.ano), deps.resumoMes(b.mes, b.ano)]);
-  const row = (m: MesAno, r: { entradas: number; saidas: number }) => ({
-    mes: `${m.ano}-${pad2(m.mes)}`,
-    entradas: r2(r.entradas),
-    saidas: r2(r.saidas),
-    saldo: r2(r.entradas - r.saidas),
-  });
+  const row = (m: MesAno, r: { entradas: number; saidas: number } | null) =>
+    r
+      ? { mes: ym(m), entradas: r2(r.entradas), saidas: r2(r.saidas), saldo: r2(r.entradas - r.saidas) }
+      : { mes: ym(m), entradas: null, saidas: null, saldo: null };
   return {
     id: `comparar_${a.ano}${pad2(a.mes)}_${b.ano}${pad2(b.mes)}`,
-    titulo: `${pad2(a.mes)}/${a.ano} × ${pad2(b.mes)}/${b.ano}`,
+    titulo: `${rotMes(a)} × ${rotMes(b)}`,
+    vazio: `Sem dados de extrato para ${rotMes(a)} e ${rotMes(b)}`,
     fonte: FONTE_EXTRATO,
     colunas: [
       { key: 'mes', label: 'Mês', formato: 'mes' },
@@ -119,7 +124,7 @@ export async function datasetComparar(a: MesAno, b: MesAno, deps: CriacaoToolDep
       { key: 'saidas', label: 'Saídas', formato: 'brl' },
       { key: 'saldo', label: 'Saldo', formato: 'brl' },
     ],
-    linhas: [...(ra ? [row(a, ra)] : []), ...(rb ? [row(b, rb)] : [])],
+    linhas: [row(a, ra), row(b, rb)],
   };
 }
 

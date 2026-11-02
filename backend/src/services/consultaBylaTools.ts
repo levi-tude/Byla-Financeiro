@@ -4,7 +4,7 @@
  */
 
 import { getSupabase } from './supabaseClient.js';
-import { filtrarTransacoesOficiais, metodoPagamentoFinal, normalizarTipoTransacao, type TransacaoBase } from './transacoesFiltro.js';
+import { filtrarTransacoesOficiais, metodoPagamentoFinal, meioParaResumo, normalizarTipoTransacao, type TransacaoBase } from './transacoesFiltro.js';
 import { getConciliacaoPagamentosMes } from './conciliacaoPagamentosMes.js';
 import { getFinancasAlunos } from './financasAlunosReadModel.js';
 import { loadControleCaixaExisting } from './controleCaixaRead.js';
@@ -12,11 +12,12 @@ import { normalizeText } from '../logic/conciliacaoTexto.js';
 import { buscarMovimentosPorPessoa } from './consultaMovimentosPessoa.js';
 import type { ConsultaToolId } from '../ai/consultaCatalog.js';
 import { todayIsoLocal } from '../ai/consultaCatalog.js';
+import { casaModalidade, chaveModalidade } from '../logic/modalidadeMatch.js';
 import { getConciliacaoVencimentosMesData } from './conciliacaoVencimentosMes.js';
 import { montarAlunosPanorama } from './relatorioMontagem.js';
 import { limparDocumentoPessoa } from '../ai/pseudonimizacao.js';
 import { instrucaoIa } from '../ai/instrucaoIa.js';
-import { textoRepassesProfessores } from './consultaRepasses.js';
+import { textoRepassesProfessores, textoDividaCoworking } from './consultaRepasses.js';
 import { loadControleCaixaPreferindo } from './controleCaixaRead.js';
 import { textoPrecosPlanos, textoQuemNaoPagou, textoSaldoAluno } from './consultaCobranca.js';
 import { textoMaioresSaidas, textoSaidasProfessores } from './consultaSaidas.js';
@@ -104,6 +105,44 @@ export const loadCoberturaExtrato: CoberturaLoader = async (inicio, fim) => {
   };
   return { ultimaNoPeriodo: d(noPeriodo), ultimaGeral: d(geral) };
 };
+
+export type AtualizacaoFontes = {
+  extrato: string | null;
+  fluxo: string | null;
+  controle: { mes: number; ano: number } | null;
+};
+
+/** Leitura (só SELECT): data do último lançamento de cada fonte. */
+/** Datas futuras (lançamentos pré-datados / meses já criados) são ignoradas. */
+export async function loadAtualizacaoFontes(hojeIso: string = todayIsoLocal()): Promise<AtualizacaoFontes> {
+  const hoje = hojeIso.slice(0, 10);
+  const [anoH, mesH] = hoje.split('-').map(Number) as [number, number];
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('Supabase não configurado.');
+  const [ext, flx, ctrl] = await Promise.all([
+    supabase.from('transacoes').select('data').lte('data', hoje).order('data', { ascending: false }).limit(1),
+    supabase.from('fluxo_pagamentos_operacionais').select('data_pagamento').not('data_pagamento', 'is', null).lte('data_pagamento', hoje).order('data_pagamento', { ascending: false }).limit(1),
+    supabase.from('controle_caixa_periodos').select('mes, ano').order('ano', { ascending: false }).order('mes', { ascending: false }).limit(24),
+  ]);
+  const v = (r: { data: unknown[] | null; error: unknown }, k: string) =>
+    r.error ? null : ((r.data?.[0] as Record<string, unknown> | undefined)?.[k] as string | undefined)?.slice(0, 10) ?? null;
+  const c = ctrl.error ? null : ((ctrl.data ?? []) as Array<{ mes?: number; ano?: number }>).find((x) => Number(x.ano) * 12 + Number(x.mes) <= anoH * 12 + mesH);
+  return { extrato: v(ext, 'data'), fluxo: v(flx, 'data_pagamento'), controle: c?.mes && c?.ano ? { mes: Number(c.mes), ano: Number(c.ano) } : null };
+}
+
+/** "Os dados estão atualizados?": última data de cada fonte. */
+export function textoAtualizacaoDados(f: AtualizacaoFontes, hojeIso: string): string {
+  const linhas = ['Atualização dos dados (último lançamento de cada fonte):'];
+  linhas.push(f.extrato ? `Extrato bancário: último lançamento em ${dataBr(f.extrato)}.` : 'Extrato bancário: nenhum lançamento importado.');
+  linhas.push(f.fluxo ? `Fluxo de caixa (pagamentos de alunos): último pagamento em ${dataBr(f.fluxo)}.` : 'Fluxo de caixa: sem pagamentos lançados.');
+  linhas.push(f.controle ? `Controle de caixa: último mês importado ${pad2(f.controle.mes)}/${f.controle.ano}.` : 'Controle de caixa: nenhum mês importado.');
+  if (f.extrato) {
+    const dias = Math.round((Date.parse(hojeIso.slice(0, 10)) - Date.parse(f.extrato)) / 86400000);
+    if (dias > 3) linhas.push(`O extrato está ${dias} dias atrás de hoje (${dataBr(hojeIso)}): lançamentos depois de ${dataBr(f.extrato)} ainda não estão no sistema.`);
+    else linhas.push('O extrato está em dia.');
+  }
+  return linhas.join('\n');
+}
 
 export function dataBr(iso: string): string {
   const [y, m, d] = iso.slice(0, 10).split('-');
@@ -234,7 +273,7 @@ async function toolResumoMeio(ctx: ConsultaToolContext): Promise<string> {
   const map = new Map<string, { entradas: number; saidas: number; qtd: number }>();
   for (const t of txs) {
     const tipoN = normalizarTipoTransacao(t.tipo);
-    const metodo = metodoPagamentoFinal(`${t.pessoa} ${t.descricao ?? ''}`, tipoN);
+    const metodo = meioParaResumo(`${t.pessoa} ${t.descricao ?? ''}`, tipoN);
     const e = map.get(metodo) ?? { entradas: 0, saidas: 0, qtd: 0 };
     const v = Math.abs(Number(t.valor || 0));
     if (tipoN === 'saida') e.saidas += v;
@@ -245,7 +284,7 @@ async function toolResumoMeio(ctx: ConsultaToolContext): Promise<string> {
   const linhas = [...map.entries()]
     .sort((a, b) => b[1].entradas + b[1].saidas - (a[1].entradas + a[1].saidas))
     .map(([m, v]) => `${m}: entr. ${brl(v.entradas)} / saí. ${brl(v.saidas)} (${v.qtd})`);
-  return [`Resumo por meio de pagamento — ${pad2(ctx.mes)}/${ctx.ano}.`, ...linhas].join('\n');
+  return [`Resumo por meio de pagamento — ${pad2(ctx.mes)}/${ctx.ano}.`, ...linhas, 'Obs.: o extrato não informa o meio de pagamento das saídas (só o favorecido).'].join('\n');
 }
 
 export type PagamentoFluxoRow = { aba: string | null; modalidade: string | null; valor: number | string | null };
@@ -638,7 +677,7 @@ function mesesEntre(a: { mes: number; ano: number }, b: { mes: number; ano: numb
   return mesesAte(b.mes, b.ano, n);
 }
 
-function periodoParams(params: Record<string, string>, ctx: ConsultaToolContext) {
+export function periodoParams(params: Record<string, string>, ctx: ConsultaToolContext) {
   const ini = parseMesAnoParam(params.mes_inicio);
   const fim = parseMesAnoParam(params.mes_fim);
   if (ini && fim) return mesesEntre(ini, fim);
@@ -674,30 +713,42 @@ export function formatBalancoMeses(
 }
 
 /** Entradas de uma modalidade (aba ou modalidade contém o termo) mês a mês. */
+const pluralPag = (n: number) => `${n} ${n === 1 ? 'pagamento' : 'pagamentos'}`;
+const NOTA_FUNCIONAL = 'Funcional não é aba do Fluxo de caixa: é coworking (entrada no extrato), não aparece nas entradas por modalidade.';
+
 export async function toolEntradasModalidadePeriodo(
   modalidade: string,
   meses: Array<{ mes: number; ano: number }>,
   load: PagamentosFluxoLoader = loadPagamentosFluxoRange,
 ): Promise<string> {
-  const key = normalizeText(modalidade);
-  const linhas: string[] = [];
-  let total = 0;
-  let qtdTotal = 0;
-  for (const m of meses) {
-    const { inicio, fim } = rangeMes(m.mes, m.ano);
-    const rows = (await load(inicio, fim)).filter(
-      (r) => normalizeText(r.aba ?? '').includes(key) || normalizeText(r.modalidade ?? '').includes(key),
-    );
-    const v = rows.reduce((s, r) => s + Number(r.valor ?? 0), 0);
-    total += v;
-    qtdTotal += rows.length;
-    linhas.push(rows.length > 0 ? `${pad2(m.mes)}/${m.ano}: ${brl(v)} (${rows.length} pagamento(s))` : `${pad2(m.mes)}/${m.ano}: nenhum registro`);
+  const alvos = modalidade.split(/\s*,\s*/).map((x) => x.trim()).filter(Boolean);
+  const rowsPorMes = await Promise.all(meses.map((m) => { const { inicio, fim } = rangeMes(m.mes, m.ano); return load(inicio, fim); }));
+  const blocos: string[] = [];
+  let qtdGeral = 0;
+  for (const alvo of alvos) {
+    const linhas: string[] = [];
+    let total = 0;
+    let qtdTotal = 0;
+    meses.forEach((m, i) => {
+      const rows = rowsPorMes[i]!.filter((r) => casaModalidade(r.aba ?? '', alvo) || casaModalidade(r.modalidade ?? '', alvo));
+      const v = rows.reduce((s, r) => s + Number(r.valor ?? 0), 0);
+      total += v;
+      qtdTotal += rows.length;
+      linhas.push(rows.length > 0 ? `${pad2(m.mes)}/${m.ano}: ${brl(v)} (${pluralPag(rows.length)})` : `${pad2(m.mes)}/${m.ano}: nenhum registro`);
+    });
+    qtdGeral += qtdTotal;
+    const head = alvos.length > 1 ? `${alvo}:` : `Entradas da modalidade “${alvo}”. ${FONTE_MODALIDADE}`;
+    if (qtdTotal === 0) {
+      blocos.push([head, 'Nenhum registro encontrado no período.', ...(chaveModalidade(alvo) === 'funcional' ? [NOTA_FUNCIONAL] : [])].join('\n'));
+      continue;
+    }
+    blocos.push([head, ...linhas, `TOTAL do período: ${brl(total)}.`].join('\n'));
   }
-  const head = `Entradas da modalidade “${modalidade}”. ${FONTE_MODALIDADE}`;
-  if (!key || qtdTotal === 0) {
-    return `${head}\nNENHUM REGISTRO ENCONTRADO no período.\n${instrucaoIa('Não informe valor zero: diga que não há registro.')}`;
+  if (!alvos.length || qtdGeral === 0) {
+    return `Entradas da modalidade “${modalidade}”. ${FONTE_MODALIDADE}\nNENHUM REGISTRO ENCONTRADO no período.\n${alvos.some((x) => chaveModalidade(x) === 'funcional') ? NOTA_FUNCIONAL + '\n' : ''}${instrucaoIa('Não informe valor zero: diga que não há registro.')}`;
   }
-  return [head, ...linhas, `TOTAL do período: ${brl(total)}.`].join('\n');
+  if (alvos.length > 1) return [`Entradas por modalidade: ${alvos.join(' e ')}. ${FONTE_MODALIDADE}`, ...blocos].join('\n\n');
+  return blocos[0]!;
 }
 
 function parseMesAnoParam(raw: string | undefined): { mes: number; ano: number } | null {
@@ -766,7 +817,7 @@ export function periodoExtratoDaTool(
   }
 }
 
-async function loadSaidasMes(ctx: ConsultaToolContext) {
+export async function loadSaidasMes(ctx: ConsultaToolContext) {
   const { inicio, fim } = rangeMes(ctx.mes, ctx.ano);
   const rows = await loadTransacoesRange(inicio, fim);
   return rows.filter((t) => normalizarTipoTransacao(t.tipo) === 'saida');
@@ -946,6 +997,25 @@ export async function executeConsultaTool(
       }
       case 'repasses_professores': {
         const m = parseMesAnoParam(params.mes) ?? { mes: ctx.mes, ano: ctx.ano };
+        if (params.divida && params.professor) {
+          const qtd = Math.min(12, Math.max(1, Number(params.meses ?? 4)));
+          const lista = Array.from({ length: qtd }, (_, k) => {
+            const i = m.ano * 12 + (m.mes - 1) - (qtd - 1 - k);
+            return { mes: (i % 12) + 1, ano: Math.floor(i / 12) };
+          });
+          const meses = await Promise.all(
+            lista.map(async (x) => {
+              const r = rangeMes(x.mes, x.ano);
+              const txs = await loadTransacoesRange(r.inicio, r.fim);
+              return { ...x, entradas: txs.length ? txs.filter((t) => normalizarTipoTransacao(t.tipo) === 'entrada') : null };
+            }),
+          );
+          const t = textoDividaCoworking({ professor: params.professor, meses });
+          if (t) {
+            factsText = t;
+            break;
+          }
+        }
         const c2 = { ...ctx, ...m };
         const r = rangeMes(c2.mes, c2.ano);
         const [txs, ctrl] = await Promise.all([loadTransacoesRange(r.inicio, r.fim), loadControleCaixaPreferindo(m.mes, m.ano, 'oficial').catch(() => null)]);
@@ -960,6 +1030,9 @@ export async function executeConsultaTool(
         factsText = textoRepassesProfessores({ ...m, professor: params.professor, saidas, entradas, controle });
         break;
       }
+      case 'atualizacao_dados':
+        factsText = textoAtualizacaoDados(await loadAtualizacaoFontes(todayIsoLocal()), todayIsoLocal());
+        break;
       case 'precos_planos':
         factsText = await textoPrecosPlanos({ modalidade: params.modalidade, frequencia: params.frequencia, tipo: params.tipo });
         break;

@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { chatConsultaByla } from '../../services/backendApi';
 import { useToast } from '../../context/ToastContext';
 import type { AssistantRequestContext, ChatMessage } from './types';
+
+/** ECharts/Motion só carregam quando chega o primeiro cartão visual. */
+const SpecCard = lazy(() => import('../../criacoes/SpecCard'));
 
 type ConsultaBylaPanelProps = {
   open: boolean;
@@ -54,6 +57,7 @@ export function AccessibilityChatPanel({ open, onClose, context }: ConsultaBylaP
       createdAt: Date.now(),
     },
   ]);
+  const [expandido, setExpandido] = useState(false);
   const [quickReplies, setQuickReplies] = useState<string[]>(CONSULTA_MENU_LABELS.slice(0, 8));
 
   const replies = useMemo(
@@ -64,7 +68,10 @@ export function AccessibilityChatPanel({ open, onClose, context }: ConsultaBylaP
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key !== 'Escape') return;
+      // Tela cheia/apresentação de um cartão fecham primeiro.
+      if (document.fullscreenElement || document.querySelector('[data-byla-overlay]')) return;
+      onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -93,7 +100,7 @@ export function AccessibilityChatPanel({ open, onClose, context }: ConsultaBylaP
       setMessages((prev) =>
         [
           ...prev,
-          { id: uid(), role: 'assistant' as const, text: response.message, createdAt: Date.now() },
+          { id: uid(), role: 'assistant' as const, text: response.message, createdAt: Date.now(), visual: response.visual ?? null },
         ].slice(-HISTORY_LIMIT),
       );
       setQuickReplies(
@@ -122,7 +129,11 @@ export function AccessibilityChatPanel({ open, onClose, context }: ConsultaBylaP
     <>
       <div className="fixed inset-0 z-[88] bg-slate-900/40" role="presentation" onClick={onClose} />
       <section
-        className="fixed bottom-22 left-2 right-2 z-[89] max-h-[80vh] rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900 md:bottom-24 md:left-auto md:right-6 md:w-[440px]"
+        className={`fixed z-[89] flex flex-col border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900 ${
+          expandido
+            ? 'inset-0 md:inset-6 md:rounded-xl lg:left-auto lg:w-[min(960px,calc(100vw-3rem))]'
+            : 'bottom-22 left-2 right-2 max-h-[80vh] rounded-xl md:bottom-24 md:left-auto md:right-6 md:w-[440px]'
+        }`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="consulta-byla-titulo"
@@ -137,16 +148,28 @@ export function AccessibilityChatPanel({ open, onClose, context }: ConsultaBylaP
               Só leitura · competência {context.monthYear ?? 'atual'}
             </p>
           </div>
-          <button
-            type="button"
-            className="rounded-md px-2 py-1 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-            onClick={onClose}
-          >
-            Fechar
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              aria-pressed={expandido}
+              aria-label={expandido ? 'Reduzir janela' : 'Expandir janela'}
+              title={expandido ? 'Reduzir janela' : 'Expandir janela'}
+              className="rounded-md px-2 py-1 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+              onClick={() => setExpandido((v) => !v)}
+            >
+              {expandido ? '⤡ Reduzir' : '⤢ Expandir'}
+            </button>
+            <button
+              type="button"
+              className="rounded-md px-2 py-1 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+              onClick={onClose}
+            >
+              Fechar
+            </button>
+          </div>
         </header>
 
-        <div className="max-h-[42vh] space-y-2 overflow-y-auto px-4 py-3">
+        <div className={`space-y-2 overflow-y-auto px-4 py-3 ${expandido ? 'min-h-0 flex-1' : 'max-h-[42vh]'}`}>
           {messages.map((m) => (
             <div
               key={m.id}
@@ -157,6 +180,11 @@ export function AccessibilityChatPanel({ open, onClose, context }: ConsultaBylaP
               }`}
             >
               <span className="whitespace-pre-wrap leading-relaxed">{m.text}</span>
+              {m.role === 'assistant' && m.visual ? (
+                <Suspense fallback={<p className="mt-2 text-xs text-slate-500">Carregando visual…</p>}>
+                  <SpecCard spec={m.visual} compacto={!expandido} />
+                </Suspense>
+              ) : null}
             </div>
           ))}
         </div>

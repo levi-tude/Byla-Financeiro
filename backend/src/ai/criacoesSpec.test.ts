@@ -103,7 +103,7 @@ test('Gemini devolve HTML/JSON inválido → fallback; JSON válido com tool →
     n++ === 0
       ? reply([{ functionCall: { name: 'balanco_meses', args: { meses: 2 } } }])
       : reply([{ text: '```json\n{"titulo":"X","secoes":[{"type":"bar_chart","titulo":"B","dataset":"balanco_2m","x":"mes","series":["entradas"]}]}\n```' }]);
-  const s2 = await gerarCriacao({ prompt: 'balanço 2 meses', monthYear: '2026-09' }, { apiKey: 'k', fetchImpl: good, toolDeps: fakeDeps, models: ['m'] });
+  const s2 = await gerarCriacao({ prompt: 'como foi o caixa recentemente?', monthYear: '2026-09' }, { apiKey: 'k', fetchImpl: good, toolDeps: fakeDeps, models: ['m'] });
   assert.equal(s2.origem, 'gemini');
   assert.deepEqual(s2.datasets[0]!.linhas.map((l) => l.entradas), [8000, 9000]);
 });
@@ -157,4 +157,66 @@ test('criações via Groq: payload sem nome real, args revelados e provider groq
   assert.equal(r.provider, 'groq');
   assert.equal((r.draft as { titulo: string }).titulo, 'Balanço de Aluno Demo Um');
   for (const p of payloads) assert.ok(!p.includes('Aluno Demo Um'));
+});
+
+// --- Correções do teste ao vivo (mês sem extrato, presets sem IA, rótulos pt-BR) ---
+const depsNovSemExtrato: CriacaoToolDeps = {
+  resumoMes: async (mes) => (mes === 11 ? null : { entradas: 1000 * mes, saidas: 500 * mes }),
+  modalidades: async (mes) => (mes === 11 ? new Map() : new Map([['Modalidade Demo Um', { total: 800, qtd: 4 }]])),
+  meios: async (mes) => (mes === 11 ? new Map() : new Map([['PIX', { entradas: 700, saidas: 100, qtd: 5 }]])),
+};
+const iaQueNaoPodeSerChamada: typeof fetch = async () => {
+  throw new Error('preset não deve chamar a IA');
+};
+
+test('balanço de 4 meses mantém o mês sem extrato como "sem dados" (null) e avisa', async () => {
+  const s = await gerarCriacao({ prompt: 'Balanço dos últimos 4 meses', monthYear: '2026-11' }, { apiKey: 'k', fetchImpl: iaQueNaoPodeSerChamada, toolDeps: depsNovSemExtrato });
+  assert.equal(s.origem, 'deterministico');
+  const ds = s.datasets[0]!;
+  assert.deepEqual(ds.linhas.map((l) => l.mes), ['2026-08', '2026-09', '2026-10', '2026-11']);
+  assert.equal(ds.linhas[3]!.entradas, null);
+  const k = s.secoes[0]!;
+  assert.ok(k.type === 'kpi_cards');
+  assert.equal(k.itens[0]!.valor, 1000 * (8 + 9 + 10));
+  assert.equal(k.itens[0]!.ref, 'ago/2026 a out/2026');
+  assert.ok(s.avisos.some((a) => a.includes('nov/2026')));
+});
+
+test('modalidade "deste mês" sem extrato: usa o último mês com dados e diz qual', async () => {
+  const s = await gerarCriacao({ prompt: 'Entradas por modalidade deste mês', monthYear: '2026-11' }, { apiKey: 'k', fetchImpl: iaQueNaoPodeSerChamada, toolDeps: depsNovSemExtrato });
+  assert.match(s.titulo, /out\/2026/);
+  assert.ok(s.avisos.some((a) => a.includes('nov/2026') && a.includes('out/2026')));
+  assert.ok(s.secoes.some((x) => x.type === 'donut'));
+});
+
+test('modalidade sem dados em nenhum mês → dataset vazio com mensagem explícita', async () => {
+  const vazio: CriacaoToolDeps = { resumoMes: async () => null, modalidades: async () => new Map(), meios: async () => new Map() };
+  const s = await gerarCriacao({ prompt: 'Entradas por modalidade deste mês', monthYear: '2026-11' }, { apiKey: '', toolDeps: vazio });
+  assert.equal(s.datasets[0]!.linhas.length, 0);
+  assert.equal(s.datasets[0]!.vazio, 'Sem dados de modalidade para nov/2026');
+});
+
+test('presets compare e meios são determinísticos', async () => {
+  const c = await gerarCriacao({ prompt: 'Compare agosto com setembro', monthYear: '2026-11' }, { apiKey: 'k', fetchImpl: iaQueNaoPodeSerChamada, toolDeps: depsNovSemExtrato });
+  assert.equal(c.titulo, 'Comparação ago/2026 × set/2026');
+  assert.ok(c.secoes.some((x) => x.type === 'comparison'));
+  const m = await gerarCriacao({ prompt: 'Meios de pagamento do mês', monthYear: '2026-10' }, { apiKey: 'k', fetchImpl: iaQueNaoPodeSerChamada, toolDeps: depsNovSemExtrato });
+  assert.equal(m.titulo, 'Meios de pagamento — out/2026');
+  assert.ok(m.secoes.some((x) => x.type === 'ranking'));
+});
+
+test('rótulo de KPI escrito pela IA perde o mês; o mês vem da linha', async () => {
+  const { limparRotuloKpi } = await import('./criacoesSpec.js');
+  assert.equal(limparRotuloKpi('ENTRADAS (OCT 2026)'), 'ENTRADAS');
+  assert.equal(limparRotuloKpi('Saldo — out/2026'), 'Saldo');
+  assert.equal(limparRotuloKpi('Gasto Marketing'), 'Gasto Marketing');
+  const r = validarEHidratar(
+    { titulo: 'T', secoes: [{ type: 'kpi_cards', titulo: 'K', itens: [{ label: 'Entradas (Nov 2026)', dataset: 'balanco_2m', linha: 'ultima', coluna: 'entradas' }] }] },
+    [{ ...DS, linhas: [...DS.linhas, { mes: '2026-10', entradas: null, saidas: null }] }],
+    'gemini',
+  );
+  assert.ok(r.ok);
+  const k = r.spec.secoes[0]!;
+  assert.ok(k.type === 'kpi_cards');
+  assert.deepEqual([k.itens[0]!.label, k.itens[0]!.ref, k.itens[0]!.valor], ['Entradas', 'set/2026', 1500.5]);
 });

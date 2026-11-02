@@ -26,6 +26,33 @@ export function professorDaSaida(s: SaidaExtrato, lista: readonly ProfessorConfi
   return lista.find((p) => casaLista(nome, p.primeiroNomeExtrato)) ?? null;
 }
 
+/**
+ * "Quanto o Pholha/Weider deve?": não existe controle de mensalidade/dívida de coworking no sistema.
+ * Responde com honestidade e mostra o que foi pago (entradas do extrato) mês a mês.
+ */
+export function textoDividaCoworking(input: {
+  professor: string;
+  meses: Array<{ mes: number; ano: number; entradas: SaidaExtrato[] | null }>;
+}): string | null {
+  const filtro = normalizeText(input.professor);
+  const cow = COWORKING_PAGANTES.find((c) => filtro.split(' ').some((t) => c.aliases.includes(t)));
+  if (!cow) return null;
+  const linhas = input.meses.map((m) => {
+    const ref = `${pad2(m.mes)}/${m.ano}`;
+    if (m.entradas == null) return `${ref}: sem extrato`;
+    const ent = m.entradas.filter((e) => casaLista(normalizeText(String(e.pessoa ?? '')), cow.nomeExtrato));
+    if (!ent.length) return `${ref}: nenhum pagamento encontrado`;
+    const tot = ent.reduce((a, e) => a + Math.abs(Number(e.valor)), 0);
+    return `${ref}: ${brl(tot)} (${ent.length} ${ent.length === 1 ? 'pagamento' : 'pagamentos'})`;
+  });
+  return [
+    `${cow.rotulo} paga coworking ao Byla. O sistema não tem controle de dívida/mensalidade de coworking (não há valor combinado cadastrado), então não dá para dizer quanto falta pagar.`,
+    'Pagamentos de coworking recebidos (extrato, data do pagamento):',
+    ...linhas,
+    instrucaoIa('Não invente saldo devedor; diga que não há controle de dívida de coworking.'),
+  ].join('\n');
+}
+
 export function textoRepassesProfessores(input: {
   mes: number;
   ano: number;
@@ -89,7 +116,7 @@ export function textoRepassesProfessores(input: {
             : 'Controle sem valor lançado'
           : 'sem linha no Controle';
     linhas.push(
-      `${p.apelido} (${p.atividade}): extrato ${brl(ext)} em ${doExtrato.length} saída(s) · ${ctrlTxt}${p.confirmado ? ' · confirmado pelo Levi' : ' · identificação por inferência'}`,
+      `${p.apelido} (${p.atividade}): extrato ${brl(ext)} em ${doExtrato.length} saída(s) · ${ctrlTxt}${p.confirmado ? '' : ' · identificação a conferir'}`,
     );
   }
   if (!filtro) {

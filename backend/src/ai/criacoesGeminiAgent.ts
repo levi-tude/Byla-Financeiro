@@ -21,7 +21,7 @@ export function buildCriacoesPrompt(ref: MesAno, today: string): string {
     '- {"type":"line_chart"|"bar_chart"|"area_chart","titulo","descricao"?,"dataset","x","series":[colunas],"empilhado"?}',
     '- {"type":"donut","titulo","dataset","label","valor"}  - {"type":"ranking","titulo","dataset","label","valor","top"?}',
     '- {"type":"comparison","titulo","dataset","x","a": índice,"b": índice,"colunas":[...]}  - {"type":"table","titulo","dataset","colunas"?}',
-    '- {"type":"narrative","titulo"?,"texto"}  (texto curto em pt-BR, SEM números/valores: os números aparecem nos gráficos).',
+    '- {"type":"narrative","titulo"?,"texto"}  (texto curto em pt-BR, SEM números/valores/percentuais: os números aparecem nos gráficos; NUNCA escreva \'(ver gráfico)\' nem marcadores; frases com número são descartadas).',
     '"dataset" é o dataset_id devolvido pelas funções; colunas devem existir nele. Nunca invente números nem datasets.',
     'Comece com kpi_cards, depois gráficos, e termine com uma narrative de leitura/insight.',
   ].join('\n');

@@ -27,10 +27,22 @@ export function removerNomeDuplicado(texto: string): string {
   return out;
 }
 
+/** "R$ 5 360,00" → "R$ 5.360,00"; "20 pagamento(s)"/"20 pagamento s" → "20 pagamentos". */
+export function normalizarNumerosPlural(texto: string): string {
+  return texto
+    .replace(/R\$[\s\u00a0]?\d{1,3}(?:[ \u00a0\u202f]\d{3})+(?:,\d{2})?/g, (m) => {
+      const [, num] = m.match(/^R\$[\s\u00a0]?(.*)$/)!;
+      return `R$ ${num!.replace(/[ \u00a0\u202f](?=\d{3})/g, '.')}`;
+    })
+    .replace(/\b(\d+)\s+([a-zà-ú]+?)\s?\(s\)/gi, (_m, q: string, w: string) => `${q} ${Number(q) === 1 ? w : `${w}s`}`)
+    .replace(/\b(\d+)\s+([a-zà-ú]+[aeo])\s(s)\b(?=[)\s.,;]|$)/gi, (_m, q: string, w: string) => `${q} ${Number(q) === 1 ? w : `${w}s`}`);
+}
+
 export function formatarRespostaUsuario(texto: string): string {
   let t = removerInstrucoesIa(texto);
   t = limparPiiUsuario(t);
   t = removerNomeDuplicado(t);
+  t = normalizarNumerosPlural(t);
   t = t
     .replace(/NENHUM REGISTRO ENCONTRADO/g, 'Nenhum registro encontrado')
     .replace(/[ \t]+\n/g, '\n')

@@ -6,9 +6,12 @@ export type Dataset = {
   titulo: string;
   fonte: string;
   colunas: DatasetColuna[];
-  linhas: Array<Record<string, string | number>>;
+  /** null = sem dados (nunca zero). */
+  linhas: Array<Record<string, string | number | null>>;
+  /** Mensagem do estado vazio (ex.: "Sem dados de modalidade para nov/2026"). */
+  vazio?: string;
 };
-export type KpiItem = { label: string; dataset: string; coluna: string; valor: number; formato: Formato };
+export type KpiItem = { label: string; dataset: string; coluna: string; valor: number; formato: Formato; ref?: string };
 export type Secao =
   | { type: 'kpi_cards'; titulo: string; itens: KpiItem[] }
   | { type: 'line_chart' | 'bar_chart' | 'area_chart'; titulo: string; descricao?: string; dataset: string; x: string; series: string[]; empilhado?: boolean }

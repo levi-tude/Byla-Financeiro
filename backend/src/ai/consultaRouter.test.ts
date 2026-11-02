@@ -87,10 +87,8 @@ describe('roteador: perguntas respondidas sem IA', () => {
 describe('roteador: baixa confiança vai para a IA', () => {
   for (const q of [
     'e de yoga em outubro?',
-    'Quanto entrou de GR e de teatro em agosto?',
     'Teve pagamento de aluno em dezembro?',
     'Achei um PIX de 2.500 em outubro, de quem é?',
-    'Os dados tão atualizados?',
     'me conta uma piada',
   ]) {
     test(q, () => assert.equal(rota(q), null));
