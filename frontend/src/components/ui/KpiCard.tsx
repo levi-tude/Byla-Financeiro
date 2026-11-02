@@ -36,7 +36,7 @@ export function KpiCard(props: KpiCardProps) {
         : 'text-gray-500 dark:text-slate-400';
   return (
     <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm dark:shadow-slate-900/40 p-4 flex flex-col gap-2 border border-gray-100 dark:border-slate-700">
-      <span className="text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wide">
+      <span className="text-xs font-medium text-gray-500 dark:text-slate-400">
         {label}
       </span>
       {isLoading ? (

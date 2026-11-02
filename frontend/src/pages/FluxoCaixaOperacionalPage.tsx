@@ -598,7 +598,7 @@ function PresetsFluxoBar({
   );
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Presets</span>
+      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Presets</span>
       {btn('cobranca', 'Cobrança')}
       {btn('pendencias', 'Pendências')}
       {btn('fechamento', 'Fechamento do mês')}
@@ -2352,7 +2352,7 @@ export function FluxoCaixaOperacionalPage() {
               setAbaDetalheAberta(null);
             }
           }}
-          className="group rounded-2xl border border-slate-200/90 border-l-[6px] bg-white/90 shadow-sm open:shadow-md dark:border-slate-700 dark:bg-slate-900/80 [&_summary::-webkit-details-marker]:hidden"
+          className="group rounded-2xl border border-slate-200/90 border-l-4 bg-white/90 shadow-sm open:shadow-md dark:border-slate-700 dark:bg-slate-900/80 [&_summary::-webkit-details-marker]:hidden"
           style={{ borderLeftColor: chromeAba.tab }}
         >
           <summary className="flex cursor-pointer list-none items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50/80 dark:text-slate-100 dark:hover:bg-slate-800/80">
@@ -2389,7 +2389,7 @@ export function FluxoCaixaOperacionalPage() {
                       [grupoAba.aba]: opened ? grupoMod.modalidade : null,
                     }));
                   }}
-                  className="group/mod rounded-xl border border-slate-100 border-l-[5px] bg-slate-50/50 dark:border-slate-700 dark:bg-slate-950/40 [&_summary::-webkit-details-marker]:hidden"
+                  className="group/mod rounded-xl border border-slate-100 border-l-4 bg-slate-50/50 dark:border-slate-700 dark:bg-slate-950/40 [&_summary::-webkit-details-marker]:hidden"
                   style={{ borderLeftColor: chromeMod.tab }}
                 >
                   <summary className="flex cursor-pointer list-none items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-white/80 dark:text-slate-200 dark:hover:bg-slate-800/60">
@@ -2411,7 +2411,7 @@ export function FluxoCaixaOperacionalPage() {
                   </summary>
                   <div className="overflow-x-auto px-1 pb-2">
                     <table className={`w-full text-sm ${mensalColunasExtras ? 'min-w-[980px]' : 'min-w-0'}`}>
-                      <thead className="bg-slate-100/95 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800/95 dark:text-slate-400">
+                      <thead className="bg-slate-100/95 text-left text-xs font-semibold text-slate-600 dark:bg-slate-800/95 dark:text-slate-400">
                         <tr>
                           <th className={`px-3 py-2 ${thAlunoSticky}`}>Aluno</th>
                           {mensalColunasExtras ? <th className="px-3 py-2">Venc. (cad.)</th> : null}
@@ -2450,11 +2450,11 @@ export function FluxoCaixaOperacionalPage() {
   const competenciaChaveAtual = `${monthYear.ano}-${String(monthYear.mes).padStart(2, '0')}`;
 
   return (
-    <div className="min-h-full bg-gradient-to-br from-slate-50 via-white to-violet-50/40 pb-10 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+    <div className="min-h-full bg-slate-50 pb-10 dark:bg-slate-950">
       <div className="mx-auto max-w-[1600px] space-y-6 px-4 py-6 sm:px-6">
         <header className="flex flex-col gap-4 rounded-2xl border border-slate-200/80 bg-white/90 p-5 shadow-sm shadow-slate-200/50 backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/90 dark:shadow-none sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-violet-600 dark:text-violet-400">Fluxo operacional</p>
+            <p className="text-xs font-semibold text-violet-600 dark:text-violet-400">Fluxo operacional</p>
             <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-50">Alunos e pagamentos</h1>
             <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-600 dark:text-slate-400">
               Mês do painel: <strong>{mesReferenciaLegivel(monthYear.mes, monthYear.ano)}</strong>. Lista única: cada linha mostra o cadastro e, quando houver, o pagamento do mês (vários pagamentos no mês geram várias linhas).
@@ -2540,7 +2540,7 @@ export function FluxoCaixaOperacionalPage() {
         {activeTopTab === 'atividades' ? (
         <section className="rounded-2xl border border-slate-200/90 bg-white/95 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/90">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Modo de visualização</span>
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Modo de visualização</span>
             <button
               type="button"
               onClick={() => setModoVisao('multi')}
@@ -2671,7 +2671,7 @@ export function FluxoCaixaOperacionalPage() {
                         key={`pc-modalidade-${grupoAtividade.atividade}-${grupoModalidade.modalidade}`}
                         className="rounded-xl border border-slate-200 p-3 dark:border-slate-700"
                       >
-                        <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+                        <h4 className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                           Modalidade: {grupoModalidade.modalidade}
                         </h4>
 
@@ -2891,7 +2891,7 @@ export function FluxoCaixaOperacionalPage() {
 
                 <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/70">
                   <table className="w-full min-w-[920px] text-xs">
-                    <thead className="bg-slate-100/90 text-left font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800/90 dark:text-slate-400">
+                    <thead className="bg-slate-100/90 text-left font-semibold text-slate-600 dark:bg-slate-800/90 dark:text-slate-400">
                       <tr>
                         <th className="px-3 py-2">Forma</th>
                         <th className="px-3 py-2">Data</th>
@@ -3030,7 +3030,7 @@ export function FluxoCaixaOperacionalPage() {
                       </label>
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
-                      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Filtros rápidos</span>
+                      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Filtros rápidos</span>
                       <button
                         type="button"
                         onClick={() => {
@@ -3229,7 +3229,7 @@ export function FluxoCaixaOperacionalPage() {
                           Modalidade:{' '}
                           <span style={{ color: chrome.tab }}>{modalidade}</span>
                           {seloFormacao ? (
-                            <span className="ml-2 rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                            <span className="ml-2 rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
                               Formação
                             </span>
                           ) : null}{' '}
@@ -3237,7 +3237,7 @@ export function FluxoCaixaOperacionalPage() {
                         </summary>
                         <div className="overflow-x-auto border-t border-slate-100 p-3 dark:border-slate-700">
                           <table className="w-full min-w-[2200px] text-xs">
-                            <thead className="bg-slate-100 text-left font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                            <thead className="bg-slate-100 text-left font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-400">
                               <tr>
                                 <th className={`px-2 py-2 ${thAlunoSticky}`}>
                                   <button
@@ -3307,7 +3307,7 @@ export function FluxoCaixaOperacionalPage() {
                                   <td className="px-2 py-2 text-center font-semibold text-slate-700 dark:text-slate-200">2026</td>
                                   {item.historico.map((mesItem) => (
                                     <td key={`${item.id}-${mesItem.key}`} className="px-2 py-2 align-top">
-                                      <div className={`min-w-[145px] rounded-md p-2 ${statusMesClasse(mesItem.status)}`}>
+                                      <div className={`min-w-36 rounded-md p-2 ${statusMesClasse(mesItem.status)}`}>
                                         <div className="font-semibold">{statusMesLabel(mesItem.status)}</div>
                                         {mesItem.status === 'previsto' ? (
                                           <div className="mt-1 text-[10px] leading-snug opacity-90">
@@ -3497,7 +3497,7 @@ export function FluxoCaixaOperacionalPage() {
                 {ativoFiltro !== 'inativos' && (
                   <>
                     {ativoFiltro === 'todos' && gruposFluxoAtivos.length > 0 ? (
-                      <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">Ativos</p>
+                      <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">Ativos</p>
                     ) : null}
                     {renderGruposFluxoLista(gruposFluxoAtivos, 'ativos')}
                   </>
@@ -3505,7 +3505,7 @@ export function FluxoCaixaOperacionalPage() {
                 {ativoFiltro === 'inativos' && renderGruposFluxoLista(gruposFluxoInativos, 'inativos')}
                 {ativoFiltro === 'todos' && gruposFluxoInativos.length > 0 ? (
                   <div className="space-y-2 pt-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Inativos</p>
+                    <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">Inativos</p>
                     {renderGruposFluxoLista(gruposFluxoInativos, 'inativos')}
                   </div>
                 ) : null}
@@ -3678,7 +3678,7 @@ export function FluxoCaixaOperacionalPage() {
             {(auditoriaQuery.data?.itens.length ?? 0) > 0 && (
               <div className="overflow-x-auto rounded-xl border border-slate-100">
                 <table className="w-full text-sm">
-                  <thead className="bg-slate-100/90 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  <thead className="bg-slate-100/90 text-left text-xs font-semibold text-slate-600">
                     <tr>
                       <th className="px-3 py-2">Quando</th>
                       <th className="px-3 py-2">Entidade</th>
@@ -4302,7 +4302,7 @@ export function FluxoCaixaOperacionalPage() {
             </p>
             <dl className="mt-3 grid gap-2 text-sm text-slate-700 dark:text-slate-200">
               <div>
-                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <dt className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                   Competência (mês atual)
                 </dt>
                 <dd>
@@ -4310,25 +4310,25 @@ export function FluxoCaixaOperacionalPage() {
                 </dd>
               </div>
               <div>
-                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <dt className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                   Responsáveis
                 </dt>
                 <dd>{responsaveisUnificado(cobrancaAlunoEfetivo)}</dd>
               </div>
               <div>
-                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <dt className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                   WhatsApp
                 </dt>
                 <dd>{String(cobrancaAlunoEfetivo.wpp ?? '').trim() || '—'}</dd>
               </div>
               <div>
-                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <dt className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                   Pagador PIX
                 </dt>
                 <dd>{pagadorUnificado(cobrancaAlunoEfetivo)}</dd>
               </div>
               <div>
-                <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <dt className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                   Valor referência / exibido
                 </dt>
                 <dd>
@@ -4354,7 +4354,7 @@ export function FluxoCaixaOperacionalPage() {
             ) : null}
 
             <section className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-700" aria-label="Histórico de contatos">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+              <h3 className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                 Últimas tentativas registradas
               </h3>
               {(cobrancaAlunoEfetivo.cobranca_tentativas?.length ?? 0) === 0 ? (

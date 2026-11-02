@@ -642,12 +642,12 @@ export function TransacoesPage() {
       />
 
       <section
-        className="rounded-xl border border-indigo-200/90 bg-gradient-to-br from-indigo-50 via-white to-slate-50 px-4 py-3.5 shadow-sm ring-1 ring-indigo-500/10 dark:border-indigo-800/60 dark:from-indigo-950/50 dark:via-slate-900 dark:to-slate-950 dark:ring-indigo-400/10"
+        className="rounded-xl border border-indigo-200/90 bg-white px-4 py-3.5 shadow-sm ring-1 ring-indigo-500/10 dark:border-indigo-800/60 dark:bg-slate-900 dark:ring-indigo-400/10"
         aria-label={`Competência: ${competenciaTitulo}`}
       >
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div className="min-w-0 space-y-0.5">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-indigo-700 dark:text-indigo-400">
+            <p className="text-[11px] font-semibold text-indigo-700 dark:text-indigo-400">
               Mês selecionado no painel
             </p>
             <p className="truncate text-xl font-bold capitalize tracking-tight text-slate-900 sm:text-2xl dark:text-slate-50">
@@ -933,11 +933,11 @@ export function TransacoesPage() {
             <table className="w-full border-collapse text-sm">
               <thead className="sticky top-0 z-10">
                 <tr className="border-b border-slate-200 bg-white/95 text-left text-slate-600 shadow-[0_1px_0_0_rgb(226,232,240)] backdrop-blur-sm dark:border-slate-600 dark:bg-slate-900/95 dark:text-slate-300 dark:shadow-[0_1px_0_0_rgb(71,85,105)]">
-                  <th className="whitespace-nowrap py-2.5 pl-2 pr-2 text-xs font-semibold uppercase tracking-wide">Data</th>
-                  <th className="whitespace-nowrap py-2.5 pr-2 text-right text-xs font-semibold uppercase tracking-wide">Entradas</th>
-                  <th className="whitespace-nowrap py-2.5 pr-2 text-right text-xs font-semibold uppercase tracking-wide">Saídas</th>
-                  <th className="whitespace-nowrap py-2.5 pr-2 text-right text-xs font-semibold uppercase tracking-wide">Saldo</th>
-                  <th className="whitespace-nowrap py-2.5 pr-2 text-right text-xs font-semibold uppercase tracking-wide">Qtd</th>
+                  <th className="whitespace-nowrap py-2.5 pl-2 pr-2 text-xs font-semibold">Data</th>
+                  <th className="whitespace-nowrap py-2.5 pr-2 text-right text-xs font-semibold">Entradas</th>
+                  <th className="whitespace-nowrap py-2.5 pr-2 text-right text-xs font-semibold">Saídas</th>
+                  <th className="whitespace-nowrap py-2.5 pr-2 text-right text-xs font-semibold">Saldo</th>
+                  <th className="whitespace-nowrap py-2.5 pr-2 text-right text-xs font-semibold">Qtd</th>
                 </tr>
               </thead>
               <tbody>

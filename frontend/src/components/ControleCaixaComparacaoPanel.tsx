@@ -148,9 +148,9 @@ export function ControleCaixaComparacaoPanel({
               </p>
 
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[280px] text-xs">
+                <table className="w-full min-w-72 text-xs">
                   <thead>
-                    <tr className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    <tr className="text-[10px] text-slate-500 dark:text-slate-400">
                       <th className="pb-1 text-left font-medium"> </th>
                       <th className="pb-1 px-1 text-right font-medium">Planilha</th>
                       <th className="pb-1 px-1 text-right font-medium">Sistema</th>
@@ -201,7 +201,7 @@ export function ControleCaixaComparacaoPanel({
                 </p>
               ) : (
                 <div className="space-y-1.5">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
                     Diferenças por categoria
                   </p>
                   {comparacao.blocos.map((b) => {

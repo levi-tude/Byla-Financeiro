@@ -81,7 +81,7 @@ function DailyFlowTooltip({
     : 'rounded-xl border border-slate-200/90 bg-white px-3.5 py-3 text-slate-900 shadow-xl ring-1 ring-slate-900/[0.04]';
 
   return (
-    <div className={`min-w-[220px] max-w-[280px] text-sm ${panel}`}>
+    <div className={`min-w-56 max-w-[280px] text-sm ${panel}`}>
       <p className="mb-2.5 border-b border-slate-200/80 pb-2 text-xs font-medium capitalize leading-snug text-slate-500 dark:border-slate-600/80 dark:text-slate-400">
         {dateLabel}
       </p>
@@ -89,7 +89,7 @@ function DailyFlowTooltip({
         {payload.map((p) => (
           <div key={p.dataKey} className="flex items-center justify-between gap-6">
             <dt className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
-              <span className="h-2.5 w-2.5 shrink-0 rounded-[2px]" style={{ backgroundColor: p.color }} aria-hidden />
+              <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: p.color }} aria-hidden />
               <span>{p.name}</span>
             </dt>
             <dd className="tabular-nums text-right font-semibold tracking-tight">
@@ -125,7 +125,7 @@ export function TransacoesDailyFlowChart({
   if (isLoading) {
     return (
       <div
-        className="flex h-80 flex-col justify-center gap-3 rounded-xl border border-slate-200/80 bg-gradient-to-b from-slate-50 to-white px-4 dark:border-slate-700 dark:from-slate-900/50 dark:to-slate-950"
+        className="flex h-80 flex-col justify-center gap-3 rounded-xl border border-slate-200/80 bg-white px-4 dark:border-slate-700 dark:bg-slate-900"
         role="status"
         aria-busy="true"
         aria-label="Carregando gráfico"

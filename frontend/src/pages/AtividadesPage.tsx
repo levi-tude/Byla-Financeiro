@@ -35,7 +35,7 @@ export function AtividadesPage() {
       />
 
       <section className="mt-4 rounded-xl border border-slate-200 bg-slate-50/90 p-4 dark:border-slate-700 dark:bg-slate-900/80">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Em 10 segundos</p>
+        <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">Em 10 segundos</p>
         <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">
           Ranking por <strong>receita de mensalidades</strong> e <strong>quantidade de alunos</strong> vinculados à atividade no mês
           selecionado. &quot;Maior receita&quot; = modalidade com maior soma de valores no período.

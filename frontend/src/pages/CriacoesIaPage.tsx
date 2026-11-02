@@ -141,7 +141,7 @@ export default function CriacoesIaPage() {
       <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(225,29,72,0.10),transparent_60%),radial-gradient(ellipse_at_bottom_right,rgba(99,102,241,0.12),transparent_60%)]" />
       <div className="relative mx-auto max-w-6xl">
         <motion.header initial={reduce ? false : { opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-rose-600 dark:text-rose-400">Criações da IA · protótipo</p>
+          <p className="text-xs font-semibold text-rose-600 dark:text-rose-400">Criações da IA · protótipo</p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-4xl">Peça um painel. A IA monta, os números vêm do banco.</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-400">A IA só escolhe o layout (JSON validado). Todo valor exibido é calculado no servidor a partir do extrato oficial — nada é digitado pela IA.</p>
         </motion.header>

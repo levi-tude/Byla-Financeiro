@@ -55,8 +55,8 @@ export function ValidacaoCalendarioGuia({ variant, dataIso }: ValidacaoCalendari
       className="mt-4 space-y-4"
       aria-label="Guia operacional: validação diária e calendário mensal"
     >
-      <div className="rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-slate-50 p-4 dark:border-violet-800/60 dark:from-violet-950/40 dark:via-slate-950 dark:to-slate-900">
-        <p className="text-center text-xs font-semibold uppercase tracking-wider text-violet-800 dark:text-violet-200">
+      <div className="rounded-xl border border-violet-200 bg-white p-4 dark:border-violet-800/60 dark:bg-slate-900">
+        <p className="text-center text-xs font-semibold text-violet-800 dark:text-violet-200">
           Em 10 segundos
         </p>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -95,12 +95,12 @@ export function ValidacaoCalendarioGuia({ variant, dataIso }: ValidacaoCalendari
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-950/80">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
           Onde ir agora
         </p>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           <div className={`${cardBase} ${variant === 'validacao' ? cardAtivo : cardInativo}`}>
-            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+            <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
               Hoje eu valido
             </p>
             <p className="mt-1 font-semibold text-slate-900 dark:text-slate-50">Validação de pagamentos</p>
@@ -130,7 +130,7 @@ export function ValidacaoCalendarioGuia({ variant, dataIso }: ValidacaoCalendari
           </div>
 
           <div className={`${cardBase} ${variant === 'calendario' ? cardAtivo : cardInativo}`}>
-            <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">
+            <p className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">
               No mês eu planejo
             </p>
             <p className="mt-1 font-semibold text-slate-900 dark:text-slate-50">Calendário financeiro</p>

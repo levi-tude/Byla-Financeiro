@@ -26,11 +26,11 @@ export function ProfilePage() {
 
           <dl className="mt-6 grid gap-4 sm:grid-cols-2">
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
-              <dt className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Email</dt>
+              <dt className="text-xs font-medium text-slate-500 dark:text-slate-400">Email</dt>
               <dd className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">{auth.email ?? 'Nao informado'}</dd>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
-              <dt className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Perfil de acesso</dt>
+              <dt className="text-xs font-medium text-slate-500 dark:text-slate-400">Perfil de acesso</dt>
               <dd className="mt-1 text-sm font-medium text-slate-900 capitalize dark:text-slate-100">{auth.role ?? 'Nao definido'}</dd>
             </div>
           </dl>

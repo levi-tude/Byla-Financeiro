@@ -118,13 +118,13 @@ export function ResumoDiaValorHover({ valorExibido, linhas, modo, className = ''
                 <>
                   {linhas.some((l) => l.tipo === 'entrada') ? (
                     <>
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-400">Entradas</p>
+                      <p className="text-[10px] font-medium text-emerald-700 dark:text-emerald-400">Entradas</p>
                       <ListaDetalhe linhas={linhas.filter((l) => l.tipo === 'entrada')} />
                     </>
                   ) : null}
                   {linhas.some((l) => l.tipo === 'saida') ? (
                     <>
-                      <p className="mt-2 text-[10px] font-medium uppercase tracking-wide text-rose-700 dark:text-rose-400">Saídas</p>
+                      <p className="mt-2 text-[10px] font-medium text-rose-700 dark:text-rose-400">Saídas</p>
                       <ListaDetalhe linhas={linhas.filter((l) => l.tipo === 'saida')} />
                     </>
                   ) : null}

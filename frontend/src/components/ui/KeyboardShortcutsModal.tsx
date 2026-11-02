@@ -47,7 +47,7 @@ export function KeyboardShortcutsModal({ open, onClose, role }: Props) {
         <ul className="mt-4 space-y-3 text-sm">
           {sections.map((section) => (
             <li key={section.id}>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <p className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
                 {section.label}
               </p>
               <ul className="mt-1 space-y-1">

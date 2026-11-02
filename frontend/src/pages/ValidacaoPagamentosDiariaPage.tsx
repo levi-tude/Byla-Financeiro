@@ -923,13 +923,13 @@ export function ValidacaoPagamentosDiariaPage() {
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">Aba</label>
-          <select value={aba} onChange={(e) => setAba(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-w-[230px]">
+          <select value={aba} onChange={(e) => setAba(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-w-56">
             {abasDisponiveis.map((x) => (
               <option key={x} value={x}>{x}</option>
             ))}
           </select>
         </div>
-        <div className="min-w-[240px]">
+        <div className="min-w-60">
           <label className="block text-xs font-medium text-gray-500 mb-1">Modalidade</label>
           <select
             value={modalidade}
@@ -950,7 +950,7 @@ export function ValidacaoPagamentosDiariaPage() {
               const v = e.target.value;
               setMesCompetenciaFiltro(v === 'todos' ? 'todos' : Number(v));
             }}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-w-[200px]"
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-w-52"
           >
             <option value="todos">Todos os meses</option>
             {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
@@ -1078,7 +1078,7 @@ export function ValidacaoPagamentosDiariaPage() {
             placeholder="Buscar data (YYYY-MM-DD)"
             value={dataBusca}
             onChange={(e) => setDataBusca(e.target.value)}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-xs min-w-[220px]"
+            className="rounded-lg border border-gray-300 px-3 py-2 text-xs min-w-56"
           />
         </div>
         <div className="p-3 space-y-4">
@@ -1490,7 +1490,7 @@ export function ValidacaoPagamentosDiariaPage() {
                           )}
                         </div>
                         <div className="mt-2 flex flex-wrap items-end gap-2">
-                          <div className="min-w-[260px]">
+                          <div className="min-w-64">
                             <label className="block text-[11px] font-medium text-amber-900 mb-1">
                               Escolher lançamento do banco
                             </label>
@@ -1632,7 +1632,7 @@ export function ValidacaoPagamentosDiariaPage() {
                   return (
                     <div
                       key={gk}
-                      className="rounded-xl border border-amber-300 bg-gradient-to-br from-amber-50 to-orange-50/40 p-4 shadow-sm"
+                      className="rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-700/60 dark:bg-slate-900 shadow-sm"
                     >
                       <div className="flex flex-wrap items-center gap-2 mb-2">
                         <span className="text-xs font-semibold text-amber-950">
@@ -1696,7 +1696,7 @@ export function ValidacaoPagamentosDiariaPage() {
                         </table>
                       </div>
                       <div className="flex flex-wrap items-end gap-2">
-                        <div className="min-w-[280px] flex-1">
+                        <div className="min-w-72 flex-1">
                           <label className="block text-[11px] font-medium text-amber-950 mb-1">
                             Lançamento no banco (vale para as {grupo.length} linhas)
                           </label>

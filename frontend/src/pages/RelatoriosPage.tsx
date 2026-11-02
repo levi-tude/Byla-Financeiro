@@ -206,7 +206,7 @@ function ControleCaixaGestaoPreview({ data }: { data: ControleCaixaLeituraGestao
             data.totais_planilha.saidas_reais != null ||
             data.totais_planilha.lucro_reais != null) && (
             <div className="mt-3 p-3 rounded-lg bg-white/80 border border-indigo-200/80">
-              <p className="text-xs font-semibold text-indigo-900 uppercase tracking-wide mb-2">Totais no CONTROLE (planilha)</p>
+              <p className="text-xs font-semibold text-indigo-900 mb-2">Totais no CONTROLE (planilha)</p>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
                 <div className="flex justify-between gap-2">
                   <span className="text-gray-600">Entradas</span>
@@ -237,7 +237,7 @@ function ControleCaixaGestaoPreview({ data }: { data: ControleCaixaLeituraGestao
       )}
       {data.entradas_linha_a_linha.length > 0 && (
         <div>
-          <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">Entradas (linha a linha)</h4>
+          <h4 className="text-xs font-semibold text-gray-700 mb-2">Entradas (linha a linha)</h4>
           <ul className="space-y-1 text-sm">
             {data.entradas_linha_a_linha.map((row, i) => (
               <li key={`e-${i}`} className="flex justify-between gap-2 border-b border-indigo-100/80 pb-1">
@@ -253,7 +253,7 @@ function ControleCaixaGestaoPreview({ data }: { data: ControleCaixaLeituraGestao
       )}
       {data.saidas_por_categoria.length > 0 && (
         <div>
-          <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">Saídas por categoria</h4>
+          <h4 className="text-xs font-semibold text-gray-700 mb-2">Saídas por categoria</h4>
           <div className="grid gap-2 sm:grid-cols-2">
             {(() => {
               const byCat = new Map<string, { total: number; itens: typeof data.saidas_por_categoria }>();
@@ -278,7 +278,7 @@ function ControleCaixaGestaoPreview({ data }: { data: ControleCaixaLeituraGestao
       )}
       {data.gastos_fixos_linha_a_linha.length > 0 && (
         <div>
-          <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">Gastos fixos (detalhe)</h4>
+          <h4 className="text-xs font-semibold text-gray-700 mb-2">Gastos fixos (detalhe)</h4>
           <ul className="space-y-1 text-sm">
             {data.gastos_fixos_linha_a_linha.map((row, i) => (
               <li key={`g-${i}`} className="flex justify-between gap-2 border-b border-indigo-100/80 pb-1">
@@ -319,8 +319,8 @@ function AlunosPanoramaPreview({ data }: { data: RelatorioAlunosPanoramaPayload 
 
   return (
     <div className="space-y-4 print:break-inside-avoid">
-      <div className="rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50/90 to-white p-4 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Fonte dos dados</p>
+      <div className="rounded-xl border border-emerald-200 bg-white p-4 dark:border-emerald-800/60 dark:bg-slate-900 shadow-sm">
+        <p className="text-xs font-semibold text-emerald-800">Fonte dos dados</p>
         <p className="mt-1 text-base font-semibold text-gray-900">{data.fonte_dados?.planilha ?? 'FLUXO DE CAIXA BYLA'}</p>
         <p className="mt-2 text-xs text-gray-600 leading-relaxed">{data.fonte_dados?.descricao}</p>
         {data.competencia?.label && (
@@ -339,7 +339,7 @@ function AlunosPanoramaPreview({ data }: { data: RelatorioAlunosPanoramaPayload 
               key={aba.aba}
               className={`rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden border-l-4 ${bordas[idx % bordas.length]}`}
             >
-              <div className="px-4 py-3 bg-gradient-to-r from-gray-50 to-white border-b border-gray-100 flex flex-wrap justify-between gap-2 items-center">
+              <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 dark:bg-slate-900 dark:border-slate-700 flex flex-wrap justify-between gap-2 items-center">
                 <span className="text-base font-semibold text-gray-900">{aba.aba}</span>
                 <span className="text-xs text-gray-600">
                   <span className="font-medium text-gray-800">{aba.total_alunos_ativos}</span> aluno(s) ativos ·{' '}
@@ -353,7 +353,7 @@ function AlunosPanoramaPreview({ data }: { data: RelatorioAlunosPanoramaPayload 
                     key={`${aba.aba}-${m.modalidade}`}
                     className="rounded-lg border border-stone-200/90 bg-stone-50/90 p-3 flex flex-col gap-1 min-h-[5.5rem]"
                   >
-                    <div className="text-[11px] font-medium uppercase tracking-wide text-stone-500">Modalidade</div>
+                    <div className="text-[11px] font-medium text-stone-500">Modalidade</div>
                     <div className="text-sm font-semibold text-gray-900 leading-snug">{m.modalidade}</div>
                     <div className="mt-auto pt-2 flex justify-between items-baseline gap-2 text-xs border-t border-stone-200/80">
                       <span className="text-gray-600">Alunos ativos</span>
@@ -682,7 +682,7 @@ export function RelatoriosPage() {
             </div>
           )}
           <div className="rounded-xl border border-gray-200 bg-white p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Presets rápidos</p>
+            <p className="text-xs font-semibold text-gray-500">Presets rápidos</p>
             <div className="mt-2 grid gap-2 md:grid-cols-3">
               {presetsDisponiveis.map((preset) => {
                 const ativo = presetAtivo === preset.id;
@@ -711,8 +711,8 @@ export function RelatoriosPage() {
               {relatorioCardGroups.map((grupo) => (
                 <div key={grupo.label} className="rounded-lg border border-gray-200 bg-white p-2.5">
                   <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{grupo.label}</p>
-                    <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+                    <p className="text-[11px] font-semibold text-gray-500">{grupo.label}</p>
+                    <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
                       {FONTE_LABEL[grupo.fonte]}
                     </span>
                   </div>
@@ -740,7 +740,7 @@ export function RelatoriosPage() {
                             {meta.fontes.map((fonte) => (
                               <span
                                 key={`${t}-${fonte}`}
-                                className="rounded bg-white/80 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-600"
+                                className="rounded bg-white/80 px-2 py-0.5 text-[10px] font-medium text-gray-600"
                               >
                                 {FONTE_LABEL[fonte]}
                               </span>
@@ -881,7 +881,7 @@ export function RelatoriosPage() {
                 {dados.tipo === 'mensal' || dados.tipo === 'trimestral' || dados.tipo === 'anual' ? (
                   <div className="space-y-4">
                     <div>
-                      <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">
+                      <p className="text-xs font-semibold text-gray-700 mb-2">
                         Extrato oficial (banco / Supabase)
                       </p>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -910,7 +910,7 @@ export function RelatoriosPage() {
                       </div>
                     </div>
                     <div>
-                      <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">
+                      <p className="text-xs font-semibold text-gray-700 mb-2">
                         Planilha CONTROLE (entrada e saída do mês)
                       </p>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -965,7 +965,7 @@ export function RelatoriosPage() {
                 ) : dados.tipo === 'mensal_operacional' ? (
                   <div className="space-y-4">
                     <div>
-                      <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">
+                      <p className="text-xs font-semibold text-gray-700 mb-2">
                         Extrato oficial (banco / Supabase)
                       </p>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -990,7 +990,7 @@ export function RelatoriosPage() {
                       </div>
                     </div>
                     <div>
-                      <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">
+                      <p className="text-xs font-semibold text-gray-700 mb-2">
                         Planilha CONTROLE (totais do mês)
                       </p>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -1176,7 +1176,7 @@ export function RelatoriosPage() {
               {errorIA && <ErrorPanel message={errorIA} />}
               {textoIA && dados && buildRelatorioExecutiveBullets(dados).length > 0 && (
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-900">Resumo executivo</p>
+                  <p className="text-xs font-semibold text-emerald-900">Resumo executivo</p>
                   <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-emerald-950">
                     {buildRelatorioExecutiveBullets(dados).map((b) => (
                       <li key={b}>{b}</li>
