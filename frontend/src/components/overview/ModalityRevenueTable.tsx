@@ -21,7 +21,7 @@ export function ModalityRevenueTable({ rows, total }: ModalityRevenueTableProps)
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>
-            <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-400">
+            <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold text-slate-500 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-400">
               <th className="px-4 py-3">Modalidade</th>
               <th className="px-4 py-3 text-right">Valor</th>
               <th className="px-4 py-3 text-right w-28">%</th>

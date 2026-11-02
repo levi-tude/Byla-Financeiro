@@ -87,7 +87,7 @@ export function Apresentacao({ spec, onClose }: { spec: CriacaoSpec; onClose: ()
               </>
             ) : (
               <div className="text-center">
-                <p className="mb-4 text-sm uppercase tracking-[0.3em] text-rose-600 dark:text-rose-400">Espaço Byla · Criações da IA</p>
+                <p className="mb-4 text-sm text-rose-600 dark:text-rose-400">Espaço Byla · Criações da IA</p>
                 <h1 className="bg-gradient-to-br from-slate-900 to-slate-500 dark:from-white dark:to-slate-400 bg-clip-text text-5xl font-bold tracking-tight text-transparent sm:text-7xl">{spec.titulo}</h1>
                 {spec.subtitulo ? <p className="mt-6 text-lg text-slate-500 dark:text-slate-400 sm:text-2xl">{spec.subtitulo}</p> : null}
               </div>

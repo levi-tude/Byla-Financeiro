@@ -98,7 +98,7 @@ export function Sidebar({ open = true, isMobile = false, onNavigate }: SidebarPr
 
           <div key={section.id}>
 
-            <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+            <p className="mb-1 px-3 text-[10px] font-semibold text-gray-500">
 
               {section.label}
 
@@ -120,7 +120,7 @@ export function Sidebar({ open = true, isMobile = false, onNavigate }: SidebarPr
 
                     {showGroup ? (
 
-                      <p className="mb-1 mt-2 px-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400 first:mt-0">
+                      <p className="mb-1 mt-2 px-3 text-[10px] font-semibold text-gray-400 first:mt-0">
 
                         {item.group}
 
@@ -176,7 +176,7 @@ export function Sidebar({ open = true, isMobile = false, onNavigate }: SidebarPr
 
           {auth.email ? <span>{auth.email}</span> : null}
 
-          {role ? <div className="mt-0.5 uppercase tracking-wide text-[10px]">{role}</div> : null}
+          {role ? <div className="mt-0.5 text-[10px] capitalize">{role}</div> : null}
 
         </div>
 

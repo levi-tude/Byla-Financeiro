@@ -190,7 +190,7 @@ function Comparison({ s, ds }: { s: Extract<Secao, { type: 'comparison' }>; ds: 
             transition={{ delay: i * 0.12 }}
             className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.03] p-5"
           >
-            <div className="text-xs uppercase tracking-widest text-slate-500 dark:text-slate-400">{c.label}</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">{c.label}</div>
             <div className="mt-3 flex items-end justify-between gap-2">
               <div>
                 <div className="text-xs text-slate-500">{fmt(a[s.x], xf)}</div>
@@ -219,7 +219,7 @@ function Tabela({ s, ds }: { s: Extract<Secao, { type: 'table' }>; ds: Dataset }
   return (
     <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-white/10">
       <table className="w-full text-sm">
-        <thead className="bg-slate-100 dark:bg-white/[0.04] text-left text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        <thead className="bg-slate-100 dark:bg-white/[0.04] text-left text-xs text-slate-500 dark:text-slate-400">
           <tr>{cols.map((c) => <th key={c.key} className={`px-4 py-3 ${c.formato === 'brl' || c.formato === 'numero' ? 'text-right' : ''}`}>{c.label}</th>)}</tr>
         </thead>
         <tbody>
@@ -261,10 +261,10 @@ export function KpiCards({ s, estatico = false }: { s: Extract<Secao, { type: 'k
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ delay: 0.1 + i * 0.1, type: 'spring', stiffness: 140, damping: 18 }}
           whileHover={reduce ? undefined : { y: -4 }}
-          className="relative overflow-hidden rounded-2xl border border-slate-200 dark:border-white/10 bg-gradient-to-br from-white dark:from-white/[0.07] to-slate-50 dark:to-white/[0.01] p-5 shadow-xl shadow-slate-300/40 dark:shadow-black/30"
+          className="relative overflow-hidden rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.04] p-5 shadow-xl shadow-slate-300/40 dark:shadow-black/30"
         >
           <BorderBeam delay={i * 2} />
-          <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{k.label}</div>
+          <div className="text-xs font-medium text-slate-500 dark:text-slate-400">{k.label}</div>
           {k.ref ? <div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{k.ref}</div> : null}
           <div className={`mt-3 text-2xl font-bold sm:text-3xl ${k.valor < 0 ? 'text-rose-600 dark:text-rose-300' : 'text-slate-900 dark:text-white'}`}>
             <NumberTicker value={k.valor} delay={Math.min(0.15, i * 0.05)} animar={!estatico} format={(n) => fmt(n, k.formato)} />

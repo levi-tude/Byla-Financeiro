@@ -504,7 +504,7 @@ export function FinancasAlunosPage() {
                     </div>
                     <div className="overflow-x-auto">
                       <table className="min-w-full text-left text-sm">
-                        <thead className="border-y border-slate-100 bg-slate-50/80 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-400">
+                        <thead className="border-y border-slate-100 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-400">
                           <tr>
                             <th className="px-4 py-2 font-medium">Data prevista</th>
                             <th className="px-4 py-2 font-medium">Data no banco</th>

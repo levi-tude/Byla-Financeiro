@@ -32,7 +32,7 @@ export function BankReconciliationCard({ entradas, saidas }: BankReconciliationC
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>
-            <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
+            <tr className="border-b border-slate-200 text-left text-xs font-semibold text-slate-500 dark:border-slate-700 dark:text-slate-400">
               <th className="pb-2 pr-4">Tipo</th>
               <th className="pb-2 pr-4 text-right">Extrato bancário</th>
               <th className="pb-2 pr-4 text-right">Fechamento</th>

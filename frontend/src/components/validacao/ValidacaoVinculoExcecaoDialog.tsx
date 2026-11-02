@@ -199,7 +199,7 @@ export function ValidacaoVinculoExcecaoDialog({
 
         <div className="grid min-h-0 flex-1 gap-4 overflow-auto p-5 md:grid-cols-2">
           <section className="flex min-h-0 flex-col gap-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Extrato (entrada)</h3>
+            <h3 className="text-xs font-semibold text-slate-500">Extrato (entrada)</h3>
             <input
               type="search"
               placeholder="Buscar pessoa ou descrição…"
@@ -240,7 +240,7 @@ export function ValidacaoVinculoExcecaoDialog({
           </section>
 
           <section className="flex min-h-0 flex-col gap-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Fluxo (pagamento)</h3>
+            <h3 className="text-xs font-semibold text-slate-500">Fluxo (pagamento)</h3>
             <input
               type="search"
               placeholder="Buscar aluno, modalidade…"

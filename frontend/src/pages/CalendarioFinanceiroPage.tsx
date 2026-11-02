@@ -344,7 +344,7 @@ export function CalendarioFinanceiroPage() {
           <select
             value={mes}
             onChange={(e) => setMes(Number(e.target.value))}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-w-[160px]"
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm min-w-40"
           >
             {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
               <option key={m} value={m}>
@@ -496,7 +496,7 @@ export function CalendarioFinanceiroPage() {
             ))}
             {slots.map((cell, idx) => {
               if (!cell) {
-                return <div key={`e-${idx}`} className="min-h-[100px] rounded-lg bg-gray-50/80 border border-transparent" />;
+                return <div key={`e-${idx}`} className="min-h-24 rounded-lg bg-gray-50/80 border border-transparent" />;
               }
               const { data, banco, planilha } = cell;
               const dayNum = Number(data.slice(8, 10));
@@ -516,7 +516,7 @@ export function CalendarioFinanceiroPage() {
                     }
                   }}
                   onClick={(e) => handleDiaClick(data, { shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey })}
-                  className={`min-h-[100px] rounded-lg border p-1.5 flex flex-col gap-1 cursor-pointer select-none ${
+                  className={`min-h-24 rounded-lg border p-1.5 flex flex-col gap-1 cursor-pointer select-none ${
                     selecionado ? 'border-byla-red bg-red-50/40 ring-2 ring-byla-red/20' : isToday ? 'border-byla-red bg-red-50/20' : 'border-gray-200 bg-white'
                   }`}
                 >
@@ -638,7 +638,7 @@ export function CalendarioFinanceiroPage() {
                                   onChange={(e) =>
                                     setDraftBancoPorPlanilha((prev) => ({ ...prev, [x.planilha.id]: e.target.value }))
                                   }
-                                  className="rounded-lg border border-gray-300 px-2 py-1.5 text-xs min-w-[320px]"
+                                  className="rounded-lg border border-gray-300 px-2 py-1.5 text-xs min-w-80"
                                 >
                                   <option value="">Selecione lançamento do banco...</option>
                                   {x.candidatos.map((c) => (

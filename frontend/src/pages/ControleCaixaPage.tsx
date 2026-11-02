@@ -764,7 +764,7 @@ export function ControleCaixaPage() {
 
             <div className="mt-2 grid gap-2 sm:grid-cols-3">
               <div className="rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2 dark:border-emerald-800 dark:bg-emerald-950/30">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-200">
+                <p className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-200">
                   Entradas
                 </p>
                 <p className="mt-0.5 text-xl font-bold tabular-nums text-emerald-950 dark:text-emerald-50">
@@ -783,7 +783,7 @@ export function ControleCaixaPage() {
                 ) : null}
               </div>
               <div className="rounded-lg border border-rose-200 bg-rose-50/80 px-3 py-2 dark:border-rose-800 dark:bg-rose-950/30">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-rose-800 dark:text-rose-200">Saídas</p>
+                <p className="text-[11px] font-semibold text-rose-800 dark:text-rose-200">Saídas</p>
                 <p className="mt-0.5 text-xl font-bold tabular-nums text-rose-950 dark:text-rose-50">
                   {formatNullableCurrency(totaisCalculados.saidaTotal) || 'R$ 0,00'}
                 </p>
@@ -801,7 +801,7 @@ export function ControleCaixaPage() {
                 ) : null}
               </div>
               <div className="rounded-lg border border-indigo-200 bg-indigo-50/80 px-3 py-2 dark:border-indigo-800 dark:bg-indigo-950/30">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-indigo-800 dark:text-indigo-200">
+                <p className="text-[11px] font-semibold text-indigo-800 dark:text-indigo-200">
                   Lucro
                 </p>
                 <p className="mt-0.5 text-xl font-bold tabular-nums text-indigo-950 dark:text-indigo-50">
