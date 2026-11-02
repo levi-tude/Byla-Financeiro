@@ -17,8 +17,31 @@ export type Dataset = {
   titulo: string;
   fonte: string;
   colunas: DatasetColuna[];
-  linhas: Array<Record<string, string | number>>;
+  /** null = sem dados (nunca zero). */
+  linhas: Array<Record<string, string | number | null>>;
+  /** Mensagem do estado vazio (ex.: "Sem dados de modalidade para nov/2026"). */
+  vazio?: string;
 };
+
+const MESES_PT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+/** "2026-10" → "out/2026" (pt-BR). Outros valores voltam como estão. */
+export function mesPt(v: unknown): string {
+  const m = String(v ?? '').match(/^(\d{4})-(\d{2})$/);
+  return m ? `${MESES_PT[Number(m[2]) - 1]}/${m[1]}` : String(v ?? '');
+}
+
+const MES_NOMES =
+  'jan(?:eiro|uary)?|fev(?:ereiro)?|feb(?:ruary)?|mar(?:[cç]o|ch)?|abr(?:il)?|apr(?:il)?|mai(?:o)?|may|jun(?:ho|e)?|jul(?:ho|y)?|ago(?:sto)?|aug(?:ust)?|set(?:embro)?|sep(?:t|tember)?|out(?:ubro)?|oct(?:ober)?|nov(?:embro|ember)?|dez(?:embro)?|dec(?:ember)?';
+const MES_TOKEN = `(?:(?:${MES_NOMES})\\.?(?:\\s*(?:de\\s*)?/?\\s*(?:19|20)?\\d{2,4})?|\\d{1,2}\\s*[/-]\\s*\\d{2,4}|(?:19|20)\\d{2})`;
+/**
+ * O mês do KPI vem SEMPRE da linha do dataset (campo `ref`), nunca do rótulo escrito pela IA:
+ * remove do rótulo "(OCT 2026)", "— out/2026", "nov 2026" etc.
+ */
+export function limparRotuloKpi(label: string): string {
+  const semParen = label.replace(new RegExp(`\\s*[([][^)\\]]*\\b${MES_TOKEN}\\b[^)\\]]*[)\\]]`, 'gi'), '');
+  const semSufixo = semParen.replace(new RegExp(`(?:\\s*[—–-]\\s*|\\s+(?:de|em)\\s+|\\s+)${MES_TOKEN}\\s*$`, 'i'), '');
+  return semSufixo.trim() || label.trim();
+}
 
 const id = z.string().min(1).max(40).regex(/^[a-z0-9_]+$/);
 const col = z.string().min(1).max(40).regex(/^[a-z0-9_]+$/);
@@ -65,7 +88,7 @@ export const criacaoDraftSchema = z.strictObject({
   secoes: z.array(z.unknown()).min(1).max(10),
 });
 
-export type KpiHidratado = { label: string; dataset: string; coluna: string; valor: number; formato: Formato };
+export type KpiHidratado = { label: string; dataset: string; coluna: string; valor: number; formato: Formato; ref?: string };
 export type Secao =
   | (Exclude<SecaoDraft, { type: 'kpi_cards' }>)
   | { type: 'kpi_cards'; titulo: string; itens: KpiHidratado[] };
@@ -81,15 +104,26 @@ export type CriacaoSpec = {
   avisos: string[];
 };
 
-function valorLinha(ds: Dataset, linha: z.infer<typeof linhaRef>, coluna: string): number | null {
+const isNumero = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/** Valor do KPI + o mês de onde ele veio. Linhas sem dados (null) são ignoradas; nada vira zero. */
+function valorLinha(ds: Dataset, linha: z.infer<typeof linhaRef>, coluna: string): { valor: number; ref?: string } | null {
   const c = ds.colunas.find((k) => k.key === coluna);
   if (!c || (c.formato !== 'brl' && c.formato !== 'numero')) return null;
-  const nums = ds.linhas.map((l) => l[coluna]);
-  if (nums.some((n) => typeof n !== 'number' || !Number.isFinite(n))) return null;
-  if (linha === 'total') return Math.round((nums as number[]).reduce((a, b) => a + b, 0) * 100) / 100;
-  const idx = linha === 'ultima' ? ds.linhas.length - 1 : linha;
-  const v = ds.linhas[idx]?.[coluna];
-  return typeof v === 'number' ? v : null;
+  if (ds.linhas.some((l) => l[coluna] != null && !isNumero(l[coluna]))) return null;
+  const colMes = ds.colunas.find((k) => k.formato === 'mes')?.key;
+  const mesDe = (l: Record<string, unknown> | undefined) => (colMes && l ? mesPt(l[colMes]) : undefined);
+  const comDado = ds.linhas.filter((l) => isNumero(l[coluna]));
+  if (linha === 'total') {
+    if (!comDado.length) return null;
+    const valor = Math.round(comDado.reduce((a, l) => a + (l[coluna] as number), 0) * 100) / 100;
+    const ini = mesDe(comDado[0]);
+    const fim = mesDe(comDado[comDado.length - 1]);
+    return { valor, ref: ini && fim ? (ini === fim ? ini : `${ini} a ${fim}`) : undefined };
+  }
+  const row = linha === 'ultima' ? comDado[comDado.length - 1] : ds.linhas[linha];
+  const v = row?.[coluna];
+  return isNumero(v) ? { valor: v, ref: mesDe(row) } : null;
 }
 
 /** Remove valores escritos pelo modelo no texto livre: números só vêm dos datasets. */
@@ -114,9 +148,17 @@ function checkSecao(s: SecaoDraft, byId: Map<string, Dataset>): Secao | string {
       if (!byId.has(it.dataset)) return `dataset inexistente: ${it.dataset}`;
       const d = byId.get(it.dataset)!;
       const v = valorLinha(d, it.linha, it.coluna);
-      if (v == null) return `kpi inválido: ${it.dataset}.${it.coluna}`;
-      itens.push({ label: it.label, dataset: it.dataset, coluna: it.coluna, valor: v, formato: d.colunas.find((c) => c.key === it.coluna)!.formato });
+      if (v == null) continue; // sem dados nessa linha/coluna: não mostra (nunca zero)
+      itens.push({
+        label: limparRotuloKpi(it.label),
+        dataset: it.dataset,
+        coluna: it.coluna,
+        valor: v.valor,
+        formato: d.colunas.find((c) => c.key === it.coluna)!.formato,
+        ...(v.ref ? { ref: v.ref } : {}),
+      });
   }
+    if (!itens.length) return 'kpi sem dados';
     return { type: 'kpi_cards', titulo: s.titulo, itens };
   }
   const ds = byId.get(s.dataset);

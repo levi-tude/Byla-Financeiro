@@ -39,6 +39,21 @@ function col(ds: Dataset, key: string) {
   return ds.colunas.find((c) => c.key === key) ?? { key, label: key, formato: 'texto' as const };
 }
 
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/** true quando nenhuma linha tem valor numérico (≠ 0) nas colunas pedidas → mostra estado vazio, nunca gráfico vazio. */
+export function semDados(ds: Dataset, keys: string[]): boolean {
+  return !ds.linhas.some((l) => keys.some((k) => isNum(l[k]) && l[k] !== 0));
+}
+
+export function EstadoVazio({ ds }: { ds: Dataset }) {
+  return (
+    <div className="grid min-h-[160px] place-items-center rounded-2xl border border-dashed border-slate-300 dark:border-white/15 p-6 text-center text-sm text-slate-500 dark:text-slate-400">
+      {ds.vazio ?? `Sem dados para ${ds.titulo}`}
+    </div>
+  );
+}
+
 function useAnim() {
   const reduce = useReducedMotion();
   return reduce ? { animation: false } : { animationDuration: 1100, animationEasing: 'cubicOut' as const, animationDurationUpdate: 700 };
@@ -59,7 +74,7 @@ function SeriesChart({ s, ds }: { s: Extract<Secao, { x: string; series: string[
         ...t.tooltip,
         trigger: 'axis',
         axisPointer: { type: isBar ? 'shadow' : 'cross', lineStyle: { color: t.pointer } },
-        valueFormatter: (v: number) => fmt(v, col(ds, s.series[0]!).formato),
+        valueFormatter: (v: number | null) => (v == null ? 'sem dados' : fmt(v, col(ds, s.series[0]!).formato)),
       },
       dataZoom: [{ type: 'inside' }],
       xAxis: { type: 'category', data: xs, boundaryGap: isBar, ...t.axis },
@@ -92,7 +107,8 @@ function Donut({ s, ds }: { s: Extract<Secao, { type: 'donut' }>; ds: Dataset })
   const anim = useAnim();
   const t = useChartTheme();
   const f = col(ds, s.valor).formato;
-  const total = ds.linhas.reduce((a, l) => a + Number(l[s.valor] ?? 0), 0);
+  const linhas = ds.linhas.filter((l) => isNum(l[s.valor]) && (l[s.valor] as number) > 0);
+  const total = linhas.reduce((a, l) => a + (l[s.valor] as number), 0);
   const option = useMemo<EChartsCoreOption>(
     () => ({
       ...anim,
@@ -108,11 +124,11 @@ function Donut({ s, ds }: { s: Extract<Secao, { type: 'donut' }>; ds: Dataset })
           label: { show: true, position: 'center', formatter: () => fmt(total, f, true), color: t.center, fontSize: 22, fontWeight: 700 },
           emphasis: { scale: true, scaleSize: 10 },
           animationType: 'scale',
-          data: ds.linhas.map((l) => ({ name: String(l[s.label]), value: l[s.valor] })),
+          data: linhas.map((l) => ({ name: String(l[s.label]), value: l[s.valor] })),
         },
       ],
     }),
-    [s, ds, anim, f, total, t],
+    [s, linhas, anim, f, total, t],
   );
   return <EChart option={option} />;
 }
@@ -120,7 +136,7 @@ function Donut({ s, ds }: { s: Extract<Secao, { type: 'donut' }>; ds: Dataset })
 function Ranking({ s, ds }: { s: Extract<Secao, { type: 'ranking' }>; ds: Dataset }) {
   const reduce = useReducedMotion();
   const f = col(ds, s.valor).formato;
-  const rows = [...ds.linhas].sort((a, b) => Number(b[s.valor]) - Number(a[s.valor])).slice(0, s.top ?? 10);
+  const rows = ds.linhas.filter((l) => isNum(l[s.valor])).sort((a, b) => Number(b[s.valor]) - Number(a[s.valor])).slice(0, s.top ?? 10);
   const max = Math.max(1, ...rows.map((r) => Number(r[s.valor])));
   return (
     <ol className="space-y-3">
@@ -162,10 +178,10 @@ function Comparison({ s, ds }: { s: Extract<Secao, { type: 'comparison' }>; ds: 
     <div className="grid gap-4 md:grid-cols-3">
       {s.colunas.map((k, i) => {
         const c = col(ds, k);
-        const va = Number(a[k]);
-        const vb = Number(b[k]);
-        const delta = va !== 0 ? ((vb - va) / Math.abs(va)) * 100 : null;
-        const up = vb >= va;
+        const va = isNum(a[k]) ? a[k] : null;
+        const vb = isNum(b[k]) ? b[k] : null;
+        const delta = va != null && vb != null && va !== 0 ? ((vb - va) / Math.abs(va)) * 100 : null;
+        const up = (vb ?? 0) >= (va ?? 0);
         return (
           <motion.div
             key={k}
@@ -178,12 +194,12 @@ function Comparison({ s, ds }: { s: Extract<Secao, { type: 'comparison' }>; ds: 
             <div className="mt-3 flex items-end justify-between gap-2">
               <div>
                 <div className="text-xs text-slate-500">{fmt(a[s.x], xf)}</div>
-                <div className="text-lg font-medium text-slate-600 dark:text-slate-300 tabular-nums">{fmt(va, c.formato)}</div>
+                <div className="text-lg font-medium text-slate-600 dark:text-slate-300 tabular-nums">{va == null ? 'sem dados' : fmt(va, c.formato)}</div>
               </div>
               <div className="text-2xl text-slate-400 dark:text-slate-600">→</div>
               <div className="text-right">
                 <div className="text-xs text-slate-500">{fmt(b[s.x], xf)}</div>
-                <div className="text-xl font-semibold text-slate-900 dark:text-white tabular-nums">{fmt(vb, c.formato)}</div>
+                <div className="text-xl font-semibold text-slate-900 dark:text-white tabular-nums">{vb == null ? 'sem dados' : fmt(vb, c.formato)}</div>
               </div>
             </div>
             {delta != null ? (
@@ -211,7 +227,7 @@ function Tabela({ s, ds }: { s: Extract<Secao, { type: 'table' }>; ds: Dataset }
             <motion.tr key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.05 }} className="border-t border-slate-100 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-white/[0.03]">
               {cols.map((c) => (
                 <td key={c.key} className={`px-4 py-2.5 ${c.formato === 'brl' || c.formato === 'numero' ? 'text-right tabular-nums' : ''} ${typeof l[c.key] === 'number' && Number(l[c.key]) < 0 ? 'text-rose-600 dark:text-rose-300' : 'text-slate-700 dark:text-slate-200'}`}>
-                  {fmt(l[c.key], c.formato)}
+                  {l[c.key] == null && (c.formato === 'brl' || c.formato === 'numero') ? <span className="text-xs italic text-slate-400">sem dados</span> : fmt(l[c.key], c.formato)}
                 </td>
               ))}
             </motion.tr>
@@ -237,6 +253,7 @@ export function KpiCards({ s }: { s: Extract<Secao, { type: 'kpi_cards' }> }) {
         >
           <BorderBeam delay={i * 2} />
           <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{k.label}</div>
+          {k.ref ? <div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{k.ref}</div> : null}
           <div className={`mt-3 text-2xl font-bold sm:text-3xl ${k.valor < 0 ? 'text-rose-600 dark:text-rose-300' : 'text-slate-900 dark:text-white'}`}>
             <NumberTicker value={k.valor} delay={0.2 + i * 0.1} format={(n) => fmt(n, k.formato)} />
           </div>
@@ -252,6 +269,15 @@ export function SectionView({ s, datasets }: { s: Secao; datasets: Dataset[] }) 
   if (s.type === 'kpi_cards') return <KpiCards s={s} />;
   const ds = datasets.find((d) => d.id === s.dataset);
   if (!ds) return null;
+  const chaves =
+    s.type === 'donut' || s.type === 'ranking'
+      ? [s.valor]
+      : s.type === 'comparison'
+        ? s.colunas
+        : s.type === 'table'
+          ? ds.colunas.filter((c) => c.formato === 'brl' || c.formato === 'numero').map((c) => c.key)
+          : s.series;
+  if (semDados(ds, chaves)) return <EstadoVazio ds={ds} />;
   switch (s.type) {
     case 'line_chart':
     case 'bar_chart':
@@ -272,4 +298,19 @@ export function fonteDaSecao(s: Secao, datasets: Dataset[]): string | null {
   if (s.type === 'narrative') return null;
   const id = s.type === 'kpi_cards' ? s.itens[0]?.dataset : s.dataset;
   return datasets.find((d) => d.id === id)?.fonte ?? null;
+}
+
+/**
+ * Layout responsivo: tudo ocupa a largura inteira, exceto donut/ranking que formam PAR lado a lado.
+ * Um donut/ranking sem par também ocupa a largura inteira (nada de meia tela vazia).
+ */
+export function larguraTotal(secoes: Secao[], i: number): boolean {
+  const meia = (x: Secao | undefined) => x?.type === 'donut' || x?.type === 'ranking';
+  if (!meia(secoes[i])) return true;
+  let ini = i;
+  while (ini > 0 && meia(secoes[ini - 1])) ini--;
+  let fim = i;
+  while (fim + 1 < secoes.length && meia(secoes[fim + 1])) fim++;
+  const tam = fim - ini + 1;
+  return tam % 2 === 1 && i === fim;
 }

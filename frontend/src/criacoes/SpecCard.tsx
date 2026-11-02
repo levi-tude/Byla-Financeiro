@@ -8,7 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { salvarCriacaoIa, type CriacaoVisibilidade } from '../services/backendApi';
 import { Apresentacao, tituloSecao } from './Apresentacao';
 import { guardarSpecDoChat } from './chatHandoff';
-import { fonteDaSecao, SectionView } from './SectionView';
+import { fonteDaSecao, larguraTotal, SectionView } from './SectionView';
 import { secoesRenderizaveis, type CriacaoSpec, type Secao } from './types';
 
 const btn =
@@ -44,8 +44,8 @@ function TelaCheia({ spec, onClose }: { spec: CriacaoSpec; onClose: () => void }
           <button type="button" className={btn} onClick={onClose}>Fechar (Esc)</button>
         </header>
         <div className="grid gap-4 lg:grid-cols-2">
-          {secoesRenderizaveis(spec).map((s, i) => (
-            <div key={i} className={s.type === 'kpi_cards' || s.type === 'table' ? 'lg:col-span-2' : ''}>
+          {secoesRenderizaveis(spec).map((s, i, arr) => (
+            <div key={i} className={larguraTotal(arr, i) ? 'lg:col-span-2' : ''}>
               <Bloco s={s} spec={spec} />
             </div>
           ))}

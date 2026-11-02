@@ -17,17 +17,16 @@ import {
   type CriacaoVisibilidade,
 } from '../services/backendApi';
 import { DEMO_BALANCO_4_MESES } from '../criacoes/demoSpec';
-import { fonteDaSecao, SectionView } from '../criacoes/SectionView';
+import { fonteDaSecao, larguraTotal, SectionView } from '../criacoes/SectionView';
 import { secoesRenderizaveis, type CriacaoSpec, type Secao } from '../criacoes/types';
 import { Apresentacao, tituloSecao } from '../criacoes/Apresentacao';
 import { lerSpecDoChat } from '../criacoes/chatHandoff';
 
 const SUGESTOES = ['Balanço dos últimos 4 meses', 'Entradas por modalidade deste mês', 'Compare agosto com setembro', 'Meios de pagamento do mês'];
 
-function Card({ s, spec, i }: { s: Secao; spec: CriacaoSpec; i: number }) {
+function Card({ s, spec, i, wide }: { s: Secao; spec: CriacaoSpec; i: number; wide: boolean }) {
   const reduce = useReducedMotion();
   const fonte = fonteDaSecao(s, spec.datasets);
-  const wide = s.type === 'kpi_cards' || s.type === 'table' || s.type === 'comparison' || s.type === 'narrative' || s.type === 'bar_chart';
   return (
     <motion.section
       initial={reduce ? false : { opacity: 0, y: 32 }}
@@ -256,7 +255,7 @@ export default function CriacoesIaPage() {
                 <ul className="mb-5 space-y-1 text-xs text-amber-700 dark:text-amber-200/80">{spec.avisos.map((a, i) => <li key={i}>• {a}</li>)}</ul>
               ) : null}
               <div className="grid gap-5 lg:grid-cols-2">
-                {secoes.map((s, i) => <Card key={`${s.type}-${i}`} s={s} spec={spec} i={i} />)}
+                {secoes.map((s, i) => <Card key={`${s.type}-${i}`} s={s} spec={spec} i={i} wide={larguraTotal(secoes, i)} />)}
               </div>
             </motion.div>
           ) : null}
