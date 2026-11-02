@@ -25,7 +25,13 @@ const DEFAULT_ELIGIBLE_SHEETS = [
   'G.R.',
   'TEATRO INFANTIL',
 ];
-const DEFAULT_EXTERNAL_ENTRIES = ['EA ', 'BLEAD AD TECH'];
+/**
+ * Pagadores externos (salário do outro trabalho do Samuel) — padrões LIKE em minúsculas,
+ * aplicados a `pessoa` ou `descricao` (trim + lower). Fallback do código quando a tabela
+ * `public.regras_externos` não existe ou não pôde ser lida. Manter igual ao seed da migração
+ * `scripts/migrations/2026-11-01-regras-externos-salario-samuel.sql`.
+ */
+export const DEFAULT_PADROES_EXTERNOS: readonly string[] = ['ea %', '%blead ad tech%', 'rbc marketing%'];
 
 /** Regras centralizadas para facilitar ajustes sem editar rotas. */
 export const businessRules = {
@@ -38,20 +44,17 @@ export const businessRules = {
     graceDiasAposVencimento: parseNumberEnv(process.env.BYLA_GRACE_DIAS_APOS_VENCIMENTO, 5),
   },
   transacoes: {
-    externalEntryNames: parseListEnv(process.env.BYLA_EXTERNAL_ENTRIES, DEFAULT_EXTERNAL_ENTRIES),
-    samuelNamePrefix: (process.env.BYLA_SAMUEL_NAME_PREFIX ?? 'samuel davi tude silva').trim().toLowerCase(),
+    /** Fallback dos padrões de pagador externo (fonte principal: tabela regras_externos). */
+    padroesExternosFallback: DEFAULT_PADROES_EXTERNOS,
+    samuelNamePrefix: 'samuel davi tude silva',
     /**
-     * Tolerância (R$) para parear entrada EA/Blead com saída Samuel no mesmo dia.
-     * Padrão R$ 800 por decisão do Levi (30/10/2026). A view `v_resumo_mensal_oficial` (banco)
-     * usa `abs(s.valor - e.valor) <= 300`: divergência conhecida e documentada em docs/CONSULTA_BYLA_IA.md.
+     * Tolerância (R$) do par entrada externa × saída Samuel (1:1 ou soma do dia ±1).
+     * FIXA (sem env) para ficar idêntica à view `v_resumo_mensal_oficial`; R$ 800 por decisão do Levi (30/10/2026).
+     * Se mudar aqui, mude na migração também (teste `regraParidadeSql.test.ts` confere).
      */
-    externalPairTolerance: parseNumberEnv(process.env.BYLA_EXTERNAL_PAIR_TOLERANCE, 800),
-    /**
-     * Saídas com nome Samuel nesta faixa de valor são sempre excluídas do extrato oficial
-     * (repasse externo ~5k — não entram em totais nem relatórios que usam este filtro).
-     */
-    samuelRepasseValorMin: parseNumberEnv(process.env.BYLA_SAMUEL_REPASSE_VALOR_MIN, 4800),
-    samuelRepasseValorMax: parseNumberEnv(process.env.BYLA_SAMUEL_REPASSE_VALOR_MAX, 6500),
+    externalPairTolerance: 800,
+    /** Janela em dias entre a entrada externa e a saída Samuel. */
+    externalPairJanelaDias: 1,
   },
   docs: {
     sourceRule: 'docs/REGRAS_FONTES_SUPABASE_PLANILHAS.md',
