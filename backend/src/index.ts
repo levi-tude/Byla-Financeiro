@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto';
 import { config } from './config.js';
 import apiRoutes from './routes/api.js';
 import { log } from './services/logger.js';
+import { iniciarRegrasExternos } from './services/regrasExternos.js';
 
 const app = express();
 const corsOrigins = config.corsOrigin;
@@ -52,6 +53,7 @@ app.use('/api', apiRoutes);
 
 app.listen(config.port, () => {
   log('info', { msg: `Byla backend listening on http://localhost:${config.port}` });
+  iniciarRegrasExternos();
   if (config.geminiApiKey) {
     log('info', { msg: 'GEMINI_API_KEY: carregada (relatórios com IA)' });
   }
