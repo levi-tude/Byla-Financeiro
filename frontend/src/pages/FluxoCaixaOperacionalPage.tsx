@@ -3659,7 +3659,6 @@ export function FluxoCaixaOperacionalPage() {
 
             {!listagemCarregando && linhasParaLista.length > 0 && (
               <div className="space-y-3">
-                <p className="text-xs text-slate-500 dark:text-slate-400 md:hidden">Deslize horizontalmente em cada tabela.</p>
                 {ativoFiltro !== 'inativos' && (
                   <>
                     {ativoFiltro === 'todos' && gruposFluxoAtivos.length > 0 ? (
