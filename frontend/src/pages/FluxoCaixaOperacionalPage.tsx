@@ -38,6 +38,7 @@ import {
 import { Link } from 'react-router-dom';
 import { PeriodoMesCalendarioPopover } from '../components/transacoes/PeriodoMesCalendarioPopover';
 import { FilterBar } from '../components/finance/FilterBar';
+import { DesktopOnly, MobileCard, MobileField, MobileOnly } from '../components/mobile/MobileRowCards';
 
 function formatBrl(n: number | null | undefined): string {
   if (n == null || Number.isNaN(Number(n))) return '—';
@@ -2409,6 +2410,7 @@ export function FluxoCaixaOperacionalPage() {
                       <strong className="font-semibold text-slate-700 dark:text-slate-200">{nAlunosMod}</strong> aluno(s)
                     </span>
                   </summary>
+                  <DesktopOnly>
                   <div className="overflow-x-auto px-1 pb-2">
                     <table className={`w-full text-sm ${mensalColunasExtras ? 'min-w-[980px]' : 'min-w-0'}`}>
                       <thead className="bg-slate-100/95 text-left text-xs font-semibold text-slate-600 dark:bg-slate-800/95 dark:text-slate-400">
@@ -2438,6 +2440,87 @@ export function FluxoCaixaOperacionalPage() {
                       </tbody>
                     </table>
                   </div>
+                  </DesktopOnly>
+                  <MobileOnly>
+                    <ul className="space-y-2 px-2 pb-2">
+                      {grupoMod.linhas.map((linha) => {
+                        const nome =
+                          linha.kind === 'com_pagamento'
+                            ? linha.pagamento.aluno_nome
+                            : linha.aluno.aluno_nome;
+                        const valorPago =
+                          linha.kind === 'com_pagamento' ? formatBrl(linha.pagamento.valor) : '—';
+                        const dataPag =
+                          linha.kind === 'com_pagamento'
+                            ? formatDataBr(linha.pagamento.data_pagamento)
+                            : '—';
+                        const valorRef =
+                          linha.kind === 'com_pagamento'
+                            ? formatBrl(
+                                linha.aluno?.valor_mensal_exibicao ??
+                                  linha.aluno?.valor_referencia ??
+                                  linha.pagamento.aluno_valor_referencia,
+                              )
+                            : formatBrl(linha.aluno.valor_mensal_exibicao ?? linha.aluno.valor_referencia);
+                        const pends = pendenciasParaExibir(linha);
+                        return (
+                          <li key={`m-${linha.kind === 'com_pagamento' ? `p-${linha.pagamento.id}` : `a-${linha.aluno.id}`}`}>
+                            <MobileCard
+                              title={nome}
+                              footer={
+                                <div className="flex flex-wrap gap-2">
+                                  {linha.kind === 'com_pagamento' ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => abrirEditarPagamento(linha.pagamento)}
+                                      className="min-h-11 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200"
+                                    >
+                                      Pagamento
+                                    </button>
+                                  ) : null}
+                                  {(linha.kind === 'com_pagamento' ? linha.aluno : linha.aluno) ? (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        abrirEditarAluno(
+                                          linha.kind === 'com_pagamento' ? linha.aluno! : linha.aluno,
+                                        )
+                                      }
+                                      className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                                    >
+                                      Cadastro
+                                    </button>
+                                  ) : linha.kind === 'com_pagamento' ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => abrirCadastroAPartirDoPagamento(linha.pagamento)}
+                                      className="min-h-11 rounded-lg border border-violet-300 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-800 dark:border-violet-600 dark:bg-violet-950 dark:text-violet-200"
+                                    >
+                                      Cadastro
+                                    </button>
+                                  ) : null}
+                                </div>
+                              }
+                            >
+                              <MobileField label="Valor ref." value={valorRef} />
+                              <MobileField label="Data pagto." value={dataPag} />
+                              <MobileField label="Valor pago" value={valorPago} />
+                              <MobileField
+                                label="Pendências"
+                                value={
+                                  pends.length === 0 ? (
+                                    <span className="font-medium text-emerald-700 dark:text-emerald-400">Ok</span>
+                                  ) : (
+                                    pends.join(' · ')
+                                  )
+                                }
+                              />
+                            </MobileCard>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </MobileOnly>
                 </details>
               );
             })}
@@ -2889,6 +2972,7 @@ export function FluxoCaixaOperacionalPage() {
                   ))}
                 </div>
 
+                <DesktopOnly>
                 <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/70">
                   <table className="w-full min-w-[920px] text-xs">
                     <thead className="bg-slate-100/90 text-left font-semibold text-slate-600 dark:bg-slate-800/90 dark:text-slate-400">
@@ -2928,6 +3012,26 @@ export function FluxoCaixaOperacionalPage() {
                     </tbody>
                   </table>
                 </div>
+                </DesktopOnly>
+                <MobileOnly>
+                  <ul className="space-y-2">
+                    {itensResumoFormaSelecionada.slice(0, 120).map((p) => {
+                      const aluno = alunoPorChave.get(normKeyFluxo(p.aba, p.modalidade, p.linha_planilha, p.aluno_nome)) ?? null;
+                      return (
+                        <li key={`m-rf-${p.id}`}>
+                          <MobileCard title={p.aluno_nome}>
+                            <MobileField label="Forma" value={normalizarFormaPagamentoFluxo(p.forma)} />
+                            <MobileField label="Data" value={formatDataBr(p.data_pagamento)} />
+                            <MobileField label="Responsável" value={responsaveisUnificado(aluno, p)} />
+                            <MobileField label="Pagador" value={pagadorUnificado(aluno, p)} />
+                            <MobileField label="Aba / Modalidade" value={`${p.aba} / ${p.modalidade}`} />
+                            <MobileField label="Valor" value={<span className="font-semibold tabular-nums">{formatBrl(p.valor)}</span>} />
+                          </MobileCard>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </MobileOnly>
               </>
             ) : null}
           </section>
@@ -3235,6 +3339,7 @@ export function FluxoCaixaOperacionalPage() {
                           ) : null}{' '}
                           · {itensExibicao.length} aluno(s)
                         </summary>
+                        <DesktopOnly>
                         <div className="overflow-x-auto border-t border-slate-100 p-3 dark:border-slate-700">
                           <table className="w-full min-w-[2200px] text-xs">
                             <thead className="bg-slate-100 text-left font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-400">
@@ -3339,6 +3444,67 @@ export function FluxoCaixaOperacionalPage() {
                             </tbody>
                           </table>
                         </div>
+                        </DesktopOnly>
+                        <MobileOnly>
+                          <ul className="space-y-3 border-t border-slate-100 p-3 dark:border-slate-700">
+                            {itensExibicao.map((item) => (
+                              <li key={`m-multi-${item.id}`}>
+                                <MobileCard
+                                  title={item.alunoNome}
+                                  footer={
+                                    <div className="flex flex-wrap gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => abrirEditarCadastroMulti(item)}
+                                        className="min-h-11 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                                      >
+                                        Editar cadastro
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const aluno = alunoPorId.get(item.id);
+                                          if (aluno) abrirPagamentoProximoMes(aluno);
+                                        }}
+                                        className="min-h-11 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-200"
+                                      >
+                                        Próximo mês
+                                      </button>
+                                    </div>
+                                  }
+                                >
+                                  <MobileField label="Vencimento" value={item.vencimento || '—'} />
+                                  <MobileField label="Valor ref." value={formatBrl(item.valorReferencia)} />
+                                  <MobileField label="Responsável" value={item.responsaveis || '—'} />
+                                  <MobileField label="Pagador" value={item.pagadorPix || '—'} />
+                                  <div className="pt-1">
+                                    <p className="mb-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">Meses</p>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {item.historico.map((mesItem) => (
+                                        <span
+                                          key={`${item.id}-${mesItem.key}`}
+                                          className={`rounded-lg px-2 py-1 text-[11px] leading-snug ${statusMesClasse(mesItem.status)}`}
+                                          title={`Data: ${mesItem.dataPagamento ? formatDataBr(mesItem.dataPagamento) : '—'} · Valor: ${
+                                            mesItem.valorPago > 0
+                                              ? formatBrl(mesItem.valorPago)
+                                              : mesItem.valorEsperado != null && mesItem.status === 'previsto'
+                                                ? formatBrl(mesItem.valorEsperado)
+                                                : '—'
+                                          }`}
+                                        >
+                                          <span className="font-semibold">{mesAnoCurto(Number(mesItem.key.split('-')[1]), Number(mesItem.key.split('-')[0]))}</span>
+                                          {' · '}
+                                          {statusMesLabel(mesItem.status)}
+                                          {mesItem.valorPago > 0 ? ` · ${formatBrl(mesItem.valorPago)}` : ''}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </MobileCard>
+                              </li>
+                            ))}
+                          </ul>
+                        </MobileOnly>
                       </details>
                     );
                   })}

@@ -3,6 +3,7 @@ import { usePersistedPageState } from '../hooks/usePersistedPageState';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Topbar } from '../app/Topbar';
+import { DesktopOnly, MobileCard, MobileField, MobileOnly } from '../components/mobile/MobileRowCards';
 import { ValidacaoCalendarioGuia } from '../components/validacao/ValidacaoCalendarioGuia';
 import { ValidacaoVinculoExcecaoDialog } from '../components/validacao/ValidacaoVinculoExcecaoDialog';
 import {
@@ -1272,6 +1273,7 @@ export function ValidacaoPagamentosDiariaPage() {
                 Os lançamentos aparecem no dia da <b>data de pagamento</b>. Se a competência (mês do serviço) for outra, mostramos um aviso na coluna Competência.
               </p>
             </div>
+            <DesktopOnly>
             <div className="p-4 overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
@@ -1304,6 +1306,26 @@ export function ValidacaoPagamentosDiariaPage() {
                 </tbody>
               </table>
             </div>
+            </DesktopOnly>
+            <MobileOnly>
+              <ul className="space-y-3 p-4">
+                {respostaFiltrada.planilha.itens.length === 0 ? (
+                  <li className="text-sm text-gray-500">Nenhum pagamento no fluxo para este filtro.</li>
+                ) : (
+                  respostaFiltrada.planilha.itens.map((i) => (
+                    <li key={`m-fluxo-${i.id}`}>
+                      <MobileCard title={i.aluno}>
+                        <MobileField label="Aba" value={i.aba} />
+                        <MobileField label="Modalidade" value={i.modalidade} />
+                        <MobileField label="Data" value={i.data} />
+                        <MobileField label="Forma" value={i.forma || '—'} />
+                        <MobileField label="Valor" value={formatCurrency(i.valor)} />
+                      </MobileCard>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </MobileOnly>
           </section>
 
           <section className="mt-6 bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -1320,6 +1342,7 @@ export function ValidacaoPagamentosDiariaPage() {
                 </p>
               ) : null}
             </div>
+            <DesktopOnly>
             <div className="p-4 overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
@@ -1348,12 +1371,33 @@ export function ValidacaoPagamentosDiariaPage() {
                 </tbody>
               </table>
             </div>
+            </DesktopOnly>
+            <MobileOnly>
+              <ul className="space-y-3 p-4">
+                {resposta.banco.itens.filter((b) => (b.data ?? '').slice(0, 10) === data).length === 0 ? (
+                  <li className="text-sm text-gray-500">Nenhuma entrada de banco para este dia.</li>
+                ) : (
+                  resposta.banco.itens
+                    .filter((b) => (b.data ?? '').slice(0, 10) === data)
+                    .map((b) => (
+                      <li key={`m-banco-${b.id}`}>
+                        <MobileCard title={b.pessoa}>
+                          <MobileField label="Data" value={b.data} />
+                          <MobileField label="Descrição" value={b.descricao || '—'} />
+                          <MobileField label="Valor" value={formatCurrency(b.valor)} />
+                        </MobileCard>
+                      </li>
+                    ))
+                )}
+              </ul>
+            </MobileOnly>
           </section>
 
           <section className="mt-6 bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-4 py-3 border-b bg-gray-50">
               <h2 className="font-semibold text-gray-900">Confirmados (fluxo × banco)</h2>
             </div>
+            <DesktopOnly>
             <div className="p-4 overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
@@ -1382,12 +1426,31 @@ export function ValidacaoPagamentosDiariaPage() {
                 </tbody>
               </table>
             </div>
+            </DesktopOnly>
+            <MobileOnly>
+              <ul className="space-y-3 p-4">
+                {(validacaoAjustada ?? respostaFiltrada.validacao).itens_confirmados.length === 0 ? (
+                  <li className="text-sm text-gray-500">Nenhum item confirmado.</li>
+                ) : (
+                  (validacaoAjustada ?? respostaFiltrada.validacao).itens_confirmados.map((c) => (
+                    <li key={`m-conf-${c.planilha.id}::${c.banco.id}`}>
+                      <MobileCard title={c.planilha.aluno}>
+                        <MobileField label="Pessoa (banco)" value={c.banco.pessoa} />
+                        <MobileField label="Data" value={c.planilha.data} />
+                        <MobileField label="Valor" value={formatCurrency(c.planilha.valor)} />
+                      </MobileCard>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </MobileOnly>
           </section>
 
           <section className="mt-6 bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-4 py-3 border-b bg-gray-50">
               <h2 className="font-semibold text-gray-900">Não confirmados no banco</h2>
             </div>
+            <DesktopOnly>
             <div className="p-4 overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
@@ -1420,6 +1483,26 @@ export function ValidacaoPagamentosDiariaPage() {
                 </tbody>
               </table>
             </div>
+            </DesktopOnly>
+            <MobileOnly>
+              <ul className="space-y-3 p-4">
+                {(validacaoAjustada ?? respostaFiltrada.validacao).itens_nao_confirmados.length === 0 ? (
+                  <li className="text-sm text-gray-500">Nenhum item.</li>
+                ) : (
+                  (validacaoAjustada ?? respostaFiltrada.validacao).itens_nao_confirmados.map((i) => (
+                    <li key={`m-nao-${i.id}`}>
+                      <MobileCard title={i.aluno}>
+                        <MobileField label="Aba" value={i.aba} />
+                        <MobileField label="Modalidade" value={i.modalidade} />
+                        <MobileField label="Data" value={i.data} />
+                        <MobileField label="Forma" value={i.forma || '—'} />
+                        <MobileField label="Valor" value={formatCurrency(i.valor)} />
+                      </MobileCard>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </MobileOnly>
           </section>
 
           <section className="mt-6 bg-white rounded-xl border border-gray-200 overflow-hidden">

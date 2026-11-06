@@ -16,6 +16,7 @@ import {
   type TransacaoItem,
 } from '../services/backendApi';
 import { FilterBar } from '../components/finance/FilterBar';
+import { DesktopOnly, MobileCard, MobileField, MobileOnly } from '../components/mobile/MobileRowCards';
 import { KpiStrip } from '../components/finance/KpiStrip';
 import { DataTable } from '../components/finance/DataTable';
 import { StatusBadge } from '../components/finance/StatusBadge';
@@ -929,6 +930,7 @@ export function TransacoesPage() {
               )}
             </p>
           </div>
+          <DesktopOnly>
           <div className="max-h-72 overflow-auto rounded-lg border border-slate-100 dark:border-slate-700">
             <table className="w-full border-collapse text-sm">
               <thead className="sticky top-0 z-10">
@@ -1021,6 +1023,54 @@ export function TransacoesPage() {
               </tbody>
             </table>
           </div>
+          </DesktopOnly>
+          <MobileOnly>
+            <ul className="max-h-72 space-y-2 overflow-y-auto">
+              {resumoPorDia.length === 0 ? (
+                <li className="py-4 text-center text-sm text-slate-500">Sem dados para o filtro atual.</li>
+              ) : (
+                resumoPorDia.map((r) => {
+                  const dataLabel = formatDate(r.data);
+                  const diaSelecionado = diaFiltradoResumo === r.data;
+                  return (
+                    <li key={`m-dia-${r.data}`}>
+                      <button
+                        type="button"
+                        onClick={() => aplicarFiltroDiaNaData(r.data)}
+                        className={`w-full rounded-xl border p-3 text-left ${
+                          diaSelecionado
+                            ? 'border-indigo-400 bg-indigo-50 dark:border-indigo-600 dark:bg-indigo-950/40'
+                            : 'border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900'
+                        }`}
+                      >
+                        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{dataLabel}</div>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <span className="text-slate-500">Entradas</span>
+                            <div className="font-medium text-emerald-700 dark:text-emerald-400">{formatCurrency(r.entradas)}</div>
+                          </div>
+                          <div>
+                            <span className="text-slate-500">Saídas</span>
+                            <div className="font-medium text-rose-700 dark:text-rose-400">{formatCurrency(r.saidas)}</div>
+                          </div>
+                          <div>
+                            <span className="text-slate-500">Saldo</span>
+                            <div className={`font-medium ${r.saldo >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`}>
+                              {formatCurrency(r.saldo)}
+                            </div>
+                          </div>
+                          <div>
+                            <span className="text-slate-500">Qtd</span>
+                            <div className="font-medium text-slate-800 dark:text-slate-200">{r.qtd}</div>
+                          </div>
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })
+              )}
+            </ul>
+          </MobileOnly>
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -1047,6 +1097,7 @@ export function TransacoesPage() {
           <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Resumo por método de pagamento</h3>
           <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{competenciaRef}</p>
         </div>
+        <DesktopOnly>
         <div className="overflow-auto">
           <table className="w-full text-sm">
             <thead>
@@ -1080,6 +1131,26 @@ export function TransacoesPage() {
             </tbody>
           </table>
         </div>
+        </DesktopOnly>
+        <MobileOnly>
+          <ul className="space-y-2">
+            {resumoPorMetodo.length === 0 ? (
+              <li className="py-4 text-center text-sm text-slate-500">Sem dados para o filtro atual.</li>
+            ) : (
+              resumoPorMetodo.map((r) => (
+                <li key={`m-met-${r.metodo}`}>
+                  <MobileCard title={r.metodo}>
+                    <MobileField label="Entradas (qtd)" value={r.entradas_qtd} />
+                    <MobileField label="Entradas (valor)" value={<span className="text-emerald-700">{formatCurrency(r.entradas_valor)}</span>} />
+                    <MobileField label="Saídas (qtd)" value={r.saidas_qtd} />
+                    <MobileField label="Saídas (valor)" value={<span className="text-rose-700">{formatCurrency(r.saidas_valor)}</span>} />
+                    <MobileField label="Total" value={<span className="font-medium">{formatCurrency(r.total_valor)}</span>} />
+                  </MobileCard>
+                </li>
+              ))
+            )}
+          </ul>
+        </MobileOnly>
       </section>
 
       <DataTable
