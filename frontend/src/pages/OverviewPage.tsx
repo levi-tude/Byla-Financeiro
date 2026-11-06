@@ -219,7 +219,7 @@ export function OverviewPage() {
         childrenRight={
           <Link
             to={relatorioHref}
-            className="rounded-lg border border-rose-300 bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 dark:border-rose-700 dark:bg-rose-700 dark:hover:bg-rose-600"
+            className="inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-rose-300 bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 dark:border-rose-700 dark:bg-rose-700 dark:hover:bg-rose-600 sm:w-auto"
           >
             Relatório IA do mês
           </Link>
