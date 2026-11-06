@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { chatConsultaByla } from '../../services/backendApi';
 import { useToast } from '../../context/ToastContext';
 import type { AssistantRequestContext, ChatMessage } from './types';
@@ -57,8 +57,12 @@ export function AccessibilityChatPanel({ open, onClose, context }: ConsultaBylaP
       createdAt: Date.now(),
     },
   ]);
+  /** Só afeta o layout desktop (≥lg). No celular o chat já é tela cheia. */
   const [expandido, setExpandido] = useState(false);
   const [quickReplies, setQuickReplies] = useState<string[]>(CONSULTA_MENU_LABELS.slice(0, 8));
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const messagesScrollRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   const replies = useMemo(
     () => (quickReplies.length > 0 ? quickReplies : CONSULTA_MENU_LABELS.slice(0, 8)),
@@ -69,13 +73,28 @@ export function AccessibilityChatPanel({ open, onClose, context }: ConsultaBylaP
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      // Tela cheia/apresentação de um cartão fecham primeiro.
       if (document.fullscreenElement || document.querySelector('[data-byla-overlay]')) return;
       onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
+
+  // Trava o scroll do body no celular enquanto o chat está aberto.
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
+  // Ancora na última mensagem (abertura e cada resposta).
+  useLayoutEffect(() => {
+    if (!open) return;
+    messagesEndRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  }, [open, messages, sending]);
 
   if (!open) return null;
 
@@ -100,7 +119,13 @@ export function AccessibilityChatPanel({ open, onClose, context }: ConsultaBylaP
       setMessages((prev) =>
         [
           ...prev,
-          { id: uid(), role: 'assistant' as const, text: response.message, createdAt: Date.now(), visual: response.visual ?? null },
+          {
+            id: uid(),
+            role: 'assistant' as const,
+            text: response.message,
+            createdAt: Date.now(),
+            visual: response.visual ?? null,
+          },
         ].slice(-HISTORY_LIMIT),
       );
       setQuickReplies(
@@ -122,46 +147,57 @@ export function AccessibilityChatPanel({ open, onClose, context }: ConsultaBylaP
       );
     } finally {
       setSending(false);
+      // Reabre o teclado no celular após enviar (comportamento de app de conversa).
+      requestAnimationFrame(() => inputRef.current?.focus());
     }
   };
 
   return (
     <>
-      <div className="fixed inset-0 z-[88] bg-slate-900/40" role="presentation" onClick={onClose} />
+      {/* Overlay só no desktop — no mobile o painel já é tela cheia. */}
+      <div
+        className="fixed inset-0 z-[88] hidden bg-slate-900/40 lg:block"
+        role="presentation"
+        onClick={onClose}
+      />
       <section
-        className={`fixed z-[89] flex flex-col border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900 ${
+        className={`fixed z-[89] flex flex-col overflow-hidden border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900 ${
           expandido
-            ? 'inset-0 lg:inset-6 lg:rounded-xl lg:left-auto lg:w-[min(960px,calc(100vw-3rem))]'
-            : 'inset-0 max-h-none rounded-none lg:inset-auto lg:bottom-24 lg:left-auto lg:right-6 lg:max-h-[80vh] lg:w-[440px] lg:rounded-xl'
+            ? // Desktop expandido
+              'inset-0 h-dvh max-h-dvh lg:inset-6 lg:left-auto lg:h-auto lg:max-h-[calc(100dvh-3rem)] lg:w-[min(960px,calc(100vw-3rem))] lg:rounded-xl'
+            : // Mobile: app de conversa em tela cheia (dvh). Desktop: cartão flutuante.
+              'inset-0 h-dvh max-h-dvh rounded-none lg:inset-auto lg:bottom-24 lg:left-auto lg:right-6 lg:h-auto lg:max-h-[min(80vh,720px)] lg:w-[440px] lg:rounded-xl'
         }`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="consulta-byla-titulo"
         onPointerDown={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-700">
-          <div>
-            <p id="consulta-byla-titulo" className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+        {/* Cabeçalho compacto */}
+        <header className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 px-3 py-2.5 dark:border-slate-700 sm:px-4">
+          <div className="min-w-0">
+            <p id="consulta-byla-titulo" className="truncate text-base font-semibold text-slate-900 dark:text-slate-100">
               Consulta Byla
             </p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Só leitura · competência {context.monthYear ?? 'atual'}
+            <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+              Só leitura · {context.monthYear ?? 'mês atual'}
             </p>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex shrink-0 items-center gap-1">
             <button
               type="button"
               aria-pressed={expandido}
               aria-label={expandido ? 'Reduzir janela' : 'Expandir janela'}
               title={expandido ? 'Reduzir janela' : 'Expandir janela'}
-              className="rounded-md px-2 py-1 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+              className="hidden min-h-11 items-center rounded-lg px-2.5 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 lg:inline-flex"
               onClick={() => setExpandido((v) => !v)}
             >
-              {expandido ? '⤡ Reduzir' : '⤢ Expandir'}
+              {expandido ? 'Reduzir' : 'Expandir'}
             </button>
             <button
               type="button"
-              className="rounded-md px-2 py-1 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+              aria-label="Fechar Consulta Byla"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
               onClick={onClose}
             >
               Fechar
@@ -169,35 +205,58 @@ export function AccessibilityChatPanel({ open, onClose, context }: ConsultaBylaP
           </div>
         </header>
 
-        <div className={`space-y-2 overflow-y-auto px-4 py-3 ${expandido ? 'min-h-0 flex-1' : 'max-h-[42vh]'}`}>
-          {messages.map((m) => (
-            <div
-              key={m.id}
-              className={`rounded-lg px-3 py-2 text-sm ${
-                m.role === 'user'
-                  ? 'ml-10 bg-indigo-600 text-white'
-                  : 'mr-8 border border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100'
-              }`}
-            >
-              <span className="whitespace-pre-wrap leading-relaxed">{m.text}</span>
-              {m.role === 'assistant' && m.visual ? (
-                <Suspense fallback={<p className="mt-2 text-xs text-slate-500">Carregando visual…</p>}>
-                  <SpecCard spec={m.visual} compacto={!expandido} />
-                </Suspense>
-              ) : null}
-            </div>
-          ))}
+        {/* Mensagens: flex-1 + scroll; conteúdo ancorado embaixo quando há poucas msgs */}
+        <div
+          ref={messagesScrollRef}
+          className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-3 sm:px-4"
+        >
+          <div className="flex min-h-full flex-col justify-end gap-2">
+            {messages.map((m) => (
+              <div
+                key={m.id}
+                className={`max-w-[92%] rounded-2xl px-3 py-2 text-sm leading-relaxed sm:max-w-[85%] ${
+                  m.role === 'user'
+                    ? 'ml-auto bg-indigo-600 text-white'
+                    : 'mr-auto border border-slate-200 bg-slate-50 text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100'
+                }`}
+              >
+                <span className="whitespace-pre-wrap break-words">{m.text}</span>
+                {m.role === 'assistant' && m.visual ? (
+                  <div className="mt-2 max-w-full min-w-0 overflow-x-auto">
+                    <Suspense fallback={<p className="text-xs text-slate-500">Carregando visual…</p>}>
+                      <SpecCard spec={m.visual} compacto={!expandido} />
+                    </Suspense>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+            {sending ? (
+              <div className="mr-auto rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800">
+                Consultando…
+              </div>
+            ) : null}
+            <div ref={messagesEndRef} aria-hidden="true" className="h-px w-full shrink-0" />
+          </div>
         </div>
 
-        <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-700">
-          <div className="mb-2 flex max-h-28 flex-wrap gap-2 overflow-y-auto">
+        {/* Composer fixo no rodapé — safe-area; atalhos em linha horizontal */}
+        <div
+          className="shrink-0 border-t border-slate-200 bg-white px-3 pt-2 dark:border-slate-700 dark:bg-slate-900 sm:px-4"
+          style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}
+        >
+          <div
+            className="-mx-1 mb-2 flex gap-2 overflow-x-auto overscroll-x-contain px-1 pb-1 [scrollbar-width:thin]"
+            role="list"
+            aria-label="Atalhos de pergunta"
+          >
             {replies.map((hint) => (
               <button
                 key={hint}
                 type="button"
+                role="listitem"
                 onClick={() => void sendMessage(hint)}
                 disabled={sending}
-                className="rounded-full border border-slate-300 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-60 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+                className="inline-flex shrink-0 items-center rounded-full border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
               >
                 {hint}
               </button>
@@ -208,18 +267,23 @@ export function AccessibilityChatPanel({ open, onClose, context }: ConsultaBylaP
               e.preventDefault();
               void sendMessage(input);
             }}
-            className="flex gap-2"
+            className="flex items-end gap-2"
           >
             <input
+              ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ex.: situação do aluno Ana, R$ 250…"
-              className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+              placeholder="Ex.: resumo do mês, situação do aluno…"
+              enterKeyHint="send"
+              autoComplete="off"
+              autoCorrect="on"
+              // text-base (16px) evita zoom automático do iOS no focus
+              className="min-h-11 flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             />
             <button
               type="submit"
-              disabled={sending}
-              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
+              disabled={sending || !input.trim()}
+              className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
             >
               {sending ? '…' : 'Enviar'}
             </button>

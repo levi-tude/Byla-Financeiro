@@ -17,9 +17,11 @@ const btn =
 function Bloco({ s, spec }: { s: Secao; spec: CriacaoSpec }) {
   const fonte = fonteDaSecao(s, spec.datasets);
   return (
-    <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+    <section className="min-w-0 max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
       <h4 className="mb-2 text-xs font-semibold text-slate-800 dark:text-slate-100">{tituloSecao(s)}</h4>
-      <SectionView s={s} datasets={spec.datasets} />
+      <div className="min-w-0 max-w-full overflow-x-auto">
+        <SectionView s={s} datasets={spec.datasets} />
+      </div>
       {fonte ? <p className="mt-2 text-[10px] text-slate-500">Fonte: {fonte}</p> : null}
     </section>
   );
