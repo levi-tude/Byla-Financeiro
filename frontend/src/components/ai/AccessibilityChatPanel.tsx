@@ -131,8 +131,8 @@ export function AccessibilityChatPanel({ open, onClose, context }: ConsultaBylaP
       <section
         className={`fixed z-[89] flex flex-col border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900 ${
           expandido
-            ? 'inset-0 md:inset-6 md:rounded-xl lg:left-auto lg:w-[min(960px,calc(100vw-3rem))]'
-            : 'bottom-22 left-2 right-2 max-h-[80vh] rounded-xl md:bottom-24 md:left-auto md:right-6 md:w-[440px]'
+            ? 'inset-0 lg:inset-6 lg:rounded-xl lg:left-auto lg:w-[min(960px,calc(100vw-3rem))]'
+            : 'inset-0 max-h-none rounded-none lg:inset-auto lg:bottom-24 lg:left-auto lg:right-6 lg:max-h-[80vh] lg:w-[440px] lg:rounded-xl'
         }`}
         role="dialog"
         aria-modal="true"
