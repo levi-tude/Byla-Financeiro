@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Topbar } from '../app/Topbar';
 import { FilterBar } from '../components/finance/FilterBar';
 import { EmptyState, ErrorPanel, LoadingRow } from '../components/finance/StateBlocks';
+import { DesktopOnly, MobileCard, MobileField, MobileOnly } from '../components/mobile/MobileRowCards';
 import { formatBrl, formatDate } from '../components/finance/classificacao/utils';
 import {
   listAssinaturasCreditoRecorrente,
@@ -184,7 +185,7 @@ export function AssinaturasCreditoRecorrentePage() {
             setForm(emptyForm());
             setFormError(null);
           }}
-          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600"
+          className="inline-flex min-h-11 items-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600"
         >
           Nova assinatura
         </button>
@@ -246,93 +247,157 @@ export function AssinaturasCreditoRecorrentePage() {
         </p>
       ) : null}
 
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-        <table className="min-w-full text-left text-sm">
-          <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-            <tr>
-              <th className="px-3 py-2.5 font-medium">Nome</th>
-              <th className="px-3 py-2.5 font-medium">PagBank</th>
-              <th className="px-3 py-2.5 font-medium">Status Byla</th>
-              <th className="px-3 py-2.5 font-medium">Ciclo</th>
-              <th className="px-3 py-2.5 font-medium">Próxima</th>
-              <th className="px-3 py-2.5 font-medium">Valor</th>
-              <th className="px-3 py-2.5 font-medium">Ação</th>
-            </tr>
-          </thead>
-          <tbody>
-            {query.isLoading ? (
-              <LoadingRow colSpan={7} rows={5} />
-            ) : assinaturasFiltradas.length === 0 ? (
+      <DesktopOnly>
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          <table className="min-w-full text-left text-sm">
+            <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
               <tr>
-                <td colSpan={7} className="px-3 py-4">
-                  <EmptyState
-                    message={
-                      assinaturas.length === 0
-                        ? 'Nenhuma assinatura cadastrada ainda.'
-                        : 'Nenhum resultado com a busca atual.'
-                    }
-                  />
-                </td>
+                <th className="px-3 py-2.5 font-medium">Nome</th>
+                <th className="px-3 py-2.5 font-medium">PagBank</th>
+                <th className="px-3 py-2.5 font-medium">Status Byla</th>
+                <th className="px-3 py-2.5 font-medium">Ciclo</th>
+                <th className="px-3 py-2.5 font-medium">Próxima</th>
+                <th className="px-3 py-2.5 font-medium">Valor</th>
+                <th className="px-3 py-2.5 font-medium">Ação</th>
               </tr>
-            ) : (
-              assinaturasFiltradas.map((a) => (
-                <tr
-                  key={a.id}
-                  className="border-b border-slate-100 last:border-0 dark:border-slate-800"
-                >
-                  <td className="px-3 py-2.5">
-                    <div className="font-medium text-slate-800 dark:text-slate-100">
-                      {a.nome_exibicao}
-                    </div>
-                    {a.plano_rotulo ? (
-                      <div className="text-xs text-slate-500 dark:text-slate-400">
-                        {a.plano_rotulo}
+            </thead>
+            <tbody>
+              {query.isLoading ? (
+                <LoadingRow colSpan={7} rows={5} />
+              ) : assinaturasFiltradas.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-3 py-4">
+                    <EmptyState
+                      message={
+                        assinaturas.length === 0
+                          ? 'Nenhuma assinatura cadastrada ainda.'
+                          : 'Nenhum resultado com a busca atual.'
+                      }
+                    />
+                  </td>
+                </tr>
+              ) : (
+                assinaturasFiltradas.map((a) => (
+                  <tr
+                    key={a.id}
+                    className="border-b border-slate-100 last:border-0 dark:border-slate-800"
+                  >
+                    <td className="px-3 py-2.5">
+                      <div className="font-medium text-slate-800 dark:text-slate-100">
+                        {a.nome_exibicao}
                       </div>
-                    ) : null}
-                    {a.status_byla === 'concluida' ? (
-                      <p className="mt-1 text-xs text-sky-700 dark:text-sky-300">
-                        Plano de cobranças <strong>concluído</strong> (ciclo completo). Sem próxima
-                        cobrança.
-                      </p>
-                    ) : null}
-                  </td>
-                  <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300">
-                    {a.status_pagbank}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <span
-                      className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${statusBylaBadgeClass(a.status_byla)}`}
-                    >
-                      {STATUS_BYLA_LABEL[a.status_byla]}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2.5 tabular-nums text-slate-600 dark:text-slate-300">
-                    {a.ciclo_atual}/{a.ciclo_total}
-                  </td>
-                  <td className="px-3 py-2.5 tabular-nums text-slate-600 dark:text-slate-300">
-                    {a.proxima_cobranca ? formatDate(a.proxima_cobranca) : '—'}
-                  </td>
-                  <td className="px-3 py-2.5 tabular-nums text-slate-600 dark:text-slate-300">
-                    {formatBrl(a.valor_bruto)}
-                  </td>
-                  <td className="px-3 py-2.5">
+                      {a.plano_rotulo ? (
+                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                          {a.plano_rotulo}
+                        </div>
+                      ) : null}
+                      {a.status_byla === 'concluida' ? (
+                        <p className="mt-1 text-xs text-sky-700 dark:text-sky-300">
+                          Plano de cobranças <strong>concluído</strong> (ciclo completo). Sem próxima
+                          cobrança.
+                        </p>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300">
+                      {a.status_pagbank}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <span
+                        className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${statusBylaBadgeClass(a.status_byla)}`}
+                      >
+                        {STATUS_BYLA_LABEL[a.status_byla]}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 tabular-nums text-slate-600 dark:text-slate-300">
+                      {a.ciclo_atual}/{a.ciclo_total}
+                    </td>
+                    <td className="px-3 py-2.5 tabular-nums text-slate-600 dark:text-slate-300">
+                      {a.proxima_cobranca ? formatDate(a.proxima_cobranca) : '—'}
+                    </td>
+                    <td className="px-3 py-2.5 tabular-nums text-slate-600 dark:text-slate-300">
+                      {formatBrl(a.valor_bruto)}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setForm(formFromAssinatura(a));
+                          setFormError(null);
+                        }}
+                        className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
+                      >
+                        Editar
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </DesktopOnly>
+
+      <MobileOnly>
+        {query.isLoading ? (
+          <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900">
+            Carregando…
+          </div>
+        ) : assinaturasFiltradas.length === 0 ? (
+          <EmptyState
+            message={
+              assinaturas.length === 0
+                ? 'Nenhuma assinatura cadastrada ainda.'
+                : 'Nenhum resultado com a busca atual.'
+            }
+          />
+        ) : (
+          <ul className="space-y-3">
+            {assinaturasFiltradas.map((a) => (
+              <li key={`m-${a.id}`}>
+                <MobileCard
+                  title={a.nome_exibicao}
+                  footer={
                     <button
                       type="button"
                       onClick={() => {
                         setForm(formFromAssinatura(a));
                         setFormError(null);
                       }}
-                      className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
+                      className="inline-flex min-h-11 items-center rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-200"
                     >
                       Editar
                     </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+                  }
+                >
+                  {a.plano_rotulo ? <MobileField label="Plano" value={a.plano_rotulo} /> : null}
+                  <MobileField label="PagBank" value={a.status_pagbank} />
+                  <MobileField
+                    label="Status Byla"
+                    value={
+                      <span
+                        className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${statusBylaBadgeClass(a.status_byla)}`}
+                      >
+                        {STATUS_BYLA_LABEL[a.status_byla]}
+                      </span>
+                    }
+                  />
+                  <MobileField label="Ciclo" value={`${a.ciclo_atual}/${a.ciclo_total}`} />
+                  <MobileField
+                    label="Próxima"
+                    value={a.proxima_cobranca ? formatDate(a.proxima_cobranca) : '—'}
+                  />
+                  <MobileField label="Valor" value={<span className="tabular-nums">{formatBrl(a.valor_bruto)}</span>} />
+                  {a.status_byla === 'concluida' ? (
+                    <p className="text-xs text-sky-700 dark:text-sky-300">
+                      Plano de cobranças <strong>concluído</strong> (ciclo completo). Sem próxima cobrança.
+                    </p>
+                  ) : null}
+                </MobileCard>
+              </li>
+            ))}
+          </ul>
+        )}
+      </MobileOnly>
 
       {form ? (
         <div

@@ -38,7 +38,7 @@ export function OverviewChartShell({
         <h3 className="text-sm font-medium text-slate-800 dark:text-slate-200">{title}</h3>
         {subtitle ? <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{subtitle}</p> : null}
       </header>
-      <div className="mt-3 w-full overflow-hidden" style={{ height: chartHeight }}>
+      <div className="mt-3 w-full max-w-full overflow-hidden" style={{ height: chartHeight }}>
         {isLoading ? (
           <div
             className="flex h-full w-full items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800/80"

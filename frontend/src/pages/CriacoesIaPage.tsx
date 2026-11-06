@@ -142,7 +142,7 @@ export default function CriacoesIaPage() {
       <div className="relative mx-auto max-w-6xl">
         <motion.header initial={reduce ? false : { opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
           <p className="text-xs font-semibold text-rose-600 dark:text-rose-400">Criações da IA · protótipo</p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-4xl">Peça um painel. A IA monta, os números vêm do banco.</h1>
+          <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-4xl">Peça um painel. A IA monta, os números vêm do banco.</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-400">A IA só escolhe o layout (JSON validado). Todo valor exibido é calculado no servidor a partir do extrato oficial — nada é digitado pela IA.</p>
         </motion.header>
 
@@ -156,19 +156,19 @@ export default function CriacoesIaPage() {
               onChange={(e) => setPrompt(e.target.value)}
               maxLength={500}
               placeholder="Ex.: balanço dos últimos 4 meses com destaque por modalidade"
-              className="flex-1 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-950/70 px-4 py-3 text-sm text-slate-900 dark:text-white placeholder:text-slate-500 focus:border-rose-400/60 focus:outline-none"
+              className="min-h-11 flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-900 placeholder:text-slate-500 focus:border-rose-400/60 focus:outline-none dark:border-white/10 dark:bg-slate-950/70 dark:text-white"
               aria-label="Pedido para a IA"
             />
-            <button type="submit" disabled={loading || prompt.trim().length < 3} className="rounded-xl bg-gradient-to-r from-rose-600 to-rose-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-rose-900/20 dark:shadow-rose-900/40 hover:brightness-110 disabled:opacity-40">
+            <button type="submit" disabled={loading || prompt.trim().length < 3} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-gradient-to-r from-rose-600 to-rose-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-rose-900/20 hover:brightness-110 disabled:opacity-40 dark:shadow-rose-900/40">
               {loading ? 'Gerando…' : 'Gerar'}
             </button>
-            <button type="button" onClick={() => { setSpec(DEMO_BALANCO_4_MESES); setUltimoPrompt('demo'); setErro(null); }} className="rounded-xl border border-slate-300 dark:border-white/15 px-4 py-3 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/5">
+            <button type="button" onClick={() => { setSpec(DEMO_BALANCO_4_MESES); setUltimoPrompt('demo'); setErro(null); }} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-700 hover:bg-slate-100 dark:border-white/15 dark:text-slate-200 dark:hover:bg-white/5">
               Ver demo
             </button>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             {SUGESTOES.map((s) => (
-              <button key={s} type="button" onClick={() => { setPrompt(s); void gerar(s); }} className="rounded-full border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.03] px-3 py-1 text-xs text-slate-600 dark:text-slate-300 hover:border-rose-400/40 hover:text-slate-900 dark:hover:text-white">
+              <button key={s} type="button" onClick={() => { setPrompt(s); void gerar(s); }} className="inline-flex min-h-11 items-center rounded-full border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 hover:border-rose-400/40 hover:text-slate-900 dark:border-white/10 dark:bg-white/[0.03] dark:text-slate-300 dark:hover:text-white">
                 {s}
               </button>
             ))}

@@ -487,16 +487,16 @@ export function CalendarioFinanceiroPage() {
       )}
 
       {!loading && payload && (
-        <div className="mt-3 overflow-x-auto">
-          <div className="grid grid-cols-7 gap-1.5 min-w-[640px]">
+        <div className="mt-3 max-w-full overflow-hidden">
+          <div className="grid w-full min-w-0 grid-cols-7 gap-0.5 sm:gap-1.5">
             {WEEKDAYS.map((w) => (
-              <div key={w} className="text-center text-[11px] font-semibold text-gray-500 py-1">
+              <div key={w} className="py-1 text-center text-[10px] font-semibold text-gray-500 sm:text-[11px]">
                 {w}
               </div>
             ))}
             {slots.map((cell, idx) => {
               if (!cell) {
-                return <div key={`e-${idx}`} className="min-h-24 rounded-lg bg-gray-50/80 border border-transparent" />;
+                return <div key={`e-${idx}`} className="min-h-[4.5rem] min-w-0 rounded-lg border border-transparent bg-gray-50/80 sm:min-h-24" />;
               }
               const { data, banco, planilha } = cell;
               const dayNum = Number(data.slice(8, 10));
@@ -516,32 +516,32 @@ export function CalendarioFinanceiroPage() {
                     }
                   }}
                   onClick={(e) => handleDiaClick(data, { shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey })}
-                  className={`min-h-24 rounded-lg border p-1.5 flex flex-col gap-1 cursor-pointer select-none ${
+                  className={`flex min-h-[4.5rem] min-w-0 cursor-pointer select-none flex-col gap-0.5 overflow-hidden rounded-lg border p-0.5 sm:min-h-24 sm:gap-1 sm:p-1.5 ${
                     selecionado ? 'border-byla-red bg-red-50/40 ring-2 ring-byla-red/20' : isToday ? 'border-byla-red bg-red-50/20' : 'border-gray-200 bg-white'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-1">
                     <div className="text-xs font-bold text-gray-700">{dayNum}</div>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded border ${statusClass(cell.validacao.status_final)}`}>
+                    <span className={`rounded border px-1 py-0.5 text-[9px] sm:px-1.5 sm:text-[10px] ${statusClass(cell.validacao.status_final)}`}>
                       {statusLabel(cell.validacao.status_final)}
                     </span>
                   </div>
                   <button
                     type="button"
                     onClick={() => setModalDia(cell)}
-                    className="text-left text-[10px] leading-tight rounded px-1 py-0.5 bg-sky-100 hover:bg-sky-200 text-sky-900 border border-sky-200"
+                    className="rounded border border-sky-200 bg-sky-100 px-0.5 py-0.5 text-left text-[9px] leading-tight text-sky-900 hover:bg-sky-200 sm:px-1 sm:text-[10px]"
                   >
-                    <span className="block text-sky-700 font-medium">Banco</span>
-                    <span className="font-semibold">{formatCurrency(banco.total)}</span>
+                    <span className="block font-medium text-sky-700">Banco</span>
+                    <span className="break-all font-semibold">{formatCurrency(banco.total)}</span>
                     {banco.quantidade > 0 && <span className="text-sky-600"> ({banco.quantidade})</span>}
                   </button>
                   <button
                     type="button"
                     onClick={() => setModalDia(cell)}
-                    className="text-left text-[10px] leading-tight rounded px-1 py-0.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-900 border border-indigo-200"
+                    className="rounded border border-indigo-200 bg-indigo-100 px-0.5 py-0.5 text-left text-[9px] leading-tight text-indigo-900 hover:bg-indigo-200 sm:px-1 sm:text-[10px]"
                   >
-                    <span className="block text-indigo-700 font-medium">{labelLadoFluxo}</span>
-                    <span className="font-semibold">{formatCurrency(planilha.total)}</span>
+                    <span className="block font-medium text-indigo-700">{labelLadoFluxo}</span>
+                    <span className="break-all font-semibold">{formatCurrency(planilha.total)}</span>
                     {planilha.quantidade > 0 && <span className="text-indigo-600"> ({planilha.quantidade})</span>}
                   </button>
                 </div>
