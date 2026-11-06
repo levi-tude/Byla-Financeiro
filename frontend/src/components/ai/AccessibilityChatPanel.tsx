@@ -156,12 +156,12 @@ export function AccessibilityChatPanel({ open, onClose, context }: ConsultaBylaP
     <>
       {/* Overlay só no desktop — no mobile o painel já é tela cheia. */}
       <div
-        className="fixed inset-0 z-[88] hidden bg-slate-900/40 lg:block"
+        className="fixed inset-0 z-[110] hidden bg-slate-900/40 lg:block"
         role="presentation"
         onClick={onClose}
       />
       <section
-        className={`fixed z-[89] flex flex-col overflow-hidden border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900 ${
+        className={`fixed z-[111] flex flex-col overflow-hidden border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900 ${
           expandido
             ? // Desktop expandido
               'inset-0 h-dvh max-h-dvh lg:inset-6 lg:left-auto lg:h-auto lg:max-h-[calc(100dvh-3rem)] lg:w-[min(960px,calc(100vw-3rem))] lg:rounded-xl'
