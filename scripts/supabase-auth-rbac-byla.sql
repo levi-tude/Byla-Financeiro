@@ -32,14 +32,19 @@ create or replace function public.has_role(target_role text)
 returns boolean
 language sql
 stable
+security definer
+set search_path = ''
 as $$
+  -- SECURITY DEFINER: evita recursão de RLS (policy de profiles chama has_role).
   select exists (
     select 1
     from public.profiles p
-    where p.id = auth.uid()
+    where p.id = (select auth.uid())
       and p.role = target_role
   );
 $$;
+revoke execute on function public.has_role(text) from public, anon;
+grant execute on function public.has_role(text) to authenticated, service_role;
 
 alter table public.profiles enable row level security;
 

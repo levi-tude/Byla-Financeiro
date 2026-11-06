@@ -1,6 +1,6 @@
 -- ============================================================================
--- PRECISA APROVAÇÃO DO LEVI — NÃO APLICADO.
--- Não rodar no Supabase de produção sem aprovação explícita.
+-- APLICADO em produção em 30/10/2026 (migration 20261030165119 profiles_role_gestor).
+-- Nenhum usuário recebeu o papel gestor ainda.
 -- ============================================================================
 -- Objetivo: permitir o papel 'gestor' (só leitura) em public.profiles.
 -- Hoje a coluna role tem CHECK (role in ('admin','secretaria')), então o código
