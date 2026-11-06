@@ -487,8 +487,8 @@ export function CalendarioFinanceiroPage() {
       )}
 
       {!loading && payload && (
-        <div className="mt-3">
-          <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
+        <div className="mt-3 max-w-full overflow-hidden">
+          <div className="grid w-full min-w-0 grid-cols-7 gap-0.5 sm:gap-1.5">
             {WEEKDAYS.map((w) => (
               <div key={w} className="py-1 text-center text-[10px] font-semibold text-gray-500 sm:text-[11px]">
                 {w}
@@ -496,7 +496,7 @@ export function CalendarioFinanceiroPage() {
             ))}
             {slots.map((cell, idx) => {
               if (!cell) {
-                return <div key={`e-${idx}`} className="min-h-[4.5rem] rounded-lg border border-transparent bg-gray-50/80 sm:min-h-24" />;
+                return <div key={`e-${idx}`} className="min-h-[4.5rem] min-w-0 rounded-lg border border-transparent bg-gray-50/80 sm:min-h-24" />;
               }
               const { data, banco, planilha } = cell;
               const dayNum = Number(data.slice(8, 10));
@@ -516,7 +516,7 @@ export function CalendarioFinanceiroPage() {
                     }
                   }}
                   onClick={(e) => handleDiaClick(data, { shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey })}
-                  className={`flex min-h-[4.5rem] cursor-pointer select-none flex-col gap-0.5 rounded-lg border p-1 sm:min-h-24 sm:gap-1 sm:p-1.5 ${
+                  className={`flex min-h-[4.5rem] min-w-0 cursor-pointer select-none flex-col gap-0.5 overflow-hidden rounded-lg border p-0.5 sm:min-h-24 sm:gap-1 sm:p-1.5 ${
                     selecionado ? 'border-byla-red bg-red-50/40 ring-2 ring-byla-red/20' : isToday ? 'border-byla-red bg-red-50/20' : 'border-gray-200 bg-white'
                   }`}
                 >
