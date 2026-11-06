@@ -78,7 +78,7 @@ export function LoginPage() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full rounded-lg bg-byla-navy text-white py-2 text-sm font-medium disabled:opacity-60"
+            className="w-full min-h-11 rounded-lg bg-byla-navy text-white py-2 text-sm font-medium disabled:opacity-60"
           >
             {submitting ? 'Enviando...' : 'Enviar link'}
           </button>
@@ -133,7 +133,11 @@ export function LoginPage() {
           />
         </label>
         <div className="text-right">
-          <button type="button" className="text-sm text-byla-navy underline" onClick={() => setMode('forgot')}>
+          <button
+            type="button"
+            className="inline-flex min-h-11 items-center justify-end px-1 text-sm font-medium text-byla-navy underline"
+            onClick={() => setMode('forgot')}
+          >
             Esqueci minha senha
           </button>
         </div>
@@ -142,13 +146,10 @@ export function LoginPage() {
         <button
           type="submit"
           disabled={submitting}
-          className="w-full rounded-lg bg-byla-navy text-white py-2 text-sm font-medium disabled:opacity-60"
+          className="w-full min-h-11 rounded-lg bg-byla-navy text-white py-2 text-sm font-medium disabled:opacity-60"
         >
           {submitting ? 'Entrando...' : 'Entrar'}
         </button>
-        <p className="text-xs text-gray-500 text-center">
-          Problemas com o e-mail de recuperação? Confira <code className="text-gray-600">VITE_SITE_URL</code> e os Redirect URLs no Supabase.
-        </p>
       </form>
     </div>
   );
