@@ -239,13 +239,13 @@ export function AccessibilityChatPanel({ open, onClose, context }: ConsultaBylaP
           </div>
         </div>
 
-        {/* Composer fixo no rodapé — safe-area; atalhos em linha horizontal */}
+        {/* Composer fixo no rodapé — safe-area; atalhos: wrap no celular, scroll com padding no desktop */}
         <div
           className="shrink-0 border-t border-slate-200 bg-white px-3 pt-2 dark:border-slate-700 dark:bg-slate-900 sm:px-4"
           style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}
         >
           <div
-            className="-mx-1 mb-2 flex gap-2 overflow-x-auto overscroll-x-contain px-1 pb-1 [scrollbar-width:thin]"
+            className="-mx-1 mb-2 flex gap-2 px-1 pb-1 max-lg:flex-wrap lg:overflow-x-auto lg:overscroll-x-contain lg:scroll-pl-1 lg:scroll-pr-4 lg:[scrollbar-width:thin]"
             role="list"
             aria-label="Atalhos de pergunta"
           >
@@ -256,11 +256,13 @@ export function AccessibilityChatPanel({ open, onClose, context }: ConsultaBylaP
                 role="listitem"
                 onClick={() => void sendMessage(hint)}
                 disabled={sending}
-                className="inline-flex shrink-0 items-center rounded-full border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+                className="inline-flex min-h-11 items-center rounded-full border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800 max-lg:max-w-full lg:shrink-0"
               >
                 {hint}
               </button>
             ))}
+            {/* Espaço final no scroll do desktop: o último chip cabe inteiro */}
+            <span className="hidden w-3 shrink-0 lg:inline-block" aria-hidden="true" />
           </div>
           <form
             onSubmit={(e) => {
