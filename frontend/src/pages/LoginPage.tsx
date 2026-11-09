@@ -66,7 +66,7 @@ export function LoginPage() {
             E-mail
             <input
               type="email"
-              className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
+              className="mt-1 w-full min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-base dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -84,7 +84,7 @@ export function LoginPage() {
           </button>
           <button
             type="button"
-            className="w-full text-sm text-gray-600 underline"
+            className="inline-flex min-h-11 w-full items-center justify-center text-sm text-gray-600 underline"
             onClick={() => {
               setMode('login');
               setError(null);
@@ -114,7 +114,7 @@ export function LoginPage() {
           E-mail
           <input
             type="email"
-            className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
+            className="mt-1 w-full min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-base dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
@@ -125,7 +125,7 @@ export function LoginPage() {
           Senha
           <input
             type="password"
-            className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
+            className="mt-1 w-full min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-base dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required

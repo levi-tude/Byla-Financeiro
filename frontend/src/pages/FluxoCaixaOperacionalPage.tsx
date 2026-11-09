@@ -2544,7 +2544,7 @@ export function FluxoCaixaOperacionalPage() {
               {' '}
               <Link
                 to="/programa-bolsas"
-                className="font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+                className="inline-flex min-h-11 items-center font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
               >
                 Ver Programa de Bolsas
               </Link>
@@ -2555,7 +2555,7 @@ export function FluxoCaixaOperacionalPage() {
           <div className="flex flex-wrap gap-2">
             <Link
               to={`/relatorios-ia?tipo=alunos_inadimplencia&mes=${monthYear.mes}&ano=${monthYear.ano}`}
-              className="rounded-xl border border-rose-300 bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-700"
+              className="inline-flex min-h-11 items-center rounded-xl border border-rose-300 bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-700"
             >
               Relatório do mês
             </Link>
@@ -2583,7 +2583,7 @@ export function FluxoCaixaOperacionalPage() {
               role="tab"
               aria-selected={activeTopTab === 'atividades'}
               onClick={() => setActiveTopTab('atividades')}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+              className={`inline-flex min-h-11 items-center rounded-lg px-3 py-1.5 text-xs font-medium ${
                 activeTopTab === 'atividades'
                   ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
                   : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200'
@@ -2596,7 +2596,7 @@ export function FluxoCaixaOperacionalPage() {
               role="tab"
               aria-selected={activeTopTab === 'resumo_meio_pagamento'}
               onClick={() => setActiveTopTab('resumo_meio_pagamento')}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+              className={`inline-flex min-h-11 items-center rounded-lg px-3 py-1.5 text-xs font-medium ${
                 activeTopTab === 'resumo_meio_pagamento'
                   ? 'bg-indigo-600 text-white'
                   : 'border border-indigo-300 text-indigo-700 dark:border-indigo-700 dark:text-indigo-300'
@@ -2609,7 +2609,7 @@ export function FluxoCaixaOperacionalPage() {
               role="tab"
               aria-selected={activeTopTab === 'pendencias_cobrancas'}
               onClick={() => setActiveTopTab('pendencias_cobrancas')}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+              className={`inline-flex min-h-11 items-center rounded-lg px-3 py-1.5 text-xs font-medium ${
                 activeTopTab === 'pendencias_cobrancas'
                   ? 'bg-amber-600 text-white'
                   : 'border border-amber-300 text-amber-800 dark:border-amber-700 dark:text-amber-300'
@@ -2627,7 +2627,7 @@ export function FluxoCaixaOperacionalPage() {
             <button
               type="button"
               onClick={() => setModoVisao('multi')}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+              className={`inline-flex min-h-11 items-center rounded-lg px-3 py-1.5 text-xs font-medium ${
                 modoVisao === 'multi'
                   ? 'bg-indigo-600 text-white'
                   : 'border border-indigo-300 text-indigo-700 dark:border-indigo-700 dark:text-indigo-300'
@@ -2638,7 +2638,7 @@ export function FluxoCaixaOperacionalPage() {
             <button
               type="button"
               onClick={() => setModoVisao('mensal')}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+              className={`inline-flex min-h-11 items-center rounded-lg px-3 py-1.5 text-xs font-medium ${
                 modoVisao === 'mensal'
                   ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900'
                   : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-200'

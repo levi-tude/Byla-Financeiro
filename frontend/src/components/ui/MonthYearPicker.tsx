@@ -49,7 +49,7 @@ export function MonthYearPicker({ compact = false }: MonthYearPickerProps) {
       ) : null}
       <select
         className={`min-h-11 rounded-md border border-gray-300 bg-white text-sm text-gray-800 shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 ${
-          compact ? 'max-w-[7.5rem] px-1.5 py-1' : 'px-2 py-1.5'
+          compact ? 'max-w-[6.75rem] px-1 py-1 text-xs' : 'px-2 py-1.5'
         }`}
         value={value}
         onChange={(e) => {
@@ -78,7 +78,7 @@ export function MonthYearPicker({ compact = false }: MonthYearPickerProps) {
         type="button"
         onClick={goNovoMes}
         className={`min-h-11 rounded-md border border-indigo-300 bg-indigo-50 font-medium text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-200 ${
-          compact ? 'px-2 text-xs' : 'px-2 text-xs'
+          compact ? 'shrink-0 px-1.5 text-xs' : 'px-2 text-xs'
         }`}
         title="Ir para o próximo mês"
         aria-label="Novo mês"

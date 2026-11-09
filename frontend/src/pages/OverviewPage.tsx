@@ -348,7 +348,7 @@ export function OverviewPage() {
                       ? `Atenção: lucro positivo, porém menor que ${prevLabel}.`
                       : 'Crítico: lucro negativo no fechamento.'}
             </p>
-            <Link to="/controle-caixa" className="mt-2 inline-block font-semibold hover:underline">
+            <Link to="/controle-caixa" className="mt-2 inline-flex min-h-11 items-center font-semibold hover:underline">
               Abrir Controle de caixa →
             </Link>
           </div>
@@ -362,7 +362,7 @@ export function OverviewPage() {
                   ? `${fluxoResumo.semPagamentoNoMes} aluno(s) sem pagamento em ${labelMesAno(mes, ano)}.`
                   : 'Sem atraso de pagamento detectado no mês.'}
             </p>
-            <Link to="/fluxo-caixa" className="mt-2 inline-block font-semibold hover:underline">
+            <Link to="/fluxo-caixa" className="mt-2 inline-flex min-h-11 items-center font-semibold hover:underline">
               Ir para Fluxo de caixa →
             </Link>
           </div>
@@ -376,7 +376,7 @@ export function OverviewPage() {
                   ? 'Existe diferença entre extrato e fechamento. Priorize conferência do dia.'
                   : 'Sem diferença relevante entre extrato e fechamento.'}
             </p>
-            <Link to="/transacoes" className="mt-2 inline-block font-semibold hover:underline">
+            <Link to="/transacoes" className="mt-2 inline-flex min-h-11 items-center font-semibold hover:underline">
               Conferir em Transações →
             </Link>
                   </div>

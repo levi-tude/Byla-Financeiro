@@ -755,7 +755,7 @@ export function ControleCaixaPage() {
                 <span className="text-[11px] text-slate-500 dark:text-slate-400">{lastUpdateLabel}</span>
                 <Link
                   to={relatorioMesHref}
-                  className="rounded-lg border border-rose-300 bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700"
+                  className="inline-flex min-h-11 items-center rounded-lg border border-rose-300 bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700"
                 >
                   Ir para relatório do mês →
                 </Link>
