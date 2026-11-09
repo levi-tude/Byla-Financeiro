@@ -226,7 +226,7 @@ export function PorCategoriaSection({
     <section className="mt-4 space-y-6">
       {blocos.map((bloco) => (
         <div key={bloco.bloco_titulo}>
-          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          <h3 className="mb-2 text-sm font-semibold text-slate-500">
             {bloco.bloco_titulo}
           </h3>
           <div className="space-y-2">

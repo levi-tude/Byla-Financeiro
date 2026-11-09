@@ -82,7 +82,7 @@ export function ClassificacaoGrupoCard({
             {onConfirmarSugestao && (
               <button
                 type="button"
-                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-60"
+                className="inline-flex min-h-11 items-center rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-60"
                 onClick={onConfirmarSugestao}
                 disabled={confirmarPending}
               >
@@ -91,7 +91,7 @@ export function ClassificacaoGrupoCard({
             )}
             <button
               type="button"
-              className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex min-h-11 items-center rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
               onClick={onClassificar}
               disabled={classificarDesabilitado}
             >
@@ -100,7 +100,7 @@ export function ClassificacaoGrupoCard({
             {onDesvincular && podeDesvincular && (
               <button
                 type="button"
-                className="rounded-lg border border-rose-300 px-3 py-1.5 text-sm text-rose-800 dark:border-rose-800 dark:text-rose-200"
+                className="inline-flex min-h-11 items-center rounded-lg border border-rose-300 px-3 py-1.5 text-sm text-rose-800 dark:border-rose-800 dark:text-rose-200"
                 onClick={onDesvincular}
               >
                 {desvincularLabel ?? 'Desvincular'}
@@ -111,7 +111,7 @@ export function ClassificacaoGrupoCard({
           <>
             <button
               type="button"
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-600"
+              className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-600"
               onClick={onClassificar}
             >
               Editar categoria
@@ -119,7 +119,7 @@ export function ClassificacaoGrupoCard({
             {onDesativar && podeDesativar && !regraDesativada && (
               <button
                 type="button"
-                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 dark:border-slate-600 dark:text-slate-300"
+                className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 dark:border-slate-600 dark:text-slate-300"
                 onClick={onDesativar}
               >
                 Desativar regra
@@ -128,7 +128,7 @@ export function ClassificacaoGrupoCard({
             {onDesvincular && podeDesvincular && (
               <button
                 type="button"
-                className="rounded-lg border border-rose-300 px-3 py-1.5 text-sm text-rose-800 dark:border-rose-800 dark:text-rose-200"
+                className="inline-flex min-h-11 items-center rounded-lg border border-rose-300 px-3 py-1.5 text-sm text-rose-800 dark:border-rose-800 dark:text-rose-200"
                 onClick={onDesvincular}
               >
                 {desvincularLabel ?? 'Desvincular'}

@@ -29,19 +29,19 @@ function ItemRow({ item }: { item: ProgramaBolsaItem }) {
       </div>
       <dl className="mt-2 grid gap-1 text-sm text-slate-600 dark:text-slate-400 sm:grid-cols-2 lg:grid-cols-4">
         <div>
-          <dt className="text-xs uppercase tracking-wide text-slate-400">Valor ref.</dt>
+          <dt className="text-xs text-slate-400">Valor ref.</dt>
           <dd>{formatValor(item.valorReferencia)}</dd>
         </div>
         <div>
-          <dt className="text-xs uppercase tracking-wide text-slate-400">Vencimento</dt>
+          <dt className="text-xs text-slate-400">Vencimento</dt>
           <dd>{item.venc || '—'}</dd>
         </div>
         <div>
-          <dt className="text-xs uppercase tracking-wide text-slate-400">Responsáveis</dt>
+          <dt className="text-xs text-slate-400">Responsáveis</dt>
           <dd>{item.responsaveis || '—'}</dd>
         </div>
         <div>
-          <dt className="text-xs uppercase tracking-wide text-slate-400">WhatsApp</dt>
+          <dt className="text-xs text-slate-400">WhatsApp</dt>
           <dd>{item.wpp || '—'}</dd>
         </div>
       </dl>
@@ -80,7 +80,7 @@ export function ProgramaBolsasPage() {
       <Topbar title="Programa de Bolsas" />
       <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
         <header className="mb-6">
-          <p className="text-xs font-medium uppercase tracking-wide text-sky-700 dark:text-sky-300">
+          <p className="text-xs font-medium text-sky-700 dark:text-sky-300">
             Ligado à BYLA DANÇA
           </p>
           <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-50">
@@ -93,7 +93,7 @@ export function ProgramaBolsasPage() {
           <p className="mt-3">
             <Link
               to="/fluxo-caixa"
-              className="text-sm font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+              className="inline-flex min-h-11 items-center text-sm font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
             >
               Abrir Fluxo · BYLA DANÇA
             </Link>
@@ -110,7 +110,7 @@ export function ProgramaBolsasPage() {
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar por nome ou modalidade…"
-            className="w-full max-w-md rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none ring-sky-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-50"
+            className="w-full max-w-md min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-2 text-base text-slate-900 shadow-sm outline-none ring-sky-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-50"
           />
         </div>
 

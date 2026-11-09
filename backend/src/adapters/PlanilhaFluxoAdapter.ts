@@ -15,6 +15,7 @@ import {
   parseValor,
   somaSaidasParceirosEFixas,
 } from '../logic/planilhaControleSaidas.js';
+import { cortarBlocosNaLinhaTotal } from '../logic/planilhaControleCorteTotal.js';
 import { extrairBlocosSaidasPorDescobertaColunas } from '../logic/planilhaControleDescobertaColunas.js';
 import { filtrarEntradasQueColidemComSaidas, mergeEntradasColunaEOrdem } from '../logic/planilhaControleEntradas.js';
 import type { IFluxoPlanilhaRepository } from '../ports/IFluxoPlanilhaRepository.js';
@@ -184,7 +185,9 @@ export class PlanilhaFluxoAdapter implements IFluxoPlanilhaRepository {
     }
     const tituloAba = tituloAbaControleParaMesReferencia(mesAno.mes, mesAno.ano);
     const range = rangeA1ZQuoted(tituloAba);
-    const { values, error: sheetError } = await readSheetValues(range, this.fluxoSpreadsheetId);
+    const { values: valuesBrutos, error: sheetError } = await readSheetValues(range, this.fluxoSpreadsheetId);
+    const corte = cortarBlocosNaLinhaTotal((valuesBrutos ?? []) as string[][]);
+    const values = corte.values;
 
     const totais = criarFluxoPlanilhaVazio();
     totais.mes = mesAno.mes;
@@ -308,6 +311,8 @@ export class PlanilhaFluxoAdapter implements IFluxoPlanilhaRepository {
 
     totais.entradaTotal = entradaTotal;
     totais.saidaTotal = saidaTotal;
+    totais.lucroLidoPlanilha = lucroTotal;
+    totais.totaisBlocosPlanilha = corte.totaisBlocos;
     totais.lucroTotal = reconcileLucro(entradaTotal, saidaTotal, lucroTotal);
 
     return { totais, error: sheetError, origem: sheetError ? 'erro' : 'planilha' };

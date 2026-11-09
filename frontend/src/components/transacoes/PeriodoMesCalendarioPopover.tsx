@@ -96,7 +96,7 @@ export function PeriodoMesCalendarioPopover({
       role="dialog"
       aria-modal="true"
       aria-label={`Calendário de ${tituloMes(viewMes, viewAno)}`}
-      className="absolute left-0 top-full z-50 mt-1.5 min-w-[280px] max-w-[min(100vw-2rem,320px)] rounded-xl border border-slate-200 bg-white p-3 shadow-xl ring-1 ring-slate-900/5 dark:border-slate-600 dark:bg-slate-900 dark:ring-white/10"
+      className="absolute left-0 top-full z-50 mt-1.5 min-w-72 max-w-[min(100vw-2rem,320px)] rounded-xl border border-slate-200 bg-white p-3 shadow-xl ring-1 ring-slate-900/5 dark:border-slate-600 dark:bg-slate-900 dark:ring-white/10"
     >
       <div className="mb-2 flex items-center justify-between gap-2 border-b border-slate-100 pb-2 dark:border-slate-700">
         <button
@@ -134,7 +134,7 @@ export function PeriodoMesCalendarioPopover({
           </button>
         </div>
       </div>
-      <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+      <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-semibold text-slate-500 dark:text-slate-400">
         {DIAS_SEMANA.map((w) => (
           <div key={w} className="py-1">
             {w}

@@ -85,7 +85,7 @@ export function MonthlyTrendChart({
     : 'border-orange-200 bg-orange-50 text-orange-900';
 
   return (
-    <figure className="w-full" style={{ height }}>
+    <figure className="w-full max-w-full overflow-hidden" style={{ height }}>
       {showSeriesChips ? (
         <div className="mb-2 flex flex-wrap gap-2" role="group" aria-label="Legenda das séries">
           <span className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1 text-xs font-semibold ${chipEntrada}`}>
@@ -104,7 +104,7 @@ export function MonthlyTrendChart({
             <CartesianGrid strokeDasharray="4 4" stroke={gridStroke} vertical={false} />
             <XAxis dataKey="label" tick={{ fontSize: 12, fill: tickStroke }} axisLine={false} tickLine={false} />
             <YAxis
-              width={44}
+              width={36}
               tickFormatter={(v) => (v / 1000).toFixed(0) + 'k'}
               tick={{ fontSize: 11, fill: tickStroke }}
               axisLine={false}

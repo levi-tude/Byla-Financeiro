@@ -169,7 +169,8 @@ describe('repasses_professores', () => {
   ];
   test('lista professores, não conta sócio, não soma fontes', () => {
     const t = textoRepassesProfessores({ mes: 9, ano: 2026, saidas, controle });
-    assert.match(t, /Mari \(Pilates\): extrato R\$\s?1\.200,00 em 1 saída\(s\) · Controle R\$\s?1\.248,50 · confirmado pelo Levi/);
+    assert.match(t, /Mari \(Pilates\): extrato R\$\s?1\.200,00 em 1 saída\(s\) · Controle R\$\s?1\.248,50\n/);
+    assert.doesNotMatch(t, /confirmado pelo Levi|inferência/);
     assert.match(t, /Bruna \(GR\): extrato R\$\s?265,00/);
     assert.doesNotMatch(t, /Pholha|Funcional/);
     assert.match(t, /João \(Teatro\): extrato R\$\s?400,00 em 1 saída\(s\) · Controle R\$\s?400,00/);

@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Topbar } from '../app/Topbar';
 import { useMonthYear } from '../context/MonthYearContext';
 import { FilterBar, type FilterChip } from '../components/finance/FilterBar';
-import { EmptyState, ErrorPanel, LoadingRow } from '../components/finance/StateBlocks';
+import { EmptyState, ErrorPanel } from '../components/finance/StateBlocks';
+import { DesktopOnly, MobileCard, MobileField, MobileOnly } from '../components/mobile/MobileRowCards';
 import { formatBrl, formatDate } from '../components/finance/classificacao/utils';
 import {
   getFinancasAlunos,
@@ -452,12 +453,8 @@ export function FinancasAlunosPage() {
       ) : null}
 
       {query.isLoading ? (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-          <table className="min-w-full text-left text-sm">
-            <tbody>
-              <LoadingRow colSpan={7} rows={6} />
-            </tbody>
-          </table>
+        <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          Carregando…
         </div>
       ) : secoes.length === 0 ? (
         <EmptyState
@@ -502,69 +499,132 @@ export function FinancasAlunosPage() {
                         {aluno.aluno_exibicao}
                       </h3>
                     </div>
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full text-left text-sm">
-                        <thead className="border-y border-slate-100 bg-slate-50/80 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-400">
-                          <tr>
-                            <th className="px-4 py-2 font-medium">Data prevista</th>
-                            <th className="px-4 py-2 font-medium">Data no banco</th>
-                            <th className="px-4 py-2 font-medium">Valor</th>
-                            <th className="px-4 py-2 font-medium">Reconhecimento no banco</th>
-                            <th className="px-4 py-2 font-medium">Situação de pagamento</th>
-                            <th className="px-4 py-2 font-medium">Como pagou</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {aluno.pagamentos.map((pag, idx) => (
-                            <tr
-                              key={`${pag.data_pagamento ?? ''}|${pag.data_banco ?? ''}|${pag.valor}|${idx}`}
-                              className="border-b border-slate-50 last:border-0 dark:border-slate-800/60"
-                            >
-                              <td className="px-4 py-2 tabular-nums text-slate-600 dark:text-slate-300">
-                                {pag.data_pagamento ? formatDate(pag.data_pagamento) : '—'}
-                              </td>
-                              <td className="px-4 py-2 tabular-nums text-slate-600 dark:text-slate-300">
-                                {pag.data_banco ? formatDate(pag.data_banco) : '—'}
-                              </td>
-                              <td className="px-4 py-2 tabular-nums text-slate-700 dark:text-slate-200">
-                                {formatBrl(pag.valor)}
-                              </td>
-                              <td className="px-4 py-2">
-                                <span
-                                  className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${bancoStatusBadgeClass(pag.banco_status)}`}
-                                >
-                                  {BANCO_STATUS_LABEL[pag.banco_status]}
-                                </span>
-                              </td>
-                              <td className="px-4 py-2">
-                                <span
-                                  className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${statusConciliacaoBadgeClass(pag.status_conciliacao)}`}
-                                >
-                                  {STATUS_CONCILIACAO_LABEL[pag.status_conciliacao]}
-                                </span>
-                              </td>
-                              <td className="px-4 py-2">
-                                <span
-                                  className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${meioBadgeClass(pag.meio)}`}
-                                >
-                                  {MEIO_LABEL[pag.meio]}
-                                </span>
-                                {pag.banco_status === 'nenhum' && pag.meio === 'desconhecido' ? (
-                                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                    Meio será confirmado após reconhecer o crédito no banco.
-                                  </p>
-                                ) : null}
-                                {pag.aviso_competencia ? (
-                                  <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-                                    {pag.aviso_competencia}
-                                  </p>
-                                ) : null}
-                              </td>
+                    <DesktopOnly>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-left text-sm">
+                          <thead className="border-y border-slate-100 bg-slate-50/80 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-400">
+                            <tr>
+                              <th className="px-4 py-2 font-medium">Data prevista</th>
+                              <th className="px-4 py-2 font-medium">Data no banco</th>
+                              <th className="px-4 py-2 font-medium">Valor</th>
+                              <th className="px-4 py-2 font-medium">Reconhecimento no banco</th>
+                              <th className="px-4 py-2 font-medium">Situação de pagamento</th>
+                              <th className="px-4 py-2 font-medium">Como pagou</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                          </thead>
+                          <tbody>
+                            {aluno.pagamentos.map((pag, idx) => (
+                              <tr
+                                key={`${pag.data_pagamento ?? ''}|${pag.data_banco ?? ''}|${pag.valor}|${idx}`}
+                                className="border-b border-slate-50 last:border-0 dark:border-slate-800/60"
+                              >
+                                <td className="px-4 py-2 tabular-nums text-slate-600 dark:text-slate-300">
+                                  {pag.data_pagamento ? formatDate(pag.data_pagamento) : '—'}
+                                </td>
+                                <td className="px-4 py-2 tabular-nums text-slate-600 dark:text-slate-300">
+                                  {pag.data_banco ? formatDate(pag.data_banco) : '—'}
+                                </td>
+                                <td className="px-4 py-2 tabular-nums text-slate-700 dark:text-slate-200">
+                                  {formatBrl(pag.valor)}
+                                </td>
+                                <td className="px-4 py-2">
+                                  <span
+                                    className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${bancoStatusBadgeClass(pag.banco_status)}`}
+                                  >
+                                    {BANCO_STATUS_LABEL[pag.banco_status]}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-2">
+                                  <span
+                                    className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${statusConciliacaoBadgeClass(pag.status_conciliacao)}`}
+                                  >
+                                    {STATUS_CONCILIACAO_LABEL[pag.status_conciliacao]}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-2">
+                                  <span
+                                    className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${meioBadgeClass(pag.meio)}`}
+                                  >
+                                    {MEIO_LABEL[pag.meio]}
+                                  </span>
+                                  {pag.banco_status === 'nenhum' && pag.meio === 'desconhecido' ? (
+                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                      Meio será confirmado após reconhecer o crédito no banco.
+                                    </p>
+                                  ) : null}
+                                  {pag.aviso_competencia ? (
+                                    <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                                      {pag.aviso_competencia}
+                                    </p>
+                                  ) : null}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </DesktopOnly>
+
+                    <MobileOnly>
+                      <ul className="space-y-2 px-3 pb-3">
+                        {aluno.pagamentos.map((pag, idx) => (
+                          <li key={`m-${pag.data_pagamento ?? ''}|${pag.data_banco ?? ''}|${pag.valor}|${idx}`}>
+                            <MobileCard
+                              title={
+                                <span className="tabular-nums">
+                                  {pag.data_pagamento ? formatDate(pag.data_pagamento) : 'Sem data prevista'}
+                                  {' · '}
+                                  {formatBrl(pag.valor)}
+                                </span>
+                              }
+                            >
+                              <MobileField
+                                label="No banco"
+                                value={pag.data_banco ? formatDate(pag.data_banco) : '—'}
+                              />
+                              <MobileField
+                                label="Reconhecimento"
+                                value={
+                                  <span
+                                    className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${bancoStatusBadgeClass(pag.banco_status)}`}
+                                  >
+                                    {BANCO_STATUS_LABEL[pag.banco_status]}
+                                  </span>
+                                }
+                              />
+                              <MobileField
+                                label="Situação"
+                                value={
+                                  <span
+                                    className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${statusConciliacaoBadgeClass(pag.status_conciliacao)}`}
+                                  >
+                                    {STATUS_CONCILIACAO_LABEL[pag.status_conciliacao]}
+                                  </span>
+                                }
+                              />
+                              <MobileField
+                                label="Como pagou"
+                                value={
+                                  <span
+                                    className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${meioBadgeClass(pag.meio)}`}
+                                  >
+                                    {MEIO_LABEL[pag.meio]}
+                                  </span>
+                                }
+                              />
+                              {pag.banco_status === 'nenhum' && pag.meio === 'desconhecido' ? (
+                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                  Meio será confirmado após reconhecer o crédito no banco.
+                                </p>
+                              ) : null}
+                              {pag.aviso_competencia ? (
+                                <p className="text-xs text-amber-700 dark:text-amber-300">{pag.aviso_competencia}</p>
+                              ) : null}
+                            </MobileCard>
+                          </li>
+                        ))}
+                      </ul>
+                    </MobileOnly>
                   </div>
                 ))}
               </div>

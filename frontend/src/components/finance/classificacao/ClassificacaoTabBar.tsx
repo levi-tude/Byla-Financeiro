@@ -16,7 +16,7 @@ export function ClassificacaoTabBar<T extends string>({
           type="button"
           key={id}
           onClick={() => onChange(id)}
-          className={`rounded-lg px-4 py-2 text-sm font-medium ${
+          className={`inline-flex min-h-11 items-center rounded-lg px-4 py-2 text-sm font-medium ${
             active === id
               ? 'bg-indigo-600 text-white'
               : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'

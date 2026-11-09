@@ -100,6 +100,24 @@ export function extrairPessoa(original: string): string | null {
 /**
  * Decide se a pergunta pode ser respondida sem IA. `null` = baixa confiança (vai para a IA).
  */
+/** Modalidades do Byla citadas no texto normalizado, na ordem em que aparecem (rótulo canônico). */
+const MODALIDADES_CONHECIDAS: Array<[RegExp, string]> = [
+  [/\bpilates\b/, 'Pilates'],
+  [/\byoga\b/, 'Yoga'],
+  [/\bteatro\b/, 'Teatro'],
+  [/\b(?:gr|g r|ginastica ritmica)\b/, 'GR'],
+  [/\b(?:byla danca|danca)\b/, 'Dança'],
+  [/\bballet\b/, 'Ballet'],
+  [/\bjazz\b/, 'Jazz'],
+  [/\bfuncional\b/, 'Funcional'],
+];
+export function modalidadesCitadas(n: string): string[] {
+  return MODALIDADES_CONHECIDAS.map(([re, nome]) => ({ nome, i: n.search(re) }))
+    .filter((x) => x.i >= 0)
+    .sort((a, b) => a.i - b.i)
+    .map((x) => x.nome);
+}
+
 export function rotearConsultaDeterministica(message: string, ctx: MesAno, now = new Date()): RotaDeterministica | null {
   const original = message.trim();
   const n = normRouter(original);
@@ -123,6 +141,11 @@ export function rotearConsultaDeterministica(message: string, ctx: MesAno, now =
 
   // Perguntas encadeadas ("e de yoga?") dependem do histórico → IA.
   if (/^e\s/.test(n)) return null;
+
+  // "Os dados estão atualizados?" → data do último lançamento de cada fonte.
+  if (/\b(atualizad\w*|desatualizad\w*|atualizacao|ultima\s+importacao|ultimo\s+lancamento|dados\s+(?:novos|recentes|em dia)|em dia)\b/.test(n) && /\b(dados?|extrato|sistema|planilha\w*|fontes?|lancamento\w*|importacao|tao|estao|esta|ta)\b/.test(n)) {
+    return { kind: 'tool', tool: 'atualizacao_dados', params: {}, ctx, motivo: 'atualizacao' };
+  }
 
   const meses = extrairMeses(n);
   const ehRange = meses.length === 2 && /\b(a|ate|entre)\s+\S*\s*\b/.test(n) && !/\b(compar\w*|vs|x|versus)\b/.test(n);
@@ -155,6 +178,11 @@ export function rotearConsultaDeterministica(message: string, ctx: MesAno, now =
 
   // Saídas: gastos com professores (antes de "pagamento de pessoa": não há nome).
   const mesUnico = meses.length === 1 ? comAno(meses[0]!, ctx) : meses.length === 0 ? ctx : null;
+  // "Quanto o Weider deve?": não há controle de dívida de coworking → resposta honesta + pagamentos recentes.
+  const cowNome = n.match(/\b(pholha|weider|wendel)\b/)?.[1];
+  if (mesUnico && cowNome && /\b(dev\w*|divida\w*|saldo|em aberto|atrasad\w*|falta\w*)\b/.test(n)) {
+    return { kind: 'tool', tool: 'repasses_professores', params: { professor: cowNome, divida: '1', meses: '4' }, ctx: mesUnico, motivo: 'coworking_divida' };
+  }
   // Pholha/Weider (Funcional) paga coworking ao Byla: não é repasse de professor.
   if (mesUnico && (/\b(pholha|weider|wendel|coworking)\b/.test(n) || (/\bfuncional\b/.test(n) && /\b(professor\w*|repasse\w*)\b/.test(n)))) {
     return { kind: 'tool', tool: 'repasses_professores', params: { professor: 'pholha' }, ctx: mesUnico, motivo: 'coworking' };
@@ -231,6 +259,14 @@ export function rotearConsultaDeterministica(message: string, ctx: MesAno, now =
   if (/\b(entradas?|entrou|receita)\s+(por|de cada)\s+modalidade/.test(n) && meses.length <= 1) {
     const c = meses.length ? comAno(meses[0]!, ctx) : ctx;
     return { kind: 'tool', tool: 'resumo_modalidades', params: {}, ctx: c, motivo: 'por_modalidade' };
+  }
+
+  // Duas ou mais modalidades ("GR e teatro em agosto") → uma consulta só, com todas.
+  const modsCitadas = modalidadesCitadas(n);
+  if (modsCitadas.length >= 2 && (meses.length <= 1 || ehRange) && !extrairPessoa(original)) {
+    const a = meses.length ? comAno(meses[0]!, ctx) : ctx;
+    const b = ehRange ? comAno(meses[1]!, ctx) : a;
+    return { kind: 'tool', tool: 'entradas_modalidade_periodo', params: { modalidade: modsCitadas.join(', '), mes_inicio: ym(a.mes, a.ano), mes_fim: ym(b.mes, b.ano) }, ctx, motivo: 'modalidades_varias' };
   }
 
   // Quanto entrou de <modalidade> (uma só) no mês/período.

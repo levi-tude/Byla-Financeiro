@@ -20,6 +20,10 @@ export interface FluxoPlanilhaTotais {
   saidaParceirosTotal?: number | null;
   saidaFixasTotal?: number | null;
   lucroTotal: number | null;
+  /** Lucro como está na célula da planilha (antes de reconciliar). */
+  lucroLidoPlanilha?: number | null;
+  /** Valor da linha TOTAL de cada bloco, como está na planilha. */
+  totaisBlocosPlanilha?: { titulo: string; total: number | null }[];
   mes: number | null;
   ano: number | null;
   aba: string | null;

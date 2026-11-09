@@ -484,7 +484,7 @@ export function EntradasPage() {
           setFiltroTipo('');
         }}
         title={hint}
-        className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+        className={`inline-flex min-h-11 items-center rounded-lg px-3 py-1.5 text-sm font-medium ${
           segmento === id
             ? 'bg-indigo-600 text-white'
             : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
@@ -565,7 +565,7 @@ export function EntradasPage() {
             key={v}
             type="button"
             onClick={() => setVisaoResumo(v)}
-            className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${
+            className={`inline-flex min-h-11 items-center rounded-lg px-2.5 py-1 text-xs font-semibold ${
               visaoResumo === v
                 ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900'
                 : 'border border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-300'

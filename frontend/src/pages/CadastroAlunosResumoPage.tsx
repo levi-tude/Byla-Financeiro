@@ -271,7 +271,7 @@ export function CadastroAlunosResumoPage() {
           <label className="flex flex-col gap-1 text-xs text-slate-600 dark:text-slate-400">
             Aba
             <select
-              className="min-w-[140px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+              className="min-h-11 min-w-36 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
               value={filters.aba}
               onChange={(e) =>
                 setFilters((f) => ({ ...f, aba: e.target.value, modalidade: '' }))
@@ -289,7 +289,7 @@ export function CadastroAlunosResumoPage() {
           <label className="flex flex-col gap-1 text-xs text-slate-600 dark:text-slate-400">
             Modalidade
             <select
-              className="min-w-[160px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+              className="min-h-11 min-w-40 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
               value={filters.modalidade}
               onChange={(e) => setFilters((f) => ({ ...f, modalidade: e.target.value }))}
             >
@@ -305,7 +305,7 @@ export function CadastroAlunosResumoPage() {
           <label className="flex flex-col gap-1 text-xs text-slate-600 dark:text-slate-400">
             Vínculo (Validação)
             <select
-              className="min-w-[160px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+              className="min-h-11 min-w-40 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
               value={filters.vinculo}
               onChange={(e) =>
                 setFilters((f) => ({ ...f, vinculo: e.target.value as CadastroAlunoVinculoFiltro }))
@@ -320,7 +320,7 @@ export function CadastroAlunosResumoPage() {
           <label className="flex flex-col gap-1 text-xs text-slate-600 dark:text-slate-400">
             Cadastro
             <select
-              className="min-w-[160px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+              className="min-h-11 min-w-40 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
               value={filters.cadastro}
               onChange={(e) =>
                 setFilters((f) => ({ ...f, cadastro: e.target.value as CadastroAlunoCadastroFiltro }))
@@ -335,7 +335,7 @@ export function CadastroAlunosResumoPage() {
           <label className="flex flex-col gap-1 text-xs text-slate-600 dark:text-slate-400">
             Cobrança
             <select
-              className="min-w-[160px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+              className="min-h-11 min-w-40 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
               value={filters.regime}
               onChange={(e) =>
                 setFilters((f) => ({ ...f, regime: e.target.value as CadastroAlunoRegimeFiltro }))
@@ -352,7 +352,7 @@ export function CadastroAlunosResumoPage() {
           <label className="flex flex-col gap-1 text-xs text-slate-600 dark:text-slate-400">
             Forma (meio)
             <select
-              className="min-w-[160px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+              className="min-h-11 min-w-40 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
               value={filters.meio}
               onChange={(e) =>
                 setFilters((f) => ({ ...f, meio: e.target.value as MeioPagamentoAlunoFiltro }))
@@ -370,7 +370,7 @@ export function CadastroAlunosResumoPage() {
           <label className="flex flex-col gap-1 text-xs text-slate-600 dark:text-slate-400">
             Dia de vencimento
             <select
-              className="min-w-[180px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+              className="min-h-11 min-w-44 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
               value={filters.diaVencimento}
               onChange={(e) => setFilters((f) => ({ ...f, diaVencimento: e.target.value }))}
             >
@@ -391,28 +391,28 @@ export function CadastroAlunosResumoPage() {
           <div className="flex flex-wrap gap-2 pb-0.5">
             <button
               type="button"
-              className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
+              className="inline-flex min-h-11 items-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
               onClick={() => copiarLista('sem_vinculo')}
             >
               {copiado ? 'Copiado!' : 'Copiar só sem vínculo'}
             </button>
             <button
               type="button"
-              className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
+              className="inline-flex min-h-11 items-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
               onClick={() => copiarLista('bolsa_excecao')}
             >
               Copiar bolsa/exceção
             </button>
             <button
               type="button"
-              className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
+              className="inline-flex min-h-11 items-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
               onClick={() => copiarLista('completo')}
             >
               Copiar lista completa
             </button>
             <Link
               to="/fluxo-caixa"
-              className="rounded-md bg-sky-600 px-3 py-1.5 text-sm text-white hover:bg-sky-700"
+              className="inline-flex min-h-11 items-center rounded-md bg-sky-600 px-3 py-1.5 text-sm text-white hover:bg-sky-700"
             >
               Editar no Fluxo
             </Link>

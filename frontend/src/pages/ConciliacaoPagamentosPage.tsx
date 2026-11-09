@@ -6,6 +6,7 @@ import { Topbar } from '../app/Topbar';
 import { useAuth } from '../auth/AuthContext';
 import { useMonthYear } from '../context/MonthYearContext';
 import { FilterBar, type FilterChip } from '../components/finance/FilterBar';
+import { DesktopOnly, MobileCard, MobileField, MobileOnly } from '../components/mobile/MobileRowCards';
 import { EmptyState, ErrorPanel, LoadingRow } from '../components/finance/StateBlocks';
 import { formatBrl, formatDate } from '../components/finance/classificacao/utils';
 import {
@@ -440,7 +441,7 @@ export function ConciliacaoPagamentosPage() {
             : 'border-gray-100 dark:border-slate-700'
         } bg-white dark:bg-slate-900 dark:shadow-slate-900/40`}
       >
-        <span className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-slate-400">
+        <span className="text-xs font-medium text-gray-500 dark:text-slate-400">
           {label}
         </span>
         {query.isLoading ? (
@@ -585,7 +586,7 @@ export function ConciliacaoPagamentosPage() {
                         acao: 'cancelou',
                       })
                     }
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+                    className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
                   >
                     Cancelou
                   </button>
@@ -598,7 +599,7 @@ export function ConciliacaoPagamentosPage() {
                         acao: 'parou_de_pagar',
                       })
                     }
-                    className="rounded-lg border border-rose-300 bg-white px-3 py-1 text-xs font-semibold text-rose-900 hover:bg-rose-100 disabled:opacity-60 dark:border-rose-700 dark:bg-slate-900 dark:text-rose-100 dark:hover:bg-rose-950/60"
+                    className="inline-flex min-h-11 items-center rounded-lg border border-rose-300 bg-white px-3 py-1 text-xs font-semibold text-rose-900 hover:bg-rose-100 disabled:opacity-60 dark:border-rose-700 dark:bg-slate-900 dark:text-rose-100 dark:hover:bg-rose-950/60"
                   >
                     Parou de pagar
                   </button>
@@ -608,7 +609,7 @@ export function ConciliacaoPagamentosPage() {
                     onClick={() =>
                       setAlertasParouOcultos((prev) => new Set(prev).add(alerta.assinatura_id))
                     }
-                    className="rounded-lg border border-transparent px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                    className="inline-flex min-h-11 items-center rounded-lg border border-transparent px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
                   >
                     Ver depois
                   </button>
@@ -619,7 +620,7 @@ export function ConciliacaoPagamentosPage() {
           {isAdmin ? (
             <Link
               to="/assinaturas-credito-recorrente"
-              className="mt-3 inline-flex rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-900 hover:bg-rose-100 dark:border-rose-700 dark:bg-slate-900 dark:text-rose-100 dark:hover:bg-slate-800"
+              className="mt-3 inline-flex min-h-11 items-center rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-900 hover:bg-rose-100 dark:border-rose-700 dark:bg-slate-900 dark:text-rose-100 dark:hover:bg-slate-800"
             >
               Ver cadastro de assinaturas →
             </Link>
@@ -909,9 +910,10 @@ export function ConciliacaoPagamentosPage() {
         </p>
       ) : null}
 
+      <DesktopOnly>
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <table className="min-w-full text-left text-sm">
-          <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+          <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
             <tr>
               <th className="px-3 py-2.5 font-medium">Aluno</th>
               <th className="px-3 py-2.5 font-medium">Aba</th>
@@ -1056,6 +1058,86 @@ export function ConciliacaoPagamentosPage() {
           </tbody>
         </table>
       </div>
+      </DesktopOnly>
+
+      <MobileOnly>
+        <ul className="space-y-3">
+          {query.isLoading ? (
+            <li className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900">
+              Carregando…
+            </li>
+          ) : itensFiltrados.length === 0 ? (
+            <li className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+              <EmptyState
+                message={
+                  itens.length === 0
+                    ? 'Nenhum aluno ativo neste mês para conciliar.'
+                    : 'Nenhum resultado com os filtros atuais.'
+                }
+              />
+            </li>
+          ) : (
+            itensFiltrados.map((item) => (
+              <li key={`m-${rowKey(item)}`}>
+                <MobileCard
+                  title={item.aluno_nome}
+                  footer={
+                    isAdmin ? (
+                      <>
+                        {item.fluxo_lancamento_status === 'pendente' &&
+                        item.extrato_status !== 'confirmado' &&
+                        item.status !== 'bolsa' &&
+                        item.status !== 'excecao' ? (
+                          <button
+                            type="button"
+                            onClick={() => setExtratoDialogItem(item)}
+                            className="min-h-11 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200"
+                          >
+                            Confirmar extrato
+                          </button>
+                        ) : null}
+                        {item.status === 'pendente' || item.status === 'atrasado' ? (
+                          <Link
+                            to={
+                              item.data_pagamento_fluxo
+                                ? `/validacao-pagamentos-diaria?data=${encodeURIComponent(item.data_pagamento_fluxo.slice(0, 10))}`
+                                : item.data_credito
+                                  ? `/validacao-pagamentos-diaria?data=${encodeURIComponent(item.data_credito.slice(0, 10))}`
+                                  : '/validacao-pagamentos-diaria'
+                            }
+                            className="inline-flex min-h-11 items-center rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-200"
+                          >
+                            Conferir na Validação
+                          </Link>
+                        ) : null}
+                      </>
+                    ) : null
+                  }
+                >
+                  <MobileField label="Aba" value={(item.aba ?? '').trim() || '—'} />
+                  <MobileField label="Modalidade" value={(item.modalidade ?? '').trim() || '—'} />
+                  <MobileField label="Venc." value={item.dia_vencimento != null ? `Dia ${item.dia_vencimento}` : '—'} />
+                  <MobileField
+                    label="Status"
+                    value={
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadgeClass(item.status)}`}>
+                        {labelStatusItem(item)}
+                      </span>
+                    }
+                  />
+                  {isAdmin ? (
+                    <>
+                      <MobileField label="Data crédito" value={item.data_credito ? formatDate(item.data_credito) : '—'} />
+                      <MobileField label="Valor" value={item.valor_credito != null ? formatBrl(item.valor_credito) : '—'} />
+                      <MobileField label="Pessoa banco" value={item.pessoa_banco?.trim() || '—'} />
+                    </>
+                  ) : null}
+                </MobileCard>
+              </li>
+            ))
+          )}
+        </ul>
+      </MobileOnly>
 
       <ConfirmarExtratoAntesFluxoDialog
         open={extratoDialogItem != null}

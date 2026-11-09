@@ -66,7 +66,7 @@ export function LoginPage() {
             E-mail
             <input
               type="email"
-              className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
+              className="mt-1 w-full min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-base dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -78,13 +78,13 @@ export function LoginPage() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full rounded-lg bg-byla-navy text-white py-2 text-sm font-medium disabled:opacity-60"
+            className="w-full min-h-11 rounded-lg bg-byla-navy text-white py-2 text-sm font-medium disabled:opacity-60"
           >
             {submitting ? 'Enviando...' : 'Enviar link'}
           </button>
           <button
             type="button"
-            className="w-full text-sm text-gray-600 underline"
+            className="inline-flex min-h-11 w-full items-center justify-center text-sm text-gray-600 underline"
             onClick={() => {
               setMode('login');
               setError(null);
@@ -114,7 +114,7 @@ export function LoginPage() {
           E-mail
           <input
             type="email"
-            className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
+            className="mt-1 w-full min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-base dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
@@ -125,7 +125,7 @@ export function LoginPage() {
           Senha
           <input
             type="password"
-            className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
+            className="mt-1 w-full min-h-11 rounded-lg border border-gray-300 px-3 py-2 text-base dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
@@ -133,7 +133,11 @@ export function LoginPage() {
           />
         </label>
         <div className="text-right">
-          <button type="button" className="text-sm text-byla-navy underline" onClick={() => setMode('forgot')}>
+          <button
+            type="button"
+            className="inline-flex min-h-11 items-center justify-end px-1 text-sm font-medium text-byla-navy underline"
+            onClick={() => setMode('forgot')}
+          >
             Esqueci minha senha
           </button>
         </div>
@@ -142,13 +146,10 @@ export function LoginPage() {
         <button
           type="submit"
           disabled={submitting}
-          className="w-full rounded-lg bg-byla-navy text-white py-2 text-sm font-medium disabled:opacity-60"
+          className="w-full min-h-11 rounded-lg bg-byla-navy text-white py-2 text-sm font-medium disabled:opacity-60"
         >
           {submitting ? 'Entrando...' : 'Entrar'}
         </button>
-        <p className="text-xs text-gray-500 text-center">
-          Problemas com o e-mail de recuperação? Confira <code className="text-gray-600">VITE_SITE_URL</code> e os Redirect URLs no Supabase.
-        </p>
       </form>
     </div>
   );

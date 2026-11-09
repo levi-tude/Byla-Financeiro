@@ -26,4 +26,6 @@ export interface ChatMessage {
   role: 'assistant' | 'user';
   text: string;
   createdAt: number;
+  /** Cartão visual (spec JSON validado no backend). */
+  visual?: import('../../criacoes/types').CriacaoSpec | null;
 }

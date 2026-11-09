@@ -59,13 +59,13 @@ export function PieChartFormaPagamento({
   }
 
   const isModalidade = variant === 'modalidade';
-  const innerR = donut ? (isModalidade ? 52 : 48) : 0;
-  const outerR = isModalidade ? 88 : 72;
+  const innerR = donut ? (isModalidade ? 44 : 40) : 0;
+  const outerR = isModalidade ? 72 : 64;
 
   return (
-    <div className="w-full" style={{ height: chartHeight }}>
+    <div className="w-full max-w-full overflow-hidden" style={{ height: chartHeight }}>
       <ResponsiveContainer width="100%" height={chartHeight}>
-        <PieChart margin={{ top: 8, right: 8, bottom: isModalidade ? 48 : 8, left: 8 }}>
+        <PieChart margin={{ top: 8, right: 4, bottom: isModalidade ? 56 : 8, left: 4 }}>
           <Pie
             data={data}
             dataKey="value"
@@ -88,9 +88,9 @@ export function PieChartFormaPagamento({
             verticalAlign="bottom"
             iconType="circle"
             iconSize={8}
-            wrapperStyle={{ fontSize: 12, paddingTop: 4 }}
+            wrapperStyle={{ fontSize: 11, paddingTop: 4, maxWidth: '100%' }}
             formatter={(value) => (
-              <span style={{ color: legendColor, marginRight: 12 }}>{value}</span>
+              <span style={{ color: legendColor, marginRight: 8 }}>{value}</span>
             )}
           />
         </PieChart>

@@ -146,7 +146,7 @@ export function FiltroCategoriasMulti({
       const valorBloco = encodeCategoriaControleBloco(familia, blocoTemplateKey);
       return (
         <div key={`${familia}-${blocoTemplateKey}`} className="mt-2">
-          <p className="px-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+          <p className="px-2 text-[11px] font-semibold text-slate-400">
             {tituloFamilia} · {blocoTitulo}
           </p>
           <CheckboxLinha

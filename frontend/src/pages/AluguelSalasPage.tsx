@@ -429,8 +429,9 @@ export function AluguelSalasPage() {
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
-          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800"
+          className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800"
           onClick={() => shiftMonth(-1)}
+          aria-label="Mês anterior"
         >
           ←
         </button>
@@ -439,16 +440,17 @@ export function AluguelSalasPage() {
         </span>
         <button
           type="button"
-          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800"
+          className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800"
           onClick={() => shiftMonth(1)}
+          aria-label="Mês seguinte"
         >
           →
         </button>
 
-        <label className="ml-2 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+        <label className="ml-0 flex w-full flex-wrap items-center gap-2 text-sm text-slate-600 dark:text-slate-300 sm:ml-2 sm:w-auto">
           Sala
           <select
-            className="select-with-chevron rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800"
+            className="select-with-chevron min-h-11 min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800 sm:flex-none"
             value={salaFiltro ?? ''}
             onChange={(e) => setSalaFiltro(e.target.value)}
           >
@@ -465,16 +467,16 @@ export function AluguelSalasPage() {
           type="button"
           onClick={() => openNew(defaultDataNovoEvento())}
           disabled={!salaDefaultId && salasAtivas.length === 0}
-          className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+          className="inline-flex min-h-11 items-center rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
         >
           + Adicionar evento
         </button>
 
-        <div className="ml-auto flex flex-col items-stretch gap-2 sm:items-end">
-          <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="ml-auto flex w-full flex-col items-stretch gap-2 sm:w-auto sm:items-end">
+          <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
             <span className="text-xs text-slate-500 dark:text-slate-400">Enviar para:</span>
             <select
-              className="select-with-chevron rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-800"
+              className="select-with-chevron min-h-11 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-800"
               value={whatsappSelecionado}
               onChange={(e) => setWhatsappSelecionado(e.target.value)}
               title="Número WhatsApp (compartilhado com Relatórios IA)"
@@ -488,7 +490,7 @@ export function AluguelSalasPage() {
             <button
               type="button"
               onClick={() => setMostrarAddNumero((v) => !v)}
-              className="text-xs text-slate-500 underline hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+              className="inline-flex min-h-11 items-center text-xs text-slate-500 underline hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
             >
               {mostrarAddNumero ? 'Cancelar' : '+ Adicionar número'}
             </button>
@@ -496,7 +498,7 @@ export function AluguelSalasPage() {
               type="button"
               disabled={resumoBusy}
               onClick={() => void handleWhatsApp('copy')}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800"
+              className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800"
             >
               Copiar texto
             </button>
@@ -504,7 +506,7 @@ export function AluguelSalasPage() {
               type="button"
               disabled={resumoBusy}
               onClick={() => void handleWhatsApp('open')}
-              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
+              className="inline-flex min-h-11 items-center rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
             >
               Abrir WhatsApp
             </button>
@@ -512,7 +514,7 @@ export function AluguelSalasPage() {
               <button
                 type="button"
                 onClick={() => setShowSalasAdmin((v) => !v)}
-                className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-sm text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-100"
+                className="inline-flex min-h-11 items-center rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-sm text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-100"
               >
                 {showSalasAdmin ? 'Fechar salas' : 'Gerenciar salas'}
               </button>
