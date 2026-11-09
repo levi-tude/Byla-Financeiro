@@ -123,17 +123,18 @@ export function LayoutShell() {
         }}
       />
       <main className="flex min-w-0 flex-1 flex-col overflow-x-hidden bg-slate-100 dark:bg-slate-950">
-        <div className="sticky top-0 z-20 flex min-h-[52px] shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-slate-100/95 px-3 py-2 backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/95">
+        <div className="sticky top-0 z-20 flex min-h-[52px] shrink-0 items-center justify-between gap-1.5 overflow-x-hidden border-b border-slate-200 bg-slate-100/95 px-2 py-2 backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/95 sm:gap-2 sm:px-3">
           <button
             type="button"
-            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+            className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
             onClick={() => setSidebarOpen((v) => !v)}
             aria-expanded={sidebarOpen}
             aria-controls="app-sidebar"
             aria-label={sidebarOpen ? 'Ocultar menu lateral' : 'Mostrar menu lateral'}
             title={sidebarOpen ? 'Ocultar menu lateral' : 'Mostrar menu lateral'}
           >
-            {sidebarOpen ? '◀ Menu' : '☰ Menu'}
+            <span className="lg:hidden" aria-hidden>{sidebarOpen ? '◀' : '☰'}</span>
+            <span className="hidden lg:inline">{sidebarOpen ? '◀ Menu' : '☰ Menu'}</span>
           </button>
           <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
             {/* Desktop (≥lg): mesma barra de antes */}

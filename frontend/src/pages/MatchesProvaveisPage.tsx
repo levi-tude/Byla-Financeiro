@@ -164,7 +164,7 @@ export function MatchesProvaveisPage() {
           type="button"
           onClick={() => void query.refetch()}
           disabled={query.isFetching}
-          className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-200"
+          className="inline-flex min-h-11 items-center rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-200"
         >
           {query.isFetching ? 'Analisando…' : 'Analisar mês'}
         </button>
@@ -172,14 +172,14 @@ export function MatchesProvaveisPage() {
           <button
             type="button"
             onClick={() => setConfirmarLote(true)}
-            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+            className="inline-flex min-h-11 items-center rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
           >
             Vincular casos seguros ({resumo?.seguro ?? 0})
           </button>
         ) : null}
         <Link
           to="/validacao-pagamentos-diaria"
-          className="ml-auto text-xs font-medium text-sky-700 hover:underline dark:text-sky-300"
+          className="ml-auto inline-flex min-h-11 items-center text-xs font-medium text-sky-700 hover:underline dark:text-sky-300"
         >
           Abrir Validação dia a dia
         </Link>
@@ -200,7 +200,7 @@ export function MatchesProvaveisPage() {
             key={opt.id}
             type="button"
             onClick={() => setFiltroStatus(opt.id)}
-            className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
+            className={`inline-flex min-h-11 items-center rounded-lg border px-3 py-1.5 text-xs font-medium ${
               filtroStatus === opt.id
                 ? 'border-slate-800 bg-slate-800 text-white dark:border-slate-200 dark:bg-slate-200 dark:text-slate-900'
                 : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200'
@@ -212,7 +212,7 @@ export function MatchesProvaveisPage() {
         <select
           value={filtroAtividade}
           onChange={(e) => setFiltroAtividade(e.target.value as typeof filtroAtividade)}
-          className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-900"
+          className="min-h-11 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-900"
         >
           <option value="todos">Ativos e inativos</option>
           <option value="ativos">Somente ativos</option>
@@ -221,7 +221,7 @@ export function MatchesProvaveisPage() {
         <select
           value={filtroModalidade}
           onChange={(e) => setFiltroModalidade(e.target.value)}
-          className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-900"
+          className="min-h-11 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-900"
         >
           <option value="todas">Todas as modalidades</option>
           {modalidades.map((modalidade) => (
@@ -247,7 +247,7 @@ export function MatchesProvaveisPage() {
               type="button"
               key={card.id}
               onClick={() => setFiltroStatus(card.id)}
-              className={`rounded-lg border px-3 py-2 text-left dark:border-slate-700 dark:bg-slate-900 ${card.cls}`}
+              className={`inline-flex min-h-11 items-center rounded-lg border px-3 py-2 text-left dark:border-slate-700 dark:bg-slate-900 ${card.cls}`}
             >
               {card.label}: <b>{card.valor}</b>
             </button>
@@ -350,7 +350,7 @@ export function MatchesProvaveisPage() {
                       <div className="flex shrink-0 flex-wrap gap-2">
                         <Link
                           to={linkValidacaoDia(item)}
-                          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                          className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                         >
                           Ir ao dia
                         </Link>
@@ -358,7 +358,7 @@ export function MatchesProvaveisPage() {
                           <button
                             type="button"
                             disabled={confirmandoKey === key || confirmar.isPending}
-                            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                            className="inline-flex min-h-11 items-center rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
                             onClick={() => {
                               setConfirmandoKey(key);
                               setConfirmarItem(item);
@@ -401,7 +401,7 @@ export function MatchesProvaveisPage() {
                   </div>
                   <Link
                     to={`/validacao-pagamentos-diaria?data=${encodeURIComponent(item.data_fluxo)}&fluxo=${encodeURIComponent(item.planilha_id)}`}
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                    className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                   >
                     Ir ao dia
                   </Link>

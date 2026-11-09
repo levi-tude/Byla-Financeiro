@@ -137,7 +137,7 @@ export default function CriacoesIaPage() {
   const secoes = spec ? secoesRenderizaveis(spec) : [];
 
   return (
-    <div className="relative -m-4 min-h-[calc(100vh-4rem)] overflow-hidden bg-slate-50 dark:bg-[#020617] p-4 text-slate-900 dark:text-slate-100 sm:-m-6 sm:p-8">
+    <div className="relative min-h-[calc(100vh-4rem)] overflow-x-hidden bg-slate-50 dark:bg-[#020617] p-4 text-slate-900 dark:text-slate-100 sm:p-8">
       <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(225,29,72,0.10),transparent_60%),radial-gradient(ellipse_at_bottom_right,rgba(99,102,241,0.12),transparent_60%)]" />
       <div className="relative mx-auto max-w-6xl">
         <motion.header initial={reduce ? false : { opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
@@ -183,13 +183,13 @@ export default function CriacoesIaPage() {
           <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
             <span className="text-slate-500">Visões salvas:</span>
             {salvas.map((s) => (
-              <span key={s.id} className="inline-flex items-center gap-1 rounded-full border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.03] pl-3">
-                <button type="button" onClick={() => void abrir(s.id)} className="py-1 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">{s.titulo}</button>
+              <span key={s.id} className="inline-flex min-h-11 items-center gap-1 rounded-full border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.03] pl-3">
+                <button type="button" onClick={() => void abrir(s.id)} className="inline-flex min-h-11 items-center text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">{s.titulo}</button>
                 <span className="text-[10px] text-slate-400" title={s.visibilidade === 'compartilhada' ? 'Compartilhada com admin e gestão' : 'Privada (só você)'}>
                   {s.visibilidade === 'compartilhada' ? 'compartilhada' : 'privada'}
                 </span>
                 {s.minha ? (
-                  <button type="button" onClick={() => void remover(s)} aria-label={`Apagar ${s.titulo}`} className="px-2 py-1 text-slate-500 hover:text-rose-600 dark:hover:text-rose-300">×</button>
+                  <button type="button" onClick={() => void remover(s)} aria-label={`Apagar ${s.titulo}`} className="inline-flex min-h-11 min-w-11 items-center justify-center text-slate-500 hover:text-rose-600 dark:hover:text-rose-300">×</button>
                 ) : <span className="pr-3" />}
               </span>
             ))}

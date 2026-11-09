@@ -93,7 +93,7 @@ export function ProgramaBolsasPage() {
           <p className="mt-3">
             <Link
               to="/fluxo-caixa"
-              className="text-sm font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+              className="inline-flex min-h-11 items-center text-sm font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
             >
               Abrir Fluxo · BYLA DANÇA
             </Link>
@@ -110,7 +110,7 @@ export function ProgramaBolsasPage() {
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar por nome ou modalidade…"
-            className="w-full max-w-md rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none ring-sky-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-50"
+            className="w-full max-w-md min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-2 text-base text-slate-900 shadow-sm outline-none ring-sky-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-50"
           />
         </div>
 
